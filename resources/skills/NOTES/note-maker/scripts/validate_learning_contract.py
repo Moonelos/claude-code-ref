@@ -29,6 +29,71 @@ def objects(value: object, label: str, errors: list[str]) -> list[dict]:
     return result
 
 
+def validate_v2(data: dict, root: Path, note_map: dict, paths: list[dict], errors: list[str]) -> None:
+    """Validate declared audience/research/transfer structure, never semantic quality."""
+    assumed = data.get("assumed_knowledge")
+    if not isinstance(assumed, list) or not all(isinstance(x, str) and x.strip() for x in assumed):
+        errors.append("assumed_knowledge: list of explicit skills required (may be empty)")
+    if not isinstance(data.get("scope"), str) or not data["scope"].strip():
+        errors.append("scope: non-empty learning scope required")
+    research = data.get("research")
+    if not isinstance(research, str) or not research.strip():
+        errors.append("research: curriculum research file path required")
+    else:
+        research_path = (root / research).resolve()
+        if not research_path.is_relative_to(root) or not research_path.is_file():
+            errors.append("research: must resolve to a file within the collection")
+        elif not any(line in {"Research: COMPLETE", "Research: INCOMPLETE"}
+                     for line in research_path.read_text(encoding="utf-8").splitlines()):
+            errors.append("research: ledger must explicitly record COMPLETE or INCOMPLETE")
+    for bridge in objects(data.get("prerequisite_bridges"), "prerequisite_bridges", errors):
+        if not isinstance(bridge.get("concept"), str) or not bridge["concept"].strip():
+            errors.append("prerequisite bridge: non-empty concept required")
+        if not isinstance(bridge.get("owner"), str) or bridge["owner"] not in note_map:
+            errors.append("prerequisite bridge: owner must be a declared note")
+
+    path_map = {p["name"]: p for p in paths if isinstance(p.get("name"), str)}
+    if len(path_map) != len(paths):
+        errors.append("paths: unique non-empty names required")
+    checked_paths: set[str] = set()
+    checks = objects(data.get("transfer_checks"), "transfer_checks", errors)
+    for check in checks:
+        path_name = check.get("path_name")
+        if not isinstance(path_name, str) or path_name not in path_map:
+            errors.append("transfer check: path_name must identify a declared path")
+            continue
+        checked_paths.add(path_name)
+        entries = path_map[path_name].get("entries", [])
+        if not isinstance(entries, list):
+            continue  # The main validator reports invalid path entries.
+        after = check.get("after_note")
+        if not isinstance(after, str) or after not in entries:
+            errors.append(f"transfer check {path_name}: after_note must be in that path")
+            continue
+        for key in ("prompt", "expected_reasoning"):
+            if not isinstance(check.get(key), str) or not check[key].strip():
+                errors.append(f"transfer check {path_name}: non-empty {key} required")
+        evidence = check.get("evidence_notes")
+        if not isinstance(evidence, list) or not evidence or not all(isinstance(x, str) for x in evidence):
+            errors.append(f"transfer check {path_name}: non-empty evidence_notes required")
+            continue
+        available = entries[:entries.index(after) + 1]
+        if any(note not in available for note in evidence):
+            errors.append(f"transfer check {path_name}: evidence borrows from later or off-path notes")
+    for path in paths:
+        name = path.get("name")
+        if path.get("kind") != "reference" and isinstance(name, str) and name not in checked_paths:
+            errors.append(f"path {name}: teaching path needs a transfer checkpoint")
+        delayed = any(type(path.get(key)) is int and path[key] > 2
+                      for key in ("execution_payoff_by", "understanding_payoff_by"))
+        if delayed and not (isinstance(path.get("milestone_rationale"), str)
+                            and path["milestone_rationale"].strip()):
+            errors.append(f"path {name}: later payoff needs milestone_rationale, not an automatic failure")
+    if not checks and paths and all(p.get("kind") == "reference" for p in paths):
+        if not isinstance(data.get("transfer_exemption"), str) or not data["transfer_exemption"].strip():
+            errors.append("transfer_exemption: explain why pure reference paths need no checkpoint")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("collection", type=Path)
@@ -159,6 +224,12 @@ def main() -> int:
         if owner in first_time_entries and note_map.get(owner, {}).get("role") == "deep dive":
             errors.append(f"{mechanism.get('name')}: first-time owner cannot be a deep dive: {owner}")
 
+    version = data.get("schema_version", 1)
+    if type(version) is not int or version not in {1, 2}:
+        errors.append(f"unsupported schema_version: {version!r}")
+    elif version == 2:
+        validate_v2(data, root, note_map, paths, errors)
+
     if errors:
         print("CONTRACT FAIL")
         for error in errors:
@@ -166,6 +237,9 @@ def main() -> int:
         return 1
 
     print("CONTRACT STRUCTURE PASS")
+    if version == 1:
+        print("LEGACY CONTRACT: audience assumptions, curriculum research, and transfer metadata not validated")
+    print("RESEARCH AND TRANSFER NOT VERIFIED: inspect sources and solve the declared checkpoints")
     print("PEDAGOGY NOT VERIFIED: run the evidence-backed teach-back and independent audit")
     print("EXAMPLES NOT VERIFIED: run validate_example_verification.py and independent reproduction")
     return 0

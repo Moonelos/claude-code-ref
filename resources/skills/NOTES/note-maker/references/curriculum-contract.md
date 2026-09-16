@@ -21,13 +21,40 @@ ready reach `operationalized`.
 
 ## Machine-readable plan
 
-Write `<collection>/_meta/learning_contract.json` before drafting. Every path is relative to the
+Write `<collection>/_meta/learning_contract.json` before drafting. New collections use schema version 2.
+Existing collections without a version remain readable; identify missing audience/research/transfer
+information during review rather than declaring their prose invalid because metadata is old.
+
+Version 2 adds:
+- `assumed_knowledge`: explicit general skills (an empty list means none);
+- `scope`: promised outcomes and exclusions;
+- `research`: path to `_meta/curriculum_research.md`;
+- `prerequisite_bridges`: objects with `concept` and canonical `owner` note path;
+- `transfer_checks`: milestone objects with `path_name`, `after_note`, `prompt`, `expected_reasoning`,
+  and nonempty `evidence_notes` containing only current/earlier path entries.
+Include at least one meaningful transfer checkpoint for each non-reference learning path. A pure reference collection may use
+an empty list with `transfer_exemption` explaining why. These fields document acceptance evidence;
+validators cannot prove the research or reasoning is sound.
+
+Every path is relative to the
 collection root, such as `fundamentals/01_first_result.md`. A path `kind` is one of
 `first-time`, `production`, `decision`, or `reference`. Use this shape:
 
 ```json
 {
-  "audience": "Backend engineer with no prior knowledge of this subject",
+  "schema_version": 2,
+  "audience": "Programmer new to the subject and its specialist prerequisites",
+  "assumed_knowledge": ["basic programming", "ordinary command-line use"],
+  "scope": "Explain and operate the scoped mechanism; unrelated platforms excluded",
+  "research": "_meta/curriculum_research.md",
+  "prerequisite_bridges": [],
+  "transfer_checks": [{
+    "path_name": "First-time path",
+    "after_note": "fundamentals/02_mental_model.md",
+    "prompt": "Predict the next observable result when the actor fails after the shown transition.",
+    "expected_reasoning": "Trace the retained state and next actor action using the rules taught in the owner.",
+    "evidence_notes": ["fundamentals/02_mental_model.md"]
+  }],
   "paths": [
     {
       "name": "First-time path",
@@ -39,6 +66,13 @@ collection root, such as `fundamentals/01_first_result.md`. A path `kind` is one
     }
   ],
   "notes": [
+    {
+      "path": "fundamentals/01_first_result.md",
+      "role": "foundation",
+      "prerequisites": [],
+      "entry_capability": "Basic programming and command-line use",
+      "exit_capability": "Can trace the first concrete result"
+    },
     {
       "path": "fundamentals/02_mental_model.md",
       "role": "foundation",
@@ -58,6 +92,11 @@ collection root, such as `fundamentals/01_first_result.md`. A path `kind` is one
   ]
 }
 ```
+
+Record `milestone_rationale` on paths whose first execution/trace or understanding payoff is later
+than entry two. Explain the actual prerequisite sequence, not a desire to postpone teaching.
+Reconcile the mechanism list with the independent research ledger before approving the contract.
+An essential mechanism cannot disappear merely because no planned note claims it.
 
 ## Foundation decomposition test
 
@@ -106,13 +145,17 @@ Write `<collection>/_meta/example_verification.json` with one record for every r
 
 Use a `claim` value of `runnable`, `copyable`, `integration`, `test`, or `end-to-end`.
 
-Inspection is not execution. If a dependency cannot be run, change the note's claim to an
-explanatory excerpt or record it as unverified and report the missing gate. Never manufacture output.
+Inspection is not execution. If a dependency cannot be run, record it as unverified and report the
+missing gate. An explanatory excerpt is appropriate only if it still fulfills the requested learning
+role; do not remove a promised runnable outcome to make validation pass. Never manufacture output.
 
 ## Release gate
 
 Before delivery, require separate verdicts for:
 
+- independent curriculum research and essential-item reconciliation;
+- explicit audience and prerequisite closure;
+- transfer to new conditions at learning milestones;
 - structural validation;
 - execution verification;
 - first-time-path execution payoff;

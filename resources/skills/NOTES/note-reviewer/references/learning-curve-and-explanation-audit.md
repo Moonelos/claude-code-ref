@@ -24,7 +24,9 @@ Read this file completely for every audit. Apply its two axes independently to e
 
 ## Measurement protocol
 
-For each note, record the following before writing findings:
+For each teaching note, establish its role, payoff, concrete evidence, and teach-back before writing
+findings. Line and marker counts below are optional diagnostics when they help explain a suspected
+problem; they are not mandatory busywork or acceptance gates:
 
 1. Count total physical lines.
 2. Identify the note's role, then locate its first complete payoff: a concrete situation, trace, and useful mental model for a foundation; a guided runnable result for a tutorial; a runnable result for an implementation; the motivating failure or constraint and the deeper mechanism's consequence for a deep dive; a named decision with criteria and an initial recommendation for a decision guide; or a lookup map and useful defaults for a reference. Do not demand the same artifact from every role.
@@ -41,12 +43,15 @@ Use semantic judgment for “composed,” “explanatory paragraph,” and teach
 nominate candidates but cannot decide them. A pass requires cited evidence for every applicable
 teach-back element, not a general impression that the prose feels clear.
 
+All severity labels below describe typical reader harm, not automatic penalties. Apply the
+entrypoint severity ladder to the actual impact. Formatting and counts alone never justify a finding.
+
 ## Ordering checks
 
 ### Buried role-appropriate payoff — FIX-HIGH
 
-Flag when setup detail, taxonomy, or hardening occupies two or more substantive sections before the
-reader reaches the payoff appropriate to the note's role. Report the exact payoff line, total lines,
+Inspect setup detail, taxonomy, or hardening before the role-appropriate payoff. Flag it when it
+creates an avoidable barrier or defeats a promised learning milestone, not because of section count. Report the exact payoff line, total lines,
 percentage, and what precedes it. Prescribe the missing runnable baseline, concrete situation,
 motivating failure, decision scenario, or lookup orientation—not a universal heading. Treat payoff
 distance as evidence, not an automatic line-number verdict.
@@ -91,7 +96,7 @@ not ceremonial syntax or a generic “not production-ready” warning.
 
 ### Uniform density or no skip path — FIX-MED
 
-Sample the section rhythm. Flag a teaching note when core mechanism, production hardening, and rare edge cases all use the same visual and rhetorical weight, or when no marker tells a first-time reader what can be skipped. Prescribe `Core`, `Production`, and `Edge case` altitude markers at specific boundaries.
+Sample the section rhythm. Flag a teaching note when core mechanism, production hardening, and rare edge cases all use the same visual and rhetorical weight, or when no marker tells a first-time reader what can be skipped. Prescribe clearer headings, path guidance, or optional altitude markers at specific boundaries.
 
 ### Blocking prerequisite gate — FIX-MED
 
@@ -112,8 +117,8 @@ to the canonical implementation owner.
 Always report payoff distance when the role has a teaching sequence. Use a value over 0.25 as a
 regression signal that prompts a semantic inspection, not as an automatic finding. Flag only when
 the reader is genuinely delayed by material that should follow the role-appropriate payoff. Also
-flag a note over 500 lines with no `<!-- length-justification: ... -->`; prescribe a split with a
-named boundary or add the concrete justification.
+inspect notes over 500 lines for overload; prescribe a split with a
+named boundary only when navigation or conflicting learning roles warrants it.
 
 ## Safety check: toy-not-correct
 
@@ -133,7 +138,7 @@ Name the unsafe line and restore the missing safe operation. Never prescribe a w
 
 ### Unglossed jargon at first use — FIX-HIGH
 
-Identify domain terms from the title, headings, repeated abbreviations, protocol fields, and code identifiers. At each first prose occurrence, inspect the surrounding two lines for an acronym expansion or inline cue such as “is a,” “means,” an em-dash gloss, or a parenthetical definition. A cross-link does not count. Inspect the opening payoff first because it is where the note establishes its local reader contract. Name each term and first-use line; group terms in one finding only when one local glossary sentence can fix them together.
+Identify domain terms from the title, headings, repeated abbreviations, protocol fields, and code identifiers. At each first prose occurrence, inspect the introduction and available earlier knowledge for an acronym expansion or inline cue such as “is a,” “means,” an em-dash gloss, or a parenthetical definition. A cross-link does not count. Inspect the opening payoff first because it is where the note establishes its local reader contract. Name each term and first-use line; group terms in one finding only when one local glossary sentence can fix them together.
 
 ### Rule without mechanism — FIX-HIGH
 
@@ -145,7 +150,7 @@ For a security control, require an attacker-ordered narrative: what the attacker
 
 ### Mechanism without its problem — FIX-HIGH
 
-At a mechanism’s introduction, require the first paragraph to show what breaks without it and the consequence before defining the mechanism. Flag definition-first introductions and prescribe a concrete failure scenario, not a more elaborate definition.
+At a mechanism’s introduction, check that the reader understands the problem and consequence the mechanism addresses. Flag a missing motivating problem, not definition-first ordering alone; prescribe the scenario that makes the mechanism intelligible.
 
 ### Abstract before concrete — FIX-MED
 
@@ -180,7 +185,7 @@ and state the behavior it must make predictable.
 
 ### Register imbalance — FIX-MED
 
-Always report the register ratio in the explanation verdict. Flag ratios above 2:1 and name representative cold rules. Prescribe explanatory paragraphs at the sections that caused the imbalance; do not recommend removing useful warnings merely to improve the number.
+Report the register ratio as a diagnostic when useful. Ratios above 2:1 prompt inspection, not an automatic finding. Flag actual unexplained prescriptions and supply their missing causal reasoning. Do not add filler or remove useful warnings to improve the number.
 
 ### Evidence-backed teach-back — FIX-HIGH
 
@@ -191,44 +196,16 @@ and prescribe the smallest causal explanation or carrier that would make them re
 
 ## Reading-path checks
 
-- `FIX-HIGH` a path when no runnable result or concrete worked outcome appears within its first two entries.
-- Independently `FIX-HIGH` a path when evidence-backed teach-back does not succeed by entry two, even if a command already produced output.
+- Inspect paths without a concrete result or teach-back by entry two. Evaluate the justified milestone and prerequisite sequence; grade actual avoidable barriers by reader harm, not file count.
+- Independently judge understanding even when a command already produced output.
+- Test transfer at meaningful milestones using `curriculum-research.md`; record the scenario, causal answer, evidence, and missing premise.
 - `FIX-HIGH` a core beginner mechanism whose first canonical owner is a deep dive or whose owner reaches only `mentioned` or `defined`.
 - `FIX-LOW` divergent copies of the same baseline across notes when they differ only in presentation. Raise severity by reader harm when the copies disagree on correctness or safety.
 - Keep the existing cold-reader protocol: identify the earliest note responsible for an unexplained dependency or complexity jump, and do not borrow knowledge from later entries.
 
 ## Repo metrics
 
-Aggregate after all per-file and path audits. Sum raw counts for the repo-wide register ratio; do not average per-note ratios. Report both tables on every run.
-
-Ordering metrics:
-
-- teaching notes with a role-appropriate opening payoff;
-- notes whose payoff distance exceeds 0.25;
-- notes over 500 lines without a length justification;
-- reading paths with an execution payoff within two entries;
-- reading paths with an understanding payoff within two entries;
-- beginner mechanisms first owned by a deep dive; and
-- toy-not-correct examples.
-
-Explanation metrics:
-
-- repo-wide register ratio;
-- unglossed first uses of jargon;
-- notes containing any intuition-building construct (secondary trend only);
-- notes passing evidence-backed teach-back;
-- rules or defenses with no mechanism or adversary explanation.
-- example-demanding mechanisms without a local concrete carrier.
-- core mechanisms reaching their required coverage level;
-- executable claims reproduced and broken; and
-- current-landscape items absent or stale.
-
-The intuition-building count is a trend signal, not a phrase quota. Count genuine analogies, restatements, causal “why this works” passages, or concrete explanatory scenarios; never create a per-file finding solely because a preferred phrase is absent.
-
-For `auth-notes`, retain these pre-remediation regression anchors in the metrics report: the former
-short-version contract passed 1/43 but is **not comparable** to the role-aware opening metric; payoff
-distance exceeded 0.25 in 40+/43; notes over 500 lines were 7/43; runnable result within two entries
-was 0/5; register ratio was about 21:1; unglossed first uses were 343; and notes with any
-intuition-building construct were about 8/43. Label unknown historical counts as “not recorded”;
-never invent them. For another repository, mark the historical baseline `n/a` and establish the
-current run as its first baseline.
+Aggregate after all passes using `audit-reports.md`. Report actual checked denominators and unverified
+items. If collecting ratios, sum raw counts rather than averaging per-note ratios. Length, payoff
+distance, marker ratio, and intuition-building phrase counts are diagnostics only. Do not require
+particular phrases or comments, or import historical measurements from unrelated collections.

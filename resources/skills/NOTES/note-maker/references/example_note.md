@@ -1,6 +1,6 @@
 # Example Note File
 
-This is a complete, filled-in note following all conventions — including every required move in the rules file. Use it as a reference when writing new files. The annotation table after the example maps each part of the note to the move it demonstrates.
+This is one filled-in tutorial illustration. Adapt its teaching moves to the reader and subject; its headings, callouts, and ordering are not a mandatory template. The annotation table after the example maps each part of the note to the move it demonstrates.
 
 The example below would live at `python/02_context_managers.md` in a Python notes repo.
 
@@ -335,7 +335,7 @@ missing, the exception path bypassed cleanup even though the success path looked
 | §5 headers and `⚠️` | Failure modes with the observable symptom; `⚠️` spent only on landmines |
 | §6 | When *not* to use it, with what to reach for instead |
 | §7 integration check | Separately explained pieces compose on success and failure paths |
-| §7 `> **Key insight**` | Exactly one per file — transferable and non-obvious |
+| §7 `> **Key insight**` | An optional callout making a transferable, non-obvious insight visible |
 | All `## N.` headers | Claims, not labels ("The Cleanup You Wrote Will Not Run", not "Introduction") |
 
 ---

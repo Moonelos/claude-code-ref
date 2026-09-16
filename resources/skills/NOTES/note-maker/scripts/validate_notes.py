@@ -9,8 +9,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-NOTE_NAME = re.compile(r"^\d{2}_.+\.md$")
-NUMBERED_HEADING = re.compile(r"^##\s+(?:\d+\.|[1-9]️⃣)\s+")
+EXCLUDED_DIRS = {"_meta", "_audit", "site", "node_modules", "vendor", "build", "dist"}
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
 
@@ -37,7 +36,8 @@ def collect_notes(paths: list[Path]) -> list[Path]:
             notes.update(
                 candidate.resolve()
                 for candidate in path.rglob("*.md")
-                if NOTE_NAME.match(candidate.name)
+                if not any(part in EXCLUDED_DIRS or part.startswith(".")
+                           for part in candidate.relative_to(path).parts[:-1])
             )
             continue
         raise FileNotFoundError(path)
@@ -65,11 +65,6 @@ def validate_note(path: Path) -> Result:
     lines = path.read_text(encoding="utf-8").splitlines()
     total_lines = len(lines)
 
-    if not any(
-        line.strip().startswith("> **Who this is for**:") for line in lines
-    ):
-        result.error("missing '> **Who this is for**:' audience line")
-
     fence_lines = [
         line_number
         for line_number, line in enumerate(lines, start=1)
@@ -78,26 +73,10 @@ def validate_note(path: Path) -> Result:
     if len(fence_lines) % 2:
         result.error(f"unclosed fenced code block near line {fence_lines[-1]}")
 
-    if sum("> **Key insight**:" in line for line in lines) != 1:
-        result.error("note must contain exactly one '> **Key insight**:'")
-
-    if total_lines > 500 and not any(
-        "<!-- length-justification:" in line for line in lines[:30]
-    ):
-        result.error(
-            f"note is {total_lines} lines; split it or add a length justification"
-        )
-
-    if "> **Core:**" not in "\n".join(lines):
-        result.warn("no '> **Core:**' altitude marker")
-    if "**Not handled yet:**" in "\n".join(lines) and "> **Production:**" not in "\n".join(lines):
+    if total_lines > 500:
         result.warn(
-            "deferred concerns exist but no '> **Production:**' altitude marker appears"
+            f"{total_lines} lines: inspect navigation and learning roles; length alone is not a defect"
         )
-    if re.search(
-        r"\bedge cases?\b", "\n".join(lines), re.IGNORECASE
-    ) and "> **Edge case:**" not in "\n".join(lines):
-        result.warn("edge-case material appears without a '> **Edge case:**' marker")
 
     validate_links(path, lines, result)
     return result
