@@ -19,6 +19,10 @@ A mechanism is not covered merely because a heading or definition exists. Core m
 first-time path normally reach `demonstrated`; implementation mechanisms promised as production
 ready reach `operationalized`.
 
+Before assigning canonical files, use `lesson-design.md` to plan actual learning units and their
+explanatory sequence. Record the plan in `_meta/lesson_plan.md` for a collection. The mechanism JSON
+is an inventory; it does not substitute for a developed lesson or constrain editorial reorganization.
+
 ## Machine-readable plan
 
 Write `<collection>/_meta/learning_contract.json` before drafting. New collections use schema version 2.
@@ -156,6 +160,7 @@ Before delivery, require separate verdicts for:
 - independent curriculum research and essential-item reconciliation;
 - explicit audience and prerequisite closure;
 - transfer to new conditions at learning milestones;
+- whole-lesson development and coherence, independent of extractable facts;
 - structural validation;
 - execution verification;
 - first-time-path execution payoff;

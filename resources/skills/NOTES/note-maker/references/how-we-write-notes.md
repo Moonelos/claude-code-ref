@@ -38,6 +38,14 @@ Aim for the middle of the spectrum between soundbite and reference-manual dump:
 
 **The move:** build the correct mental model in plain language first, then attach the precise mechanism that makes it actionable. Say what to actually do, and which option is the default. One well-chosen example beats five abstract sentences.
 
+## Develop complete lessons
+
+Read `lesson-design.md` before choosing boundaries. Develop the inference between claims through
+continuous examples and interpreted visuals where useful. A successful six-element teach-back
+checks extractable evidence; it does not prove the complete lesson is developed for its reader.
+Review recurring concept overload and fragmentation at chapter/sequence level, and merge or rewrite
+when local additions cannot repair them. Preserve necessary depth at explicit destinations.
+
 ## The collection has a learning contract
 
 The goal is not merely complete notes. It is a path that takes a first-time reader through four layers in order:

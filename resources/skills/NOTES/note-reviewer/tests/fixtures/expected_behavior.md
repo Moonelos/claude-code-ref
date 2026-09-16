@@ -3,7 +3,8 @@
 - `shallow_formatted.md` must not reach `demonstrated`: it has the expected formatting but no owned
   state, actor/decision trace, changed-input contrast, or causal first-failure explanation.
 - `demonstrated_foundation.md` should reach `demonstrated`: it supplies the problem, stored state,
-  actor, transition, contrast, misconception boundary, and first failure.
+  actor, transition, contrast, misconception boundary, and first failure. This local mechanism
+  demonstration is not a calibration ceiling for a complete multi-mechanism lesson.
 - `broken_runnable.md` must receive execution status `BROKEN` because the referenced local script
   does not exist; inspection of the command is not verification.
 - `verified_runnable.md` must receive execution status `VERIFIED` only after the exact command is
@@ -46,3 +47,14 @@ Use these as behavioral variations on the fixtures, not keyword assertions:
 Run structural regressions with `python3 -m unittest discover -s <skill>/tests -p 'test_*.py'`.
 The maker suite also checks that the shared references remain identical. Behavioral verdicts still
 require the independent forward test; unit tests do not evaluate prose quality.
+
+## Whole-lesson calibration
+
+Use `lesson_quality/expectations.md` after a blind evaluation of its four note fixtures. Do not give
+those expectations to the evaluating agent before it issues verdicts. Include the compressed but
+factually correct lesson, its developed counterpart, the short micro-lesson, and the scoped reference.
+Inspect causal evidence and repair quality, not output wording, note length, or diagram count.
+
+For realistic forward testing, review an actual multi-mechanism beginner chapter, then author a
+replacement and independently review it. Keep source notes unchanged during skill calibration and
+retain an explicit scope for the test; a pedagogical pass is not a complete technical/currency audit.

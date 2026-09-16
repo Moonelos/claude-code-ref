@@ -33,8 +33,8 @@ state, not learner navigation. A directory name is not sufficient specification 
 
 ## Authoring schedule
 
-1. The coordinator establishes the audience, expected curriculum, concept vocabulary, running example,
-   canonical owners, and learning contract. Research scouts may investigate distinct areas and return
+1. The coordinator establishes the audience, expected curriculum, lesson plan, concept vocabulary,
+   running example, canonical owners, and learning contract. Research scouts may investigate distinct areas and return
    sources and proposed omissions; the coordinator reconciles them before chapter authors start.
 2. Give the foundation path one accountable author, either coordinator or one worker. It writes in
    prerequisite order and passes teach-back and transfer checkpoints before later chapters depend on
@@ -70,8 +70,11 @@ label automatically:
 
 - **Curriculum research:** derive the expected scope independently from the user goal and primary
   sources; return evidence for omissions and relevant changes. Do not inherit the author's verdict.
-- **Reader journey and transfer:** follow each selected complete path in order and full prose,
-  including the transitions between packages. Never concatenate per-folder approvals into a path PASS.
+- **Whole-lesson quality, reader journey, and transfer:** follow each selected complete path in order
+  and full prose,
+  including the transitions between packages. Apply `lesson-design.md`; one accountable whole-unit
+  reviewer can recommend mergers, reordered sections, or rewrites across worker boundaries. Never
+  concatenate per-folder approvals into a path PASS.
 - **Coverage and gaps:** reconcile expected capabilities with canonical owners across the whole tree;
   inspect relevant full explanations. Missing concepts cannot be detected from isolated folder lists.
 - **Example execution:** inventory and reproduce claims with their complete cross-file setup. Separate

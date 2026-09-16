@@ -1,6 +1,6 @@
 ---
 name: note-reviewer
-description: "Independently audit technical learning notes for curriculum completeness, explanations from explicit prerequisites, progressive depth, transfer of understanding, reproducible examples, production readiness, and missing or outdated material researched from primary sources. Produces evidence-backed reports without editing notes."
+description: "Independently audit technical learning notes for whole-lesson development, editorial structure, curriculum completeness, explanations from explicit prerequisites, progressive depth, transfer of understanding, reproducible examples, production readiness, and missing or outdated material researched from primary sources. Produces evidence-backed reports without editing notes."
 ---
 
 # Audit whether the collection teaches its subject
@@ -18,6 +18,8 @@ content, hidden agent directories, build output, and fixtures unless explicitly 
 
 Read these references before their corresponding passes:
 
+- `references/lesson-design.md`: whole-lesson development, visual reasoning, and structural repair,
+  before grading a chapter or learning sequence.
 - `references/how-we-write-notes.md`: shared audience and teaching contract, before judging prose.
 - `references/curriculum-research.md`: independent scope, primary-source research, and transfer tests,
   before inspecting author coverage claims.
@@ -66,7 +68,22 @@ knowledge. Cite the missing premise when it fails. Verify time-sensitive claims 
 sources and record the source and checked date. Grade production tactics by the actual integration
 and failure they address, not the presence of a generic “best practices” section.
 
-### 3. Reader journey and transfer
+### 3. Whole-lesson quality, reader journey, and transfer
+
+Apply `references/lesson-design.md` to each complete teaching unit and the assembled sequence.
+Issue LESSON independently from teach-back and execution: facts can be extractable while the lesson
+leaves a novice to invent their connections. Inspect recurring inferential gaps, unearned concept
+load, disconnected examples, fragmented sections/files, and visuals that are absent or uninterpreted
+where needed. Do not infer lesson quality from labels, technical accuracy, a small trace, or brevity.
+
+Map development across all substantive promises, including later recommendations; do not grade
+only the strongest opening mechanism. Write `_audit/lesson_quality.audit.md` with concrete evidence
+and the appropriate scale of repair.
+When the organizing structure is the problem, propose a target sequence, keep/merge/move/rewrite
+mapping, staged example, useful visual, representative replacement passage, and acceptance task.
+Do not limit the audit to local sentence patches or proposals for additional files. Preserve useful
+advanced material at a named destination. Judge scope from the user's learning promise, not an
+unearned “deep dive” label that hides first-time teaching.
 
 Read each named learning path in order and in full, including production continuations. Use only
 knowledge available at each step. Record what the reader can now explain, predict, choose, build,
@@ -109,8 +126,12 @@ findings without double-counting. Missing fundamentals are findings even when a 
 
 After all passes, aggregate `_audit/metrics.audit.md` and run:
 `python3 <skill-directory>/scripts/validate_audit_outputs.py <collection>/_audit`.
+Lead the user-facing result with the overall learning verdict and needed editorial repair; link the
+lesson-quality report prominently when the collection needs restructuring. Do not let a long list
+of technical fixes bury a failed beginner lesson.
+
 This checks report structure, not judgment quality. Record research and transfer status alongside
-coverage and execution; a clean file audit cannot compensate for an incomplete curriculum audit.
+coverage and execution; a clean file audit cannot compensate for an incomplete curriculum audit or a failed whole lesson.
 
 ## Severity and evidence
 
@@ -128,7 +149,7 @@ long explanation can pass; a concise, polished but causally empty note must fail
 
 Assign one owner per defect: unsafe/broken executable behavior to examples; stale existing claims
 to per-note reports; absent or underdeveloped mechanisms to coverage; sequence-only defects to reader
-paths. Other reports cross-reference without repeating severity. Preserve useful depth when fixing
+paths; systemic teaching/organization defects to lesson quality. Other reports cross-reference without repeating severity. Preserve useful depth when fixing
 ordering. Do not manufacture findings, force runnable code on conceptual lessons, or demand duplicate
 implementations. Distinguish unverified claims from disproven claims.
 
@@ -140,11 +161,11 @@ when the user already authorized a separate remediation workflow; the author/fix
 When available and permitted, proactively delegate local topic reviews at 6+ teaching files per
 topic or 8+ files across multiple topics, following `references/delegation.md`. Prefer coherent
 3–6-file batches. Reviewers may read prerequisite owners across folder boundaries. Keep curriculum,
-reader journey, coverage/gaps, and execution accountable across the complete collection. Use unique
+whole-lesson quality, reader journey, coverage/gaps, and execution accountable across the complete collection. Use unique
 fragments when several workers contribute to one report; a single report owner merges and verifies
 them. Aggregate metrics last. If delegation is unavailable, perform the same passes sequentially.
 
-The shared prose, example-selection, curriculum-research, and delegation references mirror the canonical copies
+The shared prose, example-selection, curriculum-research, lesson-design, and delegation references mirror the canonical copies
 in `note-maker`; keep them synchronized so each skill remains independently usable. When changing
 this skill, calibrate against `tests/fixtures/expected_behavior.md` and run a blind forward test on a
 different collection. Passing report-format validation does not establish calibrated judgments.

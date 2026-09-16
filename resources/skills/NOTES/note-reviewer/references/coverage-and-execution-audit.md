@@ -24,6 +24,10 @@ Do not award a level from headings, word count, code-block count, a glossary lin
 the exact section that supplies each required piece. Record the achieved level even when it falls
 short, so `defined` is never silently treated as `demonstrated`.
 
+Coverage and whole-lesson quality are separate. A demonstrated mechanism may appear inside an
+inadequately developed lesson; retain its honest local coverage while reporting LESSON FAIL in
+`lesson_quality.audit.md`. Do not aggregate one example's coverage over other mechanisms in a chapter.
+
 ## Evidence-backed teach-back
 
 For each core mechanism, reconstruct these six elements using only the canonical owner and declared
@@ -45,7 +49,7 @@ write a polished explanation on the note's behalf and then use that explanation 
 Inspect whether one foundation note claims several mechanisms with independently changing state,
 different prerequisites, or different faithful carriers. Count promised central mechanisms, not
 nouns. Flag the note when its prose can only define them or jump between them rather than reach the
-required level. Prescribe the smallest useful split or an explicit composition lesson; do not impose
+required level. Prescribe development, a merger with prerequisite fragments, a split, or an explicit composition lesson as warranted; do not impose
 a line quota.
 
 Flag a core beginner mechanism first owned by a `deep dive`. A deep dive may refine a mechanism only

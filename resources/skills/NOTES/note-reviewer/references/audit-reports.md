@@ -36,6 +36,7 @@ notes. Each learner-facing Markdown file gets a block. Pure indexes/references u
 # <relative/note.md> (<N> lines)
 ORDERING: role <role>; PASS|FAIL|n/a; payoff <line/total or n/a>; <sequence evidence and reader impact>.
 EXPLANATION: PASS|FAIL|n/a; teach-back PASS|FAIL|n/a (missing: <elements or none>); <evidence and optional diagnostic counts>.
+LESSON: PASS|FAIL|NOT-CHECKED|n/a; <whole-unit evidence or link to its canonical lesson-quality block>.
 Summary: N critical, N high, N med, N low
 
 FIX-CRITICAL: <actively misleading or harmful behavior> — <specific correction>.
@@ -48,10 +49,55 @@ NO-ACTION: <evidence supporting a clean result>.
 Use only applicable finding lines. `RELATED: <canonical report and finding>` may cross-reference
 a coverage- or execution-owned defect without a duplicate severity. A FAIL verdict can therefore
 have zero local findings; do not label that note NO-ACTION or imply it passed.
-Keep ORDERING, EXPLANATION, and Summary for clean blocks too.
+Keep ORDERING, EXPLANATION, LESSON, and Summary for clean blocks too.
+LESSON FAIL prevents EXPLANATION PASS even if teach-back facts are extractable. A clean fact
+audit must not suppress a structural teaching finding.
 A clean note gets NO-ACTION, not an invented defect. Evidence-backed teach-back reconstructs each
 applicable element: problem, state/decision, actor, transition/result, misconception boundary, and
 first failure. Name the missing premise rather than supplying it from expert knowledge.
+
+## Complete lessons — `_audit/lesson_quality.audit.md`
+
+Evaluate full teaching units using `lesson-design.md`. A unit may span several files; list them so
+all scoped teaching notes are accounted for. Pure lookup/index units may use n/a with an explicit
+reason. Keep the verdict independent of local mechanism demonstration and execution.
+
+```text
+# <lesson or learning-unit name>
+Files: <all files comprising this unit>
+LESSON: PASS|FAIL|NOT-CHECKED|n/a
+Reader: <permitted starting knowledge and promised capability>
+Evidence: <development map across substantive promises, with exact passages, worked reasoning, and developed/stated/deferred status>
+Reasoning burden: <what the learner must invent, or why the unit supplies the connections>
+Visual support: <specific relationship to depict and interpret, existing sufficient support, or justified n/a>
+Structure: <KEEP|LOCAL-EDIT|REORDER|MERGE|SPLIT|REWRITE; combination allowed, with reason>
+Summary: N critical, N high, N med, N low
+
+FIX-HIGH: <central learning outcome blocked by organizing/explanatory defect> — <structural correction>.
+FIX-MED: <avoidable inferential load or fragmentation> — <correction>.
+NO-ACTION: <why the unit teaches its promise; use only for a clean assessed unit>.
+RELATED: <canonical finding elsewhere, without duplicate severity>.
+```
+
+Choose only applicable finding lines. For NOT-CHECKED, state what could not be read or evaluated;
+never use NO-ACTION for unchecked/failed units. All required fields remain present with a scope
+reason for n/a. A coherent short lesson may PASS; a factually correct long lesson may FAIL.
+
+For a structural action (REORDER, MERGE, SPLIT, or REWRITE), add:
+
+```text
+Proposed sequence: <the learner questions and causal steps in their new order>
+Content mapping: <existing sections/files -> keep/merge/move/develop destinations; preserve useful depth>
+Example development: <named scenario, successive changes, interpreted visual where needed>
+Rewrite sample: <representative replacement prose with a real worked inferential bridge>
+Acceptance task: <new prediction/diagnosis and reasoning that repaired teaching must support>
+```
+
+Provide the actual passage under Rewrite sample, not a promise to write one. Do not prescribe a
+new file solely to fix fragmentation, nor remove advanced material simply to make a beginner path
+shorter. A NO-GAPS result elsewhere means no new notes were proposed; it says nothing about the
+need to merge, reorder, or rewrite existing ones. One complete-unit owner reconciles cross-agent
+findings and keeps systemic defects here; local/path reports cross-reference them.
 
 ## Reader paths — `_audit/reader_paths.audit.md`
 
@@ -137,6 +183,7 @@ Scope: <included/excluded paths; teaching/index notes; paths; mechanisms; execut
 Research: COMPLETE|INCOMPLETE
 Essential curriculum items accounted for: <N/N; justified exclusions and unresolved items>
 Transfer checkpoints passed: <N/N checked; N unchecked; n/a excluded>
+Lesson quality passed: <N/N assessed teaching units; failed and unchecked counts; n/a excluded>
 Paths with an execution payoff within two entries: <N/N; diagnostic only>
 Paths with an understanding payoff within two entries: <N/N; diagnostic only>
 Core mechanisms at required coverage level: <N/N>
@@ -154,6 +201,7 @@ collection; never import measurements from another repository.
 - Unsafe or broken executable behavior: `examples.audit.md`.
 - Stale existing claims and local explanation issues: per-note report.
 - Absent or underdeveloped mechanisms: `coverage.audit.md`.
+- Whole-unit explanatory development and editorial structure: `lesson_quality.audit.md`.
 - Sequence-only dependency problems: `reader_paths.audit.md`.
 - Expected curriculum inventory and reconciliation: `curriculum.audit.md`.
 - Optional new-file placement: `gaps.audit.md`.

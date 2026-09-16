@@ -136,7 +136,7 @@ class ContractRegressionTests(unittest.TestCase):
         self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
     def test_shared_references_remain_synchronized(self):
-        for name in ("how-we-write-notes.md", "example-selection.md", "curriculum-research.md", "delegation.md"):
+        for name in ("how-we-write-notes.md", "example-selection.md", "curriculum-research.md", "delegation.md", "lesson-design.md"):
             with self.subTest(name=name):
                 self.assertEqual((MAKER / "references" / name).read_bytes(),
                                  (REVIEWER / "references" / name).read_bytes())

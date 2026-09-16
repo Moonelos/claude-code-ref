@@ -1,6 +1,6 @@
 ---
 name: note-maker
-description: "Create or extend complete technical study notes that teach a subject from explicit prerequisites through worked examples, deeper mechanisms, and production operation. Use for a learning collection, technical course, or substantial study notes; preserve narrower scope when the user requests a single topic or edit."
+description: "Create or refactor developed technical lessons that teach a subject from explicit prerequisites through worked examples, deeper mechanisms, and production operation. Use for a learning collection, technical course, or substantial study notes; preserve narrower scope when the user requests a single topic or edit."
 ---
 
 # Write a complete learning collection
@@ -31,7 +31,10 @@ Ask only if unresolved audience or scope choices would materially change the wor
    feels familiar. Record sources, checked dates, expected capabilities, and justified exclusions in
    `<collection>/_meta/curriculum_research.md`. If research is unavailable, mark it incomplete and
    disclose the limitation instead of claiming comprehensive or current coverage.
-2. Read `references/curriculum-contract.md`. Persist audience assumptions, prerequisite bridges,
+2. Read `references/lesson-design.md` and plan the explanatory sequence before selecting file
+   boundaries: learner question, developing example, causal steps, useful visuals, and earned
+   transitions. Then read `references/curriculum-contract.md`. Persist audience assumptions,
+   prerequisite bridges,
    paths, canonical mechanism owners, required coverage levels, and transfer checkpoints in
    `<collection>/_meta/learning_contract.json`. Reconcile every researched essential with an owner
    or a justified exclusion. Do not let a self-selected table of contents define completeness.
@@ -49,6 +52,9 @@ Read `references/how-we-write-notes.md` before drafting. Read `references/exampl
 when structured artifacts or interactions carry a mechanism. `references/example_note.md` is one
 worked tutorial illustration, not a universal template.
 
+- Develop each complete lesson using `references/lesson-design.md`. Preserve a running example
+  across related ideas, explain intermediate reasoning, and earn new concepts before stacking more
+  on top. A collection of correct summaries is not an acceptable beginner course.
 - Write the foundation path in dependency order. After each entry, reconstruct the mechanism using
   only that entry, earlier entries, and explicitly allowed prior knowledge. A title, glossary,
   command, or warning does not count as an explanation.
@@ -72,7 +78,8 @@ worked tutorial illustration, not a universal template.
 Choose a role for each file: foundation, tutorial, implementation, deep dive, decision guide, or
 reference. A deep dive refines a model already taught on the beginner path. Avoid making every file
 both an introduction and a reference manual. Preserve depth by reorganizing or splitting at a real
-learning boundary rather than deleting advanced material.
+learning boundary rather than deleting advanced material. Also merge fragments when they answer
+one continuous learner question; existing filenames and agent assignments do not fix lesson boundaries.
 
 ## Navigation and presentation
 
@@ -98,6 +105,8 @@ collection's conventions. Do not add publishing infrastructure unless requested.
 
 1. Read every named path in order as its declared reader. Check prerequisite closure, causal
    explanations, concrete examples, transfer checkpoints, and the promised production continuation.
+   Issue a separate LESSON verdict for each teaching unit using `references/lesson-design.md`;
+   a successful command or reconstructable fact checklist cannot override a failed lesson.
 2. Reconcile the finished collection against the independent curriculum inventory, not only its
    contract. Essential omissions and unjustified exclusions remain defects even if every file passes.
 3. Execute safe examples presented as runnable, copyable, integration, test, or end-to-end exactly
@@ -111,11 +120,12 @@ collection's conventions. Do not add publishing infrastructure unless requested.
    - `python3 <skill-directory>/scripts/validate_example_verification.py <collection>`
 5. When available and permitted, invoke `note-reviewer` or an independent evaluator on the assembled
    collection without giving the desired verdict. It must independently check curriculum breadth,
-   first-time understanding, transfer, examples, and current guidance. Fix critical/high findings in
+   first-time understanding, whole-lesson development, fragmentation, visual reasoning support,
+   transfer, examples, and current guidance. Fix critical/high findings in
    newly authored material and recheck affected paths and examples. Disclose unavailable review.
 
 Report separate outcomes for research completeness, curriculum coverage, understanding and transfer,
-example execution, structural validation, and independent review. Do not call unfinished work
+whole-lesson quality, example execution, structural validation, and independent review. Do not call unfinished work
 complete because files exist or a validator passes. For a large collection, keep its coverage ledger
 and continue through all promised stages; report any genuine blocked work explicitly.
 
@@ -128,7 +138,8 @@ one sequential author; launch independent later branches only after their prereq
 The coordinator owns shared indexes/metadata, integration, and the complete reader-journey check.
 
 The shared references (`how-we-write-notes.md`, `example-selection.md`,
-`curriculum-research.md`, and `delegation.md`) are mirrored in `note-reviewer` so either skill works independently.
+`curriculum-research.md`, `lesson-design.md`, and `delegation.md`) are mirrored in `note-reviewer`
+so either skill works independently.
 Edit the maker copies as canonical and synchronize the reviewer copies; the regression tests check
 that they remain identical. When changing teaching behavior, calibrate against the reviewer fixtures
 and run a blind forward test on a different collection, not just report-format validation.

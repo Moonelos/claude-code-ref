@@ -782,6 +782,7 @@ skills/NOTES/note-maker/references/delegation.md
 skills/NOTES/note-maker/references/example-selection.md
 skills/NOTES/note-maker/references/example_note.md
 skills/NOTES/note-maker/references/how-we-write-notes.md
+skills/NOTES/note-maker/references/lesson-design.md
 skills/NOTES/note-maker/references/templates/directory_readme.md
 skills/NOTES/note-maker/references/templates/root_readme.md
 skills/NOTES/note-maker/scripts/validate_example_verification.py
@@ -800,11 +801,13 @@ skills/NOTES/note-reviewer/references/delegation.md
 skills/NOTES/note-reviewer/references/example-selection.md
 skills/NOTES/note-reviewer/references/how-we-write-notes.md
 skills/NOTES/note-reviewer/references/learning-curve-and-explanation-audit.md
+skills/NOTES/note-reviewer/references/lesson-design.md
 skills/NOTES/note-reviewer/scripts/validate_audit_outputs.py
 skills/NOTES/note-reviewer/tests/audit_outputs_good/coverage.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/curriculum.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/examples.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/gaps.audit.md
+skills/NOTES/note-reviewer/tests/audit_outputs_good/lesson_quality.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/metrics.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/reader_paths.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/root.audit.md
@@ -816,6 +819,11 @@ skills/NOTES/note-reviewer/tests/fixtures/broken_runnable.md
 skills/NOTES/note-reviewer/tests/fixtures/demonstrated_foundation.md
 skills/NOTES/note-reviewer/tests/fixtures/examples/verified_demo.py
 skills/NOTES/note-reviewer/tests/fixtures/expected_behavior.md
+skills/NOTES/note-reviewer/tests/fixtures/lesson_quality/developed_lesson.md
+skills/NOTES/note-reviewer/tests/fixtures/lesson_quality/expectations.md
+skills/NOTES/note-reviewer/tests/fixtures/lesson_quality/polished_compressed_lesson.md
+skills/NOTES/note-reviewer/tests/fixtures/lesson_quality/scoped_reference.md
+skills/NOTES/note-reviewer/tests/fixtures/lesson_quality/short_micro_lesson.md
 skills/NOTES/note-reviewer/tests/fixtures/overloaded_foundation.md
 skills/NOTES/note-reviewer/tests/fixtures/shallow_formatted.md
 skills/NOTES/note-reviewer/tests/fixtures/stale_current.md

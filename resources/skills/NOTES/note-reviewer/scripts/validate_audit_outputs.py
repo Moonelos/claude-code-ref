@@ -35,6 +35,20 @@ def require_per_block(path: Path, markers: list[str], errors: list[str]) -> None
                 errors.append(f"{path.name} block {index}: missing {marker!r}")
 
 
+def has_repair_content(block: str, field: str, fields: tuple[str, ...]) -> bool:
+    """Require content, including multiline prose, without mistaking the next field for it."""
+    match = re.search(r"(?m)^" + re.escape(field) + r"[ \t]*(.*)$", block)
+    if not match:
+        return False
+    if match.group(1).strip():
+        return True
+    for line in block[match.end():].splitlines():
+        if not line.strip():
+            continue
+        return not (line.startswith(fields) or line.startswith(("#", "FIX-", "NO-ACTION:", "RELATED:")))
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("audit_directory", type=Path)
@@ -50,6 +64,26 @@ def main() -> int:
             errors.append("curriculum.audit.md: explicit COMPLETE or INCOMPLETE research status required")
         if not re.search(r"(?m)^\| Item / capability \|", text):
             errors.append("curriculum.audit.md: curriculum inventory table required")
+
+    lessons = root / "lesson_quality.audit.md"
+    lesson_fields = ["Files:", "LESSON:", "Reader:", "Evidence:", "Reasoning burden:",
+                     "Visual support:", "Structure:", "Summary:"]
+    require(lessons, lesson_fields, errors)
+    require_per_block(lessons, lesson_fields, errors)
+    if lessons.is_file():
+        for index, block in enumerate(blocks(lessons.read_text(encoding="utf-8")), start=1):
+            match = re.search(r"(?m)^LESSON: (PASS|FAIL|NOT-CHECKED|n/a)$", block)
+            label = f"lesson_quality.audit.md block {index}"
+            if not match:
+                errors.append(f"{label}: invalid or missing lesson verdict")
+            elif match.group(1) in {"FAIL", "NOT-CHECKED"} and re.search(r"(?m)^NO-ACTION:", block):
+                errors.append(f"{label}: failed/unchecked lesson cannot claim NO-ACTION")
+            if re.search(r"(?m)^Structure:.*\b(?:REORDER|MERGE|SPLIT|REWRITE)\b", block):
+                repair_fields = ("Proposed sequence:", "Content mapping:", "Example development:",
+                                 "Rewrite sample:", "Acceptance task:")
+                for field in repair_fields:
+                    if not has_repair_content(block, field, repair_fields + tuple(lesson_fields)):
+                        errors.append(f"{label}: structural repair missing {field}")
 
     reader_path = root / "reader_paths.audit.md"
     coverage_path = root / "coverage.audit.md"
@@ -92,6 +126,7 @@ def main() -> int:
             "Research:",
             "Essential curriculum items accounted for",
             "Transfer checkpoints passed",
+            "Lesson quality passed",
         ],
         errors,
     )
@@ -106,6 +141,7 @@ def main() -> int:
         if path.name
         not in {
             "curriculum.audit.md",
+            "lesson_quality.audit.md",
             "reader_paths.audit.md",
             "coverage.audit.md",
             "examples.audit.md",
@@ -117,7 +153,13 @@ def main() -> int:
         errors.append("no per-folder audit reports found")
     for path in folder_reports:
         require(path, ["ORDERING:", "EXPLANATION:", "teach-back"], errors)
-        require_per_block(path, ["ORDERING:", "EXPLANATION:", "Summary:"], errors)
+        require_per_block(path, ["ORDERING:", "EXPLANATION:", "LESSON:", "Summary:"], errors)
+        for index, block in enumerate(blocks(path.read_text(encoding="utf-8")), start=1):
+            lesson = re.search(r"(?m)^LESSON: (PASS|FAIL|NOT-CHECKED|n/a)(?:;|$)", block)
+            if not lesson:
+                errors.append(f"{path.name} block {index}: invalid or missing lesson verdict")
+            elif lesson.group(1) == "FAIL" and re.search(r"(?m)^EXPLANATION: PASS\b", block):
+                errors.append(f"{path.name} block {index}: explanation cannot pass a failed lesson")
 
     if errors:
         print("AUDIT OUTPUT FAIL")

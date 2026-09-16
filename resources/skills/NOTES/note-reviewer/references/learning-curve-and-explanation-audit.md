@@ -46,6 +46,14 @@ teach-back element, not a general impression that the prose feels clear.
 All severity labels below describe typical reader harm, not automatic penalties. Apply the
 entrypoint severity ladder to the actual impact. Formatting and counts alone never justify a finding.
 
+## Whole-lesson check
+
+Apply `lesson-design.md` after inspecting local mechanisms. Walk the entire explanation in reader
+order, naming the inferential work left untaught at each material transition. A local teach-back
+PASS must not imply EXPLANATION PASS when LESSON fails. Record structural teaching defects in
+`lesson_quality.audit.md` and cross-reference them locally. Propose coherent rewrites or mergers
+when recurring problems would survive individual glossary/bridge patches.
+
 ## Ordering checks
 
 ### Buried role-appropriate payoff — FIX-HIGH
