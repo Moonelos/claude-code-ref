@@ -1,0 +1,2586 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A practical reference for engineers using Claude Code — from safe first sessions through customization, automation, integrations, plugins, and troubleshooting.">
+      
+      
+      
+      
+        <link rel="prev" href="../01_getting_started/">
+      
+      
+        <link rel="next" href="../../rules/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Sessions and Core CLI - Claude Code Notes</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sessions-and-the-claude-code-cli" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Claude Code Notes" class="md-header__button md-logo" aria-label="Claude Code Notes" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Claude Code Notes
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Sessions and Core CLI
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Claude Code Notes" class="md-nav__button md-logo" aria-label="Claude Code Notes" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Claude Code Notes
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basics
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Basics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01_getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions and Core CLI
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions and Core CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-choose-the-execution-style-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Choose the Execution Style First
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-work-effectively-in-an-interactive-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Work Effectively in an Interactive Session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-continue-resume-or-fork-deliberately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Continue, Resume, or Fork Deliberately
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-select-a-model-and-reasoning-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Select a Model and Reasoning Effort
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-match-the-permission-mode-to-the-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Match the Permission Mode to the Risk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-add-directories-without-losing-the-security-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Add Directories Without Losing the Security Boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-produce-output-a-program-can-trust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Produce Output a Program Can Trust
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-bound-cost-and-failure-in-automation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Bound Cost and Failure in Automation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-manage-context-and-diagnose-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Manage Context and Diagnose Failures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Manage Context and Diagnose Failures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#official-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Official references
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../rules/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/01_claude_md/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLAUDE.md
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../settings/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Settings
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../settings/01_settings_json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    settings.json
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../settings/02_claude_directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    `.claude/` Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../commands/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/01_custom_commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../skills/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Skills
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../skills/01_skills_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../skills/02_skills_advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../operations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/01_troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../github/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GitHub
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github/01_github_app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub App
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github/02_github_actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Actions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github/03_workflow_recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../hooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Hooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hooks/01_hooks_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hooks/02_hook_handlers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hook Handlers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../mcp/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp/01_mcp_json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    .mcp.json
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../agents/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Agents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agents/01_subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../plugins/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/01_plugin_fundamentals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Fundamentals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/02_install_and_scopes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install & Scopes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/03_marketplaces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Marketplaces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/04_managing_plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-choose-the-execution-style-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Choose the Execution Style First
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-work-effectively-in-an-interactive-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Work Effectively in an Interactive Session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-continue-resume-or-fork-deliberately" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Continue, Resume, or Fork Deliberately
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-select-a-model-and-reasoning-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Select a Model and Reasoning Effort
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-match-the-permission-mode-to-the-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Match the Permission Mode to the Risk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-add-directories-without-losing-the-security-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Add Directories Without Losing the Security Boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-produce-output-a-program-can-trust" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Produce Output a Program Can Trust
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-bound-cost-and-failure-in-automation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Bound Cost and Failure in Automation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-manage-context-and-diagnose-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Manage Context and Diagnose Failures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Manage Context and Diagnose Failures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#official-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Official references
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="sessions-and-the-claude-code-cli">Sessions and the Claude Code CLI</h1>
+<blockquote>
+<p><strong>Who this is for</strong>: Engineers who have installed and authenticated Claude Code and want to use it safely in daily terminal work and automation.</p>
+</blockquote>
+<p>Before reading this, complete <strong><a href="../01_getting_started/">Getting Started</a></strong>.</p>
+<hr />
+<h2 id="1-choose-the-execution-style-first">1. Choose the Execution Style First</h2>
+<p>Claude Code has two primary terminal styles:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌──────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│ One task or question │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>└──────────┬───────────┘
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>           │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>           ├── Needs dialogue, steering, or approvals?
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>           │      └── Interactive: claude
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>           │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>           └── Needs deterministic stdin/stdout for a script?
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                  └── Print mode: claude -p "..."
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Style</th>
+<th>Command</th>
+<th>Lifecycle</th>
+<th>Best fit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Interactive</td>
+<td><code>claude</code></td>
+<td>Keeps a conversation open</td>
+<td>Exploration, implementation, debugging, iterative review</td>
+</tr>
+<tr>
+<td>Interactive with a first prompt</td>
+<td><code>claude "explain the authentication flow"</code></td>
+<td>Runs the prompt, then stays open</td>
+<td>Starting a focused working session</td>
+</tr>
+<tr>
+<td>Print mode</td>
+<td><code>claude -p "explain the authentication flow"</code></td>
+<td>Runs one prompt and exits</td>
+<td>Scripts, CI, pipes, machine-readable output</td>
+</tr>
+</tbody>
+</table>
+<p>Start an interactive session from the project root so Claude gets the intended working directory and project configuration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>/path/to/project
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>claude
+</code></pre></div>
+<p>Use print mode when the caller, rather than a human at the terminal, owns control flow:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>diff<span class="w"> </span>--check<span class="w"> </span><span class="p">|</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--permission-mode<span class="w"> </span>dontAsk<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--tools<span class="w"> </span><span class="s2">""</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="s2">"Explain any whitespace errors from stdin. Return only actionable findings."</span>
+</code></pre></div>
+<p><code>--tools ""</code> removes tools because the complete input is already on stdin. This narrows the run and avoids accidental repository access.</p>
+<p>⚠️ Print mode disables the first-run trust prompt. Run it only in directories and with input you trust, and restrict tools and permissions for unattended jobs.</p>
+<blockquote>
+<p><strong>Rule</strong>: Use interactive mode for uncertain work that benefits from steering. Use print mode when inputs, permissions, output, failure handling, and cost limits can be stated up front.</p>
+</blockquote>
+<hr />
+<h2 id="2-work-effectively-in-an-interactive-session">2. Work Effectively in an Interactive Session</h2>
+<p>An interactive session preserves the dialogue while Claude reads files, runs tools, and proposes or applies changes. A useful opening prompt gives the outcome, scope, constraints, and verification command:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Fix the failing token-refresh tests in src/auth/.
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Do not change the public API.
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Run the focused auth test suite, then show me the diff and any remaining risks.
+</code></pre></div>
+<p>Use built-in commands to inspect or alter session behavior:</p>
+<table>
+<thead>
+<tr>
+<th>Command or key</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/model</code></td>
+<td>Select the session model</td>
+</tr>
+<tr>
+<td><code>/effort</code></td>
+<td>Select or reset reasoning effort</td>
+</tr>
+<tr>
+<td><code>Shift+Tab</code></td>
+<td>Cycle the enabled permission modes</td>
+</tr>
+<tr>
+<td><code>/context</code></td>
+<td>Show what occupies the context window</td>
+</tr>
+<tr>
+<td><code>/compact [focus]</code></td>
+<td>Summarize older context while preserving a stated focus</td>
+</tr>
+<tr>
+<td><code>/clear</code></td>
+<td>Start a fresh session while leaving the previous one resumable</td>
+</tr>
+<tr>
+<td><code>/usage</code></td>
+<td>Inspect session usage; API cost figures are estimates</td>
+</tr>
+<tr>
+<td><code>/rename name</code></td>
+<td>Give the session a stable, searchable name</td>
+</tr>
+<tr>
+<td><code>/doctor</code></td>
+<td>Check the current setup and offer fixes</td>
+</tr>
+</tbody>
+</table>
+<p>Prefix a command with <code>!</code> when you want to run it directly and include its output in the conversation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>! git status --short
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>! npm test -- --runInBand
+</code></pre></div>
+<p>Direct shell mode is convenient, but its output consumes context. Prefer a focused command over dumping an entire build log or repository listing.</p>
+<hr />
+<h2 id="3-continue-resume-or-fork-deliberately">3. Continue, Resume, or Fork Deliberately</h2>
+<p>A <strong>session</strong> is a locally saved conversation associated with a project directory. Choose continuity based on whether new work should append to the original transcript:</p>
+<table>
+<thead>
+<tr>
+<th>Intent</th>
+<th>Command</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reopen the latest session for this directory</td>
+<td><code>claude --continue</code> or <code>claude -c</code></td>
+<td>Reuses the existing session ID</td>
+</tr>
+<tr>
+<td>Choose a saved session</td>
+<td><code>claude --resume</code></td>
+<td>Opens the session picker</td>
+</tr>
+<tr>
+<td>Reopen a known session</td>
+<td><code>claude --resume auth-refactor</code></td>
+<td>Reuses the named session</td>
+</tr>
+<tr>
+<td>Try an alternative without changing the original transcript</td>
+<td><code>claude --resume auth-refactor --fork-session</code></td>
+<td>Copies history into a new session ID</td>
+</tr>
+<tr>
+<td>Branch the active conversation</td>
+<td><code>/branch try-cookie-sessions</code></td>
+<td>Switches to a new session and preserves the original</td>
+</tr>
+</tbody>
+</table>
+<p>Name important work at startup:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>claude<span class="w"> </span>--name<span class="w"> </span>auth-refactor<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="s2">"Map the current authentication flow before proposing changes."</span>
+</code></pre></div>
+<p>Resume it later:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>claude<span class="w"> </span>--resume<span class="w"> </span>auth-refactor<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="s2">"Continue with the refresh-token implementation."</span>
+</code></pre></div>
+<p>Fork when experimenting with a competing approach:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>claude<span class="w"> </span>--resume<span class="w"> </span>auth-refactor<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--fork-session<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--name<span class="w"> </span>auth-refactor-cookie-variant<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="s2">"Explore an HTTP-only cookie design without modifying the original session."</span>
+</code></pre></div>
+<p>✅ Forking is also the safe choice when two terminals need to explore from the same history. Resuming the same session in both terminals can interleave messages into one transcript.</p>
+<p>Sessions created by print mode do not appear in the interactive picker, but a caller can capture the returned session ID from JSON output and resume it directly. Use <code>--no-session-persistence</code> for a print-mode task whose transcript should not be saved locally:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>--no-session-persistence<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--tools<span class="w"> </span><span class="s2">""</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="s2">"Summarize the release note supplied on stdin."</span><span class="w"> </span>&lt;<span class="w"> </span>release-note.txt
+</code></pre></div>
+<p>⚠️ Ordinary sessions are written to local transcript files. Treat those files as potentially sensitive because prompts, file content, and tool results can appear in them.</p>
+<hr />
+<h2 id="4-select-a-model-and-reasoning-effort">4. Select a Model and Reasoning Effort</h2>
+<p>The unqualified <code>claude</code> command uses the runtime default for your account and provider. That is the right starting point for most work because model availability and defaults can vary.</p>
+<p>Use <code>/model</code> interactively or <code>--model</code> at startup when you need an explicit choice:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>claude<span class="w"> </span>--model<span class="w"> </span>sonnet<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="s2">"Implement the approved pagination plan and run the focused tests."</span>
+</code></pre></div>
+<p>Family aliases such as <code>sonnet</code>, <code>opus</code>, <code>haiku</code>, and <code>fable</code> follow the current model for that family. A full model ID is more reproducible for tested automation, but it requires deliberate upgrades when that version becomes unavailable or outdated.</p>
+<p><strong>Effort</strong> controls the reasoning-versus-latency and token-spend trade-off on models that support it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># A bounded, straightforward task</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>claude<span class="w"> </span>--model<span class="w"> </span>sonnet<span class="w"> </span>--effort<span class="w"> </span>medium<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="s2">"Rename the internal metric and update its focused tests."</span>
+</code></pre></div>
+<p>Reset an interactive session to the selected model's default:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>/effort auto
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Practical choice</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Routine, tightly scoped edit</td>
+<td>Default model; medium or default effort</td>
+</tr>
+<tr>
+<td>Ambiguous bug or architectural decision</td>
+<td>More capable model and higher effort</td>
+</tr>
+<tr>
+<td>Latency- or cost-sensitive classification</td>
+<td>Faster model and lower effort</td>
+</tr>
+<tr>
+<td>Reproducible automation</td>
+<td>Explicit model plus a tested effort level</td>
+</tr>
+</tbody>
+</table>
+<p>Supported effort levels depend on the selected model and organization policy. Confirm available choices in <code>/model</code> or <code>/effort</code>; an unsupported level may be reduced to the nearest supported one.</p>
+<p>⚠️ Higher effort is not free accuracy. It increases latency and token spend and can overthink simple work. Thinking tokens are billed even when the thinking display is collapsed.</p>
+<hr />
+<h2 id="5-match-the-permission-mode-to-the-risk">5. Match the Permission Mode to the Risk</h2>
+<p>A permission mode sets the baseline for which actions run without asking. Permission allow, ask, and deny rules can narrow or expand that baseline, except that <code>bypassPermissions</code> skips the permission layer.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Baseline behavior</th>
+<th>Use it for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default</code> (<code>manual</code> alias)</td>
+<td>Reads without asking; prompts for changes and commands</td>
+<td>New projects and sensitive work</td>
+</tr>
+<tr>
+<td><code>acceptEdits</code></td>
+<td>Auto-accepts file edits and common filesystem operations</td>
+<td>Interactive implementation you are reviewing</td>
+</tr>
+<tr>
+<td><code>plan</code></td>
+<td>Read-only analysis and planning</td>
+<td>Understanding impact before any edit</td>
+</tr>
+<tr>
+<td><code>auto</code></td>
+<td>Runs actions through background safety checks instead of prompting</td>
+<td>Long, trusted tasks when the account supports it</td>
+</tr>
+<tr>
+<td><code>dontAsk</code></td>
+<td>Denies anything that would prompt; pre-approved operations still run</td>
+<td>Locked-down CI and scripts</td>
+</tr>
+<tr>
+<td><code>bypassPermissions</code></td>
+<td>Skips permission prompts and safety checks</td>
+<td>Disposable, isolated containers or VMs only</td>
+</tr>
+</tbody>
+</table>
+<p>Start read-only when the scope is uncertain:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>claude<span class="w"> </span>--permission-mode<span class="w"> </span>plan<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="s2">"Trace all callers of the billing client and propose a migration plan."</span>
+</code></pre></div>
+<p>For unattended analysis, fail closed and expose only the required tools:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--permission-mode<span class="w"> </span>dontAsk<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>--tools<span class="w"> </span><span class="s2">"Read,Glob,Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--allowedTools<span class="w"> </span><span class="s2">"Read"</span><span class="w"> </span><span class="s2">"Glob"</span><span class="w"> </span><span class="s2">"Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span><span class="s2">"Find direct SQL string construction. Report file, line, and risk; do not edit."</span>
+</code></pre></div>
+<p><code>dontAsk</code> prevents a hidden prompt from hanging CI. If the task needs another operation, it fails instead of silently gaining authority.</p>
+<p>❌ Do not use <code>bypassPermissions</code> on a developer workstation or a networked environment containing valuable credentials. It provides no protection against prompt injection or unintended actions.</p>
+<p>💡 If you need less prompting without removing checks, prefer a sandbox, narrow allow rules, or supported <code>auto</code> mode over bypassing permissions.</p>
+<hr />
+<h2 id="6-add-directories-without-losing-the-security-boundary">6. Add Directories Without Losing the Security Boundary</h2>
+<p>Claude starts with the directory you launched it from. Add sibling repositories or shared packages explicitly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nb">cd</span><span class="w"> </span>/path/to/workspace/api
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>claude<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span>--add-dir<span class="w"> </span>../web<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">  </span>--add-dir<span class="w"> </span>../shared<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span><span class="s2">"Trace the user-profile contract across the API, web app, and shared types."</span>
+</code></pre></div>
+<p>Each <code>--add-dir</code> path must already exist and be a directory. The flag grants Claude file access to a wider scope, so add the smallest directories that satisfy the task.</p>
+<p>To persist known directories, configure them in a settings file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="p">{</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">"permissions"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="nt">"additionalDirectories"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">      </span><span class="s2">"../web"</span><span class="p">,</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">      </span><span class="s2">"../shared"</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">    </span><span class="p">]</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>Adding a directory does not generally make its <code>.claude/</code> directory another full configuration root. Do not assume its settings, hooks, or other project configuration are active. Keep authoritative repository-wide instructions in the primary project configuration, or enable a documented feature explicitly when you intend to load content from added directories.</p>
+<p>⚠️ Added paths enlarge both the accessible filesystem scope and the set of content that could contain hostile instructions. Review third-party repositories before granting unattended access.</p>
+<hr />
+<h2 id="7-produce-output-a-program-can-trust">7. Produce Output a Program Can Trust</h2>
+<p>Print mode supports three output formats:</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Shape</th>
+<th>Use it when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>text</code></td>
+<td>Plain response text</td>
+<td>A human or simple pipe consumes the result</td>
+</tr>
+<tr>
+<td><code>json</code></td>
+<td>One JSON result with session and usage metadata</td>
+<td>A script needs the final answer and metadata</td>
+</tr>
+<tr>
+<td><code>stream-json</code></td>
+<td>Newline-delimited JSON events</td>
+<td>A process needs progress before completion</td>
+</tr>
+</tbody>
+</table>
+<p><code>json</code> output wraps the answer; it is not the answer text by itself:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span>--output-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span>--permission-mode<span class="w"> </span>dontAsk<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span>--tools<span class="w"> </span><span class="s2">"Read,Glob,Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="s2">"Summarize the public API surface."</span>
+</code></pre></div>
+<p>Use <code>--json-schema</code> when downstream code requires validated fields. Claude may use tools and multiple turns, then validates the final result against the schema:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="ch">#!/usr/bin/env bash</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nb">set</span><span class="w"> </span>-euo<span class="w"> </span>pipefail
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="nv">schema</span><span class="o">=</span><span class="s1">'{</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="s1">  "type": "object",</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="s1">  "additionalProperties": false,</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="s1">  "properties": {</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="s1">    "summary": {"type": "string"},</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="s1">    "risks": {</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="s1">      "type": "array",</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="s1">      "items": {"type": "string"}</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="s1">    }</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="s1">  },</span>
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a><span class="s1">  "required": ["summary", "risks"]</span>
+<a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a><span class="s1">}'</span>
+<a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a>
+<a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a><span class="nv">review_output</span><span class="o">=</span><span class="s2">"</span><span class="si">${</span><span class="nv">CLAUDE_REVIEW_OUTPUT</span><span class="k">:-</span><span class="nv">claude</span><span class="p">-review.json</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a><span class="nv">temporary_output</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span><span class="s2">"</span><span class="si">${</span><span class="nv">TMPDIR</span><span class="k">:-</span><span class="p">/tmp</span><span class="si">}</span><span class="s2">/claude-review.XXXXXX"</span><span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a><span class="nb">trap</span><span class="w"> </span><span class="s1">'rm -f "$temporary_output"'</span><span class="w"> </span>EXIT
+<a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>
+<a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a><span class="k">if</span><span class="w"> </span>!<span class="w"> </span>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-22" name="__codelineno-17-22" href="#__codelineno-17-22"></a><span class="w">  </span>--permission-mode<span class="w"> </span>dontAsk<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-23" name="__codelineno-17-23" href="#__codelineno-17-23"></a><span class="w">  </span>--tools<span class="w"> </span><span class="s2">"Read,Glob,Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-24" name="__codelineno-17-24" href="#__codelineno-17-24"></a><span class="w">  </span>--allowedTools<span class="w"> </span><span class="s2">"Read"</span><span class="w"> </span><span class="s2">"Glob"</span><span class="w"> </span><span class="s2">"Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-25" name="__codelineno-17-25" href="#__codelineno-17-25"></a><span class="w">  </span>--output-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-26" name="__codelineno-17-26" href="#__codelineno-17-26"></a><span class="w">  </span>--json-schema<span class="w"> </span><span class="s2">"</span><span class="nv">$schema</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-27" name="__codelineno-17-27" href="#__codelineno-17-27"></a><span class="w">  </span>--max-turns<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-28" name="__codelineno-17-28" href="#__codelineno-17-28"></a><span class="w">  </span>--max-budget-usd<span class="w"> </span><span class="m">1</span>.50<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-29" name="__codelineno-17-29" href="#__codelineno-17-29"></a><span class="w">  </span><span class="s2">"Review the authentication module. Return a concise summary and concrete risks."</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-30" name="__codelineno-17-30" href="#__codelineno-17-30"></a><span class="w">  </span>&gt;<span class="s2">"</span><span class="nv">$temporary_output</span><span class="s2">"</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<a id="__codelineno-17-31" name="__codelineno-17-31" href="#__codelineno-17-31"></a><span class="w">  </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Claude review failed; no validated result is available."</span><span class="w"> </span>&gt;<span class="p">&amp;</span><span class="m">2</span>
+<a id="__codelineno-17-32" name="__codelineno-17-32" href="#__codelineno-17-32"></a><span class="w">  </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+<a id="__codelineno-17-33" name="__codelineno-17-33" href="#__codelineno-17-33"></a><span class="k">fi</span>
+<a id="__codelineno-17-34" name="__codelineno-17-34" href="#__codelineno-17-34"></a>
+<a id="__codelineno-17-35" name="__codelineno-17-35" href="#__codelineno-17-35"></a>mv<span class="w"> </span><span class="s2">"</span><span class="nv">$temporary_output</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$review_output</span><span class="s2">"</span>
+<a id="__codelineno-17-36" name="__codelineno-17-36" href="#__codelineno-17-36"></a><span class="nb">trap</span><span class="w"> </span>-<span class="w"> </span>EXIT
+<a id="__codelineno-17-37" name="__codelineno-17-37" href="#__codelineno-17-37"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"Validated response written to </span><span class="nv">$review_output</span><span class="s2">"</span>
+</code></pre></div>
+<p>The schema-conforming value is in the response’s <code>structured_output</code> field; the surrounding object contains metadata such as the session ID and usage. A schema error or exhausted validation retries produces a failure, so callers must check the exit status before consuming the file.</p>
+<p><code>stream-json</code> is newline-delimited events, not one JSON document. Parse it one line at a time:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span>--output-format<span class="w"> </span>stream-json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span>--verbose<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span>--permission-mode<span class="w"> </span>dontAsk<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">  </span>--tools<span class="w"> </span><span class="s2">"Read,Glob,Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">  </span><span class="s2">"Inventory deprecated API calls in src/."</span>
+</code></pre></div>
+<hr />
+<h2 id="8-bound-cost-and-failure-in-automation">8. Bound Cost and Failure in Automation</h2>
+<p>Unattended agent loops need both capability restrictions and stopping conditions:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span>--permission-mode<span class="w"> </span>dontAsk<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span>--tools<span class="w"> </span><span class="s2">"Read,Glob,Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span>--allowedTools<span class="w"> </span><span class="s2">"Read"</span><span class="w"> </span><span class="s2">"Glob"</span><span class="w"> </span><span class="s2">"Grep"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span>--max-turns<span class="w"> </span><span class="m">6</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">  </span>--max-budget-usd<span class="w"> </span><span class="m">1</span>.00<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">  </span>--output-format<span class="w"> </span>json<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">  </span><span class="s2">"Review the current diff for correctness and security risks."</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>What it limits</th>
+<th>Failure behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max-turns N</code></td>
+<td>Agentic turns in print mode</td>
+<td>Exits with an error when the limit is reached</td>
+</tr>
+<tr>
+<td><code>--max-budget-usd N</code></td>
+<td>API-call spend in print mode, including subagents</td>
+<td>Stops further work when the cap is reached</td>
+</tr>
+<tr>
+<td><code>--tools</code></td>
+<td>Which built-in tools are available</td>
+<td>Omitted tools cannot be selected</td>
+</tr>
+<tr>
+<td><code>--allowedTools</code></td>
+<td>Which matching tools run without prompting</td>
+<td>Other actions follow the permission mode</td>
+</tr>
+<tr>
+<td><code>dontAsk</code></td>
+<td>Whether an unmatched action can prompt</td>
+<td>Unapproved actions are denied</td>
+</tr>
+</tbody>
+</table>
+<p>A budget or turn limit can stop a run before it produces a complete answer. Treat a non-zero exit status as a failed job and never publish a partial artifact automatically.</p>
+<p>JSON output includes local cost estimates, but those figures can drift from authoritative billing. Use provider billing data for financial controls, and use CLI budgets as per-run guardrails rather than accounting records.</p>
+<p>Avoid piping secrets or untrusted issue text into a tool-enabled agent. Content can contain prompt injection, and command-line arguments may also be visible in shell history or process listings. Prefer stdin for sensitive prompt data, minimize enabled tools, and use short-lived credentials in CI.</p>
+<hr />
+<h2 id="9-manage-context-and-diagnose-failures">9. Manage Context and Diagnose Failures</h2>
+<p>The context window contains conversation history, file contents, command output, project instructions, loaded skills, and system instructions:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>files + tool output + conversation + instructions
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>                         │
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>                         ▼
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>                 context approaches limit
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>                         │
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>              ┌──────────┴──────────┐
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>              │                     │
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>       remove old tool output   summarize history
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>              │                     │
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>              └──────────┬──────────┘
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>                         ▼
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a>                    keep working
+</code></pre></div>
+<p>Claude compacts automatically near the limit. Compaction first clears older tool output and then summarizes conversation history as needed. Important early details can still be lost, so put durable project rules in <code>CLAUDE.md</code>, not only in the opening prompt.</p>
+<p>Use the narrowest operation that solves the problem:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>/context
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>/compact preserve the accepted API decisions and outstanding test failures
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>/clear
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Best action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>You need to understand context usage</td>
+<td><code>/context</code></td>
+</tr>
+<tr>
+<td>The task is still the same but history is noisy</td>
+<td><code>/compact</code> with a concrete focus</td>
+</tr>
+<tr>
+<td>You are starting an unrelated task</td>
+<td><code>/clear</code> or a new named session</td>
+</tr>
+<tr>
+<td>A huge file or tool result repeatedly refills context</td>
+<td>Read a smaller range, filter output, or start fresh</td>
+</tr>
+<tr>
+<td>You need a reversible alternative approach</td>
+<td>Fork the session; do not compact away the decision point</td>
+</tr>
+</tbody>
+</table>
+<p>Common operational failures:</p>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Likely cause</th>
+<th>Recovery</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CI waits or fails on a tool request</td>
+<td>The run needs interactive approval</td>
+<td>Use <code>dontAsk</code> plus narrow, explicit allow rules</td>
+</tr>
+<tr>
+<td><code>--add-dir</code> fails immediately</td>
+<td>Path is missing or is not a directory</td>
+<td>Resolve and validate the path before launching</td>
+</tr>
+<tr>
+<td>JSON parser fails on streamed output</td>
+<td><code>stream-json</code> is NDJSON</td>
+<td>Parse each line as a separate event</td>
+</tr>
+<tr>
+<td>Structured output is absent</td>
+<td>Invalid schema, validation exhaustion, budget limit, or turn limit</td>
+<td>Check stderr and exit status; simplify the schema or task</td>
+</tr>
+<tr>
+<td>A resumed session contains mixed conversations</td>
+<td>The same session was used concurrently</td>
+<td>Fork before parallel exploration</td>
+</tr>
+<tr>
+<td>Context compaction repeats or errors</td>
+<td>One file or tool result is too large</td>
+<td>Narrow the read or command output, then compact or clear</td>
+</tr>
+<tr>
+<td>Claude behaves incorrectly only in one project</td>
+<td>A hook, skill, MCP server, or instruction is broken</td>
+<td>Run <code>claude doctor</code>, then compare with <code>claude --safe-mode</code></td>
+</tr>
+<tr>
+<td>The failure still lacks detail</td>
+<td>Runtime or integration issue</td>
+<td>Reproduce with <code>claude --debug "api,hooks,mcp"</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Key insight</strong>: A reliable Claude Code run has four explicit boundaries: working directories, available tools, stopping conditions, and output contract.</p>
+</blockquote>
+<h3 id="official-references">Official references</h3>
+<ul>
+<li><a href="https://code.claude.com/docs/en/cli-reference">CLI reference</a></li>
+<li><a href="https://code.claude.com/docs/en/sessions">Manage sessions</a></li>
+<li><a href="https://code.claude.com/docs/en/headless">Non-interactive mode</a></li>
+<li><a href="https://code.claude.com/docs/en/permission-modes">Permission modes</a></li>
+<li><a href="https://code.claude.com/docs/en/model-config">Model configuration</a></li>
+<li><a href="https://code.claude.com/docs/en/how-claude-code-works">How Claude Code works</a></li>
+<li><a href="https://code.claude.com/docs/en/security">Security</a></li>
+<li><a href="https://code.claude.com/docs/en/costs">Costs</a></li>
+</ul>
+<hr />
+<p><strong>Next</strong>: <a href="../../rules/01_claude_md/">CLAUDE.md — Rules &amp; Memory</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.top", "search.highlight", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

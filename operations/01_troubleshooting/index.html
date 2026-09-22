@@ -1,0 +1,2408 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A practical reference for engineers using Claude Code — from safe first sessions through customization, automation, integrations, plugins, and troubleshooting.">
+      
+      
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../../github/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Troubleshooting - Claude Code Notes</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#troubleshooting-claude-code-configuration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Claude Code Notes" class="md-header__button md-logo" aria-label="Claude Code Notes" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Claude Code Notes
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Troubleshooting
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Claude Code Notes" class="md-nav__button md-logo" aria-label="Claude Code Notes" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Claude Code Notes
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../basics/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basics
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Basics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/01_getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/02_sessions_and_cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions and Core CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../rules/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rules
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/01_claude_md/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLAUDE.md
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../settings/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Settings
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../settings/01_settings_json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    settings.json
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../settings/02_claude_directory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    `.claude/` Directory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../commands/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/01_custom_commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../skills/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Skills
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../skills/01_skills_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../skills/02_skills_advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-diagnose-in-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Diagnose in Layers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-establish-a-read-only-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Establish a Read-Only Baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-isolate-customization-before-editing-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Isolate Customization Before Editing It
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-inspect-the-failing-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Inspect the Failing Surface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-know-what-reloads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Know What Reloads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-trace-the-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Trace the Failure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-bisect-without-destroying-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Bisect Without Destroying State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-failure-modes-and-unsafe-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Failure Modes and Unsafe Shortcuts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-official-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Official References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../github/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    GitHub
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github/01_github_app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub App
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github/02_github_actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Actions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github/03_workflow_recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../hooks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Hooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hooks/01_hooks_overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hooks/02_hook_handlers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hook Handlers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../mcp/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    MCP
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp/01_mcp_json/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    .mcp.json
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../agents/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agents
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Agents
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agents/01_subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../plugins/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Plugins
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/01_plugin_fundamentals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugin Fundamentals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/02_install_and_scopes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install & Scopes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/03_marketplaces/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Marketplaces
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/04_managing_plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-diagnose-in-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Diagnose in Layers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-establish-a-read-only-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Establish a Read-Only Baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-isolate-customization-before-editing-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Isolate Customization Before Editing It
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-inspect-the-failing-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Inspect the Failing Surface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-know-what-reloads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Know What Reloads
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-trace-the-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Trace the Failure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-bisect-without-destroying-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Bisect Without Destroying State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-failure-modes-and-unsafe-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Failure Modes and Unsafe Shortcuts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-official-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Official References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="troubleshooting-claude-code-configuration">Troubleshooting Claude Code Configuration</h1>
+<blockquote>
+<p><strong>Who this is for</strong>: Competent Claude Code users diagnosing broken settings, rules, skills, agents, hooks, MCP servers, plugins, permissions, or sessions.</p>
+</blockquote>
+<p>Before reading this, understand where project and user configuration lives: <strong><a href="../../settings/02_claude_directory/">The <code>.claude/</code> Directory</a></strong>.</p>
+<hr />
+<h2 id="1-diagnose-in-layers">1. Diagnose in Layers</h2>
+<p>Treat configuration debugging as an evidence problem. First prove which layer is broken, then inspect that layer:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌──────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│ 1. Installation and startup  │  claude doctor
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>└──────────────┬───────────────┘
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>               ↓
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>┌──────────────────────────────┐
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│ 2. Resolved session state    │  /doctor, /status, /context
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>└──────────────┬───────────────┘
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>               ↓
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>┌──────────────────────────────┐
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│ 3. Feature-specific state    │  /skills, /hooks, /mcp, /permissions
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>└──────────────┬───────────────┘
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>               ↓
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>┌──────────────────────────────┐
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│ 4. Isolation                 │  --safe-mode, clean config, scope bisect
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>└──────────────┬───────────────┘
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>               ↓
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>┌──────────────────────────────┐
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│ 5. Event trace               │  --debug, --debug-file, /debug
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>└──────────────────────────────┘
+</code></pre></div>
+<p>Record the launch directory, exact symptom, smallest reproducing prompt, and whether the failure occurs in a new session. Configuration discovery is path- and scope-dependent, so “same config” is not a useful comparison unless those inputs are also the same.</p>
+<blockquote>
+<p><strong>Principle</strong>: Inspect what Claude Code loaded, not what you intended it to load.</p>
+</blockquote>
+<hr />
+<h2 id="2-establish-a-read-only-baseline">2. Establish a Read-Only Baseline</h2>
+<p>Start outside the interactive client when Claude Code fails to launch or fails before you can enter a command:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Capture the binary and installation state without starting a session.</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>claude<span class="w"> </span>--version
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>claude<span class="w"> </span>doctor
+</code></pre></div>
+<p><code>claude doctor</code> prints read-only installation and settings diagnostics. It is the safest first check for invalid settings, duplicate or unhealthy installs, and startup problems.</p>
+<p>When a session opens, run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>/doctor
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>/status
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>/context
+</code></pre></div>
+<p>These commands answer different questions:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Use it to answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>claude doctor</code></td>
+<td>Can the installed CLI and settings be validated without opening a session?</td>
+</tr>
+<tr>
+<td><code>/doctor</code></td>
+<td>What setup, settings, extension, and context problems can the current session detect?</td>
+</tr>
+<tr>
+<td><code>/status</code></td>
+<td>Which settings sources are active, and is managed policy in effect?</td>
+</tr>
+<tr>
+<td><code>/context</code></td>
+<td>Which memory files, skills, agents, MCP tools, and other content actually entered this session?</td>
+</tr>
+</tbody>
+</table>
+<p>Unlike the terminal command, <code>/doctor</code> can propose fixes and applies them only after confirmation. Read its diagnosis before accepting a change. A valid file can still lose to a higher-precedence source, so pair <code>/doctor</code> with <code>/status</code>.</p>
+<hr />
+<h2 id="3-isolate-customization-before-editing-it">3. Isolate Customization Before Editing It</h2>
+<p>Launch the same project in safe mode:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>/path/to/project
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>claude<span class="w"> </span>--safe-mode
+</code></pre></div>
+<p>Safe mode disables custom <code>CLAUDE.md</code>, rules, skills, plugins, hooks, MCP servers, commands, agents, output styles, and other customizations for that session. Authentication, model selection, built-in tools, and permissions still work. Managed settings policy still applies, including policy-configured hooks, so safe mode is not a bypass for organization controls.</p>
+<p>Interpret the result:</p>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Conclusion</th>
+<th>Next check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Failure disappears</td>
+<td>A disabled customization is involved</td>
+<td>Bisect by scope, then by component</td>
+</tr>
+<tr>
+<td>Failure remains</td>
+<td>Look outside ordinary customization</td>
+<td><code>/status</code>, permissions, installation, account/model errors, or runtime stability</td>
+</tr>
+<tr>
+<td>Only project fails</td>
+<td>Project or local scope is suspect</td>
+<td>Compare <code>project</code> and <code>local</code> setting sources</td>
+</tr>
+<tr>
+<td>Every project fails</td>
+<td>User or managed scope is suspect</td>
+<td>Compare user scope; inspect managed state in <code>/status</code></td>
+</tr>
+</tbody>
+</table>
+<p>For a stronger isolation test, use a temporary configuration directory and a directory with no project configuration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">diagnostic_config_dir</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>chmod<span class="w"> </span><span class="m">700</span><span class="w"> </span><span class="s2">"</span><span class="nv">$diagnostic_config_dir</span><span class="s2">"</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="o">(</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nb">cd</span><span class="w"> </span>/tmp
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nv">CLAUDE_CONFIG_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$diagnostic_config_dir</span><span class="s2">"</span><span class="w"> </span>claude
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="o">)</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">'Temporary diagnostic config: %s\n'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$diagnostic_config_dir</span><span class="s2">"</span>
+</code></pre></div>
+<p>This avoids loading your normal <code>~/.claude</code> state and project configuration. First-run setup may appear. Managed settings can still apply because they live outside the user configuration directory.</p>
+<p>⚠️ Do not copy your entire real configuration into the temporary directory. Add one file or one scope at a time; otherwise the test stops isolating anything.</p>
+<hr />
+<h2 id="4-inspect-the-failing-surface">4. Inspect the Failing Surface</h2>
+<p>Use the narrowest inspection command that can prove whether a component loaded:</p>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>First check</th>
+<th>Common cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Setting appears ignored</td>
+<td><code>/status</code>, then <code>/doctor</code></td>
+<td>Local, CLI, environment, or managed value overrides it</td>
+</tr>
+<tr>
+<td><code>CLAUDE.md</code> instruction is absent</td>
+<td><code>/context</code></td>
+<td>Wrong launch directory, wrong location, or excluded setting source</td>
+</tr>
+<tr>
+<td>Rule applies to the wrong files</td>
+<td><code>/context</code>, then read a matching file</td>
+<td>Incorrect <code>paths</code> glob; path-scoped rules trigger when matching files are read</td>
+</tr>
+<tr>
+<td>Instruction loaded but is not followed</td>
+<td><code>/context</code></td>
+<td>Contradictory, vague, or overly long guidance; guidance is not enforcement</td>
+</tr>
+<tr>
+<td>Skill is missing</td>
+<td><code>/skills</code> and <code>/context</code></td>
+<td>Expected <code>.claude/skills/&lt;name&gt;/SKILL.md</code> structure is not present</td>
+</tr>
+<tr>
+<td>Skill never auto-invokes</td>
+<td><code>/skills</code></td>
+<td><code>disable-model-invocation: true</code> or a description that does not match the request</td>
+</tr>
+<tr>
+<td>Agent is missing or stale</td>
+<td><code>/context</code></td>
+<td>Wrong agent scope, duplicate name, or a new unwatched <code>agents/</code> directory</td>
+</tr>
+<tr>
+<td>Hook is missing</td>
+<td><code>/hooks</code>, then <code>/doctor</code></td>
+<td>Hook is outside <code>settings.json</code>, its source settings file is invalid, or a plugin was not reloaded</td>
+</tr>
+<tr>
+<td>Hook appears but never fires</td>
+<td><code>/hooks</code>, then <code>claude --debug hooks</code></td>
+<td>Misspelled or case-mismatched tool name; invalid matcher shape</td>
+</tr>
+<tr>
+<td>MCP server is disabled</td>
+<td><code>/mcp</code></td>
+<td>Project server approval was dismissed</td>
+</tr>
+<tr>
+<td>MCP server fails to start</td>
+<td><code>/mcp</code>, then <code>claude --debug mcp</code></td>
+<td>Relative command path, missing server environment, auth failure, or process error</td>
+</tr>
+<tr>
+<td>MCP server connects with zero tools</td>
+<td><code>/mcp</code> and <strong>Reconnect</strong></td>
+<td>Server started but did not return a tool list</td>
+</tr>
+<tr>
+<td>Plugin change is missing</td>
+<td><code>/plugin</code>, then <code>/reload-plugins</code></td>
+<td>Installed copy is disabled, has a load error, or has not reloaded</td>
+</tr>
+<tr>
+<td>Allowed tool is still blocked</td>
+<td><code>/permissions</code>, then <code>/status</code></td>
+<td>A matching deny rule or managed policy wins</td>
+</tr>
+<tr>
+<td>Session hangs</td>
+<td><code>Ctrl+C</code>, then restart and resume</td>
+<td>A tool, server, hook, search, or runtime operation is stuck</td>
+</tr>
+</tbody>
+</table>
+<p>Hook matchers are strings, not arrays, and tool names are case-sensitive. Use a single matcher such as:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">"matcher"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Edit|Write"</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="p">}</span>
+</code></pre></div>
+<p>Project MCP definitions belong in the repository-root <code>.mcp.json</code>, not <code>.claude/.mcp.json</code> or a <code>settings.json</code> <code>mcpServers</code> key. For local MCP scripts, prefer an absolute path: relative <code>command</code> and <code>args</code> paths resolve from the directory where Claude Code was launched.</p>
+<p>If a session becomes unresponsive, cancel the current operation with <code>Ctrl+C</code>. If the client must be closed, resume the conversation from the same project:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">cd</span><span class="w"> </span>/path/to/project
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>claude<span class="w"> </span>--resume
+</code></pre></div>
+<hr />
+<h2 id="5-know-what-reloads">5. Know What Reloads</h2>
+<p>Reload behavior differs by component. Testing with the wrong expectation can make a fixed file look broken.</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Current-session behavior</th>
+<th>When to restart or reload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>settings.json</code> and settings-based hooks</td>
+<td>File watcher applies edits after a brief stability delay</td>
+<td>Refresh <code>/hooks</code>; restart only if state remains stale</td>
+</tr>
+<tr>
+<td>Standalone skill <code>SKILL.md</code> text</td>
+<td>Changes under existing watched skill directories load in the current session</td>
+<td>Restart if the top-level skills directory did not exist at session start</td>
+</tr>
+<tr>
+<td>Standalone agent files</td>
+<td>Changes under existing <code>~/.claude/agents/</code> and <code>.claude/agents/</code> directories are detected within seconds; the next delegation uses them</td>
+<td>Restart after creating a scope’s first <code>agents/</code> directory</td>
+</tr>
+<tr>
+<td>Plugin components</td>
+<td>Installed plugin state is not fully refreshed by ordinary file watching</td>
+<td>Run <code>/reload-plugins</code> after install, enable/disable, or component edits</td>
+</tr>
+<tr>
+<td>Plugin MCP servers</td>
+<td>Loaded with the plugin</td>
+<td>Run <code>/reload-plugins</code> to connect or disconnect them</td>
+</tr>
+<tr>
+<td>Project or user MCP configuration</td>
+<td>Server configuration is established when the session starts</td>
+<td>Start a new session after config edits; use <strong>Reconnect</strong> for a loaded server</td>
+</tr>
+<tr>
+<td>MCP capabilities</td>
+<td>Servers can announce dynamic capability changes</td>
+<td>No reconnect is needed when the server sends <code>list_changed</code></td>
+</tr>
+<tr>
+<td>Root memory and unscoped rules</td>
+<td>Loaded at session start</td>
+<td>Use a fresh session to test startup loading</td>
+</tr>
+<tr>
+<td>Nested memory and path-scoped rules</td>
+<td>Load when Claude reads a matching file</td>
+<td>Read the target file, then inspect <code>/context</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>/reload-plugins</code> reloads plugin skills, agents, hooks, MCP servers, and other plugin components. It is not a general-purpose reload command for standalone project configuration. Likewise, <code>/compact</code> manages conversation context; do not use it as a configuration reload strategy.</p>
+<hr />
+<h2 id="6-trace-the-failure">6. Trace the Failure</h2>
+<p>Enable only the debug categories relevant to the symptom:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Hooks: records event matching, exit status, stdout, and stderr.</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>claude<span class="w"> </span>--debug<span class="w"> </span>hooks
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># MCP: includes connection diagnostics and server stderr.</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>claude<span class="w"> </span>--debug<span class="w"> </span>mcp
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1"># Multiple categories can be combined.</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>claude<span class="w"> </span>--debug<span class="w"> </span><span class="s2">"hooks,mcp"</span>
+</code></pre></div>
+<p><code>--debug</code> writes a per-session log under <code>~/.claude/debug/</code>; it does not print the trace to the terminal. Use <code>--debug-file</code> when you need a known, access-controlled location:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">debug_dir</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>-d<span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>chmod<span class="w"> </span><span class="m">700</span><span class="w"> </span><span class="s2">"</span><span class="nv">$debug_dir</span><span class="s2">"</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="o">(</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nb">umask</span><span class="w"> </span><span class="m">077</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span>claude<span class="w"> </span>--debug<span class="w"> </span><span class="s2">"hooks,mcp"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span>--debug-file<span class="w"> </span><span class="s2">"</span><span class="nv">$debug_dir</span><span class="s2">/claude.log"</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="o">)</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">'Debug log: %s\n'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$debug_dir</span><span class="s2">/claude.log"</span>
+</code></pre></div>
+<p>For high-volume matcher details, add <code>CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose</code> only while reproducing the issue:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">CLAUDE_CODE_DEBUG_LOG_LEVEL</span><span class="o">=</span>verbose<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>claude<span class="w"> </span>--debug<span class="w"> </span>hooks<span class="w"> </span>--debug-file<span class="w"> </span>/path/to/private/claude-hooks.log
+</code></pre></div>
+<p>Inside an existing session, <code>/debug [issue]</code> enables logging and asks Claude to diagnose the described problem using the log and active settings paths:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>/debug skill appears in /skills but never invokes
+</code></pre></div>
+<p>⚠️ Treat debug logs as sensitive. Hook traces can contain full stdout and stderr; MCP traces can contain server errors; paths and configuration details can reveal internal structure. Store logs in a private directory, reproduce with test credentials when possible, inspect locally, and redact secrets, tokens, cookies, headers, personal data, and proprietary content before sharing. Delete shared copies according to your retention policy after the investigation.</p>
+<hr />
+<h2 id="7-bisect-without-destroying-state">7. Bisect Without Destroying State</h2>
+<p>Once safe mode proves customization is involved, reintroduce one dimension at a time.</p>
+<p>First separate settings scopes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Test one source at a time.</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>claude<span class="w"> </span>--setting-sources<span class="w"> </span>user
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>claude<span class="w"> </span>--setting-sources<span class="w"> </span>project
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>claude<span class="w"> </span>--setting-sources<span class="w"> </span><span class="nb">local</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="c1"># Then test combinations to expose precedence conflicts.</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>claude<span class="w"> </span>--setting-sources<span class="w"> </span>user,project
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>claude<span class="w"> </span>--setting-sources<span class="w"> </span>user,project,local
+</code></pre></div>
+<p>Then bisect within the failing scope:</p>
+<ol>
+<li>Reproduce with only settings and memory.</li>
+<li>Add skills and agents.</li>
+<li>Add MCP servers one at a time.</li>
+<li>Enable half the suspect plugins, run <code>/reload-plugins</code>, and test.</li>
+<li>Split the failing half again until one plugin or component remains.</li>
+<li>For hooks, use <code>/hooks</code> to confirm the source, then reproduce with <code>--debug hooks</code>.</li>
+<li>Reduce the final component to the smallest failing definition.</li>
+</ol>
+<p>Keep a short matrix of test conditions and outcomes. Change one variable per run and use the same prompt, working directory, permission mode, and model.</p>
+<blockquote>
+<p><strong>Key insight</strong>: Safe mode identifies the side of the boundary; bisection identifies the component.</p>
+</blockquote>
+<hr />
+<h2 id="8-failure-modes-and-unsafe-shortcuts">8. Failure Modes and Unsafe Shortcuts</h2>
+<table>
+<thead>
+<tr>
+<th>Shortcut</th>
+<th>Why it misleads or causes harm</th>
+<th>Safer alternative</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Delete <code>~/.claude</code></td>
+<td>Removes unrelated state and destroys evidence</td>
+<td>Point <code>CLAUDE_CONFIG_DIR</code> at a temporary empty directory</td>
+</tr>
+<tr>
+<td>Reinstall immediately</td>
+<td>Can hide the original failure without proving its cause</td>
+<td>Run <code>claude doctor</code>, record the version, then isolate configuration</td>
+</tr>
+<tr>
+<td>Use <code>--dangerously-skip-permissions</code></td>
+<td>Changes the security boundary and invalidates a permissions diagnosis</td>
+<td>Inspect <code>/permissions</code> and <code>/status</code>; reproduce in the normal mode</td>
+</tr>
+<tr>
+<td>Disable every component permanently</td>
+<td>Loses the known-good state and makes restoration error-prone</td>
+<td>Record state and bisect reversibly</td>
+</tr>
+<tr>
+<td>Share a raw debug log</td>
+<td>May disclose secrets, tool output, paths, or server errors</td>
+<td>Redact a copy and share only the minimum relevant lines</td>
+</tr>
+<tr>
+<td>Edit several scopes together</td>
+<td>Makes the causal change unknowable</td>
+<td>Change one scope or component per test</td>
+</tr>
+<tr>
+<td>Purge project state to fix config</td>
+<td>Deletes transcripts, history, and diagnostics but does not repair bad config</td>
+<td>Use <code>claude project purge &lt;path&gt; --dry-run</code> only when intentional state deletion is the actual goal</td>
+</tr>
+</tbody>
+</table>
+<p>Do not delete authentication data, transcripts, file history, plugin caches, or lock files as a first-line fix. Destructive cleanup is appropriate only after you know which state is corrupt, understand what will be lost, have preserved required evidence, and have a recovery path.</p>
+<p>Escalate with a minimal reproduction that includes:</p>
+<ul>
+<li><code>claude --version</code> output</li>
+<li>operating system and terminal or IDE surface</li>
+<li>sanitized <code>claude doctor</code> result</li>
+<li>whether <code>--safe-mode</code> reproduces the issue</li>
+<li>active scopes from <code>/status</code></li>
+<li>failing component status from <code>/hooks</code>, <code>/mcp</code>, <code>/skills</code>, or <code>/permissions</code></li>
+<li>the smallest relevant, sanitized debug excerpt</li>
+</ul>
+<hr />
+<h2 id="9-official-references">9. Official References</h2>
+<ul>
+<li><a href="https://code.claude.com/docs/en/debug-your-config">Debug your configuration</a></li>
+<li><a href="https://code.claude.com/docs/en/troubleshooting">Troubleshooting</a></li>
+<li><a href="https://code.claude.com/docs/en/cli-reference">CLI reference</a></li>
+<li><a href="https://code.claude.com/docs/en/commands">Claude Code commands</a></li>
+<li><a href="https://code.claude.com/docs/en/skills">Skills</a></li>
+<li><a href="https://code.claude.com/docs/en/sub-agents">Subagents</a></li>
+<li><a href="https://code.claude.com/docs/en/hooks">Hooks reference</a></li>
+<li><a href="https://code.claude.com/docs/en/mcp">MCP</a></li>
+<li><a href="https://code.claude.com/docs/en/memory">Memory and rules</a></li>
+<li><a href="https://code.claude.com/docs/en/permissions">Permissions</a></li>
+<li><a href="https://code.claude.com/docs/en/discover-plugins">Plugins</a></li>
+</ul>
+<hr />
+<p><strong>Back to</strong>: <a href="../../">Root</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.sections", "navigation.top", "search.highlight", "search.suggest", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
