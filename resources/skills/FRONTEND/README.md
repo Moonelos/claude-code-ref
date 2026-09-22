@@ -26,7 +26,7 @@ Tired of your agent being dumb, especially with React? This skill pack is the so
 
 ## What is this?
 
-React Frontend Skills is a collection of 18 AI agent skills for the React ecosystem. Drop them into your coding assistant and it starts applying real patterns for performance, UI, testing, data, and architecture instead of whatever it remembered from 2023.
+React Frontend Skills is a collection of 19 AI agent skills for the React ecosystem. Drop them into your coding assistant and it starts applying real patterns for performance, UI, testing, data, and architecture instead of whatever it remembered from 2023.
 
 Each skill is a portable `SKILL.md` folder, usually with detailed `references/`. The layout follows the open agent-skills convention, so it works across major AI coding agents.
 
@@ -63,7 +63,7 @@ npm install @pymodel/react-frontend-skills
 npx skills experimental_sync
 ```
 
-`experimental_sync` reads the package from `node_modules` and installs all 18 skills into your detected agent.
+`experimental_sync` reads the package from `node_modules` and installs all 19 skills into your detected agent.
 
 ### Or connect through MCP
 
@@ -184,6 +184,7 @@ If your project pins a different version, trust that version's official docs ove
 | [feature-arch](skills/feature-arch) | 42 | Feature-based architecture, module organization |
 | [vercel-composition-patterns](skills/vercel-composition-patterns) | 7 | React composition patterns |
 | [vercel-react-best-practices](skills/vercel-react-best-practices) | 70 | React and Next.js performance optimization |
+| [ai-chat-streaming](skills/ai-chat-streaming) | 19 | Secure, accessible streaming AI chat and agent UIs |
 
 ## Why
 
@@ -227,6 +228,7 @@ react-frontend-skills/
 │   ├── ui-design/            # UI and UX practices
 │   ├── vercel-composition-patterns/
 │   ├── vercel-react-best-practices/
+│   ├── ai-chat-streaming/    # Streaming chat and agent UIs
 │   └── web-design-guidelines/
 ├── README.md
 ├── LICENSE

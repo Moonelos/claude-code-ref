@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "organization": "Community",
+  "technology": "AI chat streaming UI (React, Next.js, SSE)",
+  "date": "September 2026",
+  "abstract": "Best practices guide for secure, accessible streaming AI chat and agent interfaces in React and Next.js. Contains 19 rules across 8 categories covering render continuity, SSE transport, untrusted content, turn state, accessibility, scrolling, adversarial testing, and optional display pacing.",
+  "references": [
+    "https://html.spec.whatwg.org/multipage/server-sent-events.html",
+    "https://developer.mozilla.org/en-US/docs/Web/API/Streams_API",
+    "https://nextjs.org/docs/app/api-reference/file-conventions/route",
+    "https://react.dev/reference/react/memo"
+  ],
+  "category": "Frontend"
+}

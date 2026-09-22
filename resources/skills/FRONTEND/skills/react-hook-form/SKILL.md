@@ -1,6 +1,6 @@
 ---
 name: react-hook-form
-description: Current React Hook Form v7 guidance for useForm, useWatch, useController, useFieldArray, validation, subscriptions, and UI-library integration. React Server Actions and useActionState are covered by the react skill.
+description: Implement or review client-side forms that use or will adopt React Hook Form v7, including useForm, field subscriptions, controlled components, field arrays, validation, and UI-library integration. Use React guidance instead for forms built with Server Actions or useActionState and for forms that do not use React Hook Form.
 ---
 
 # React Hook Form Best Practices
