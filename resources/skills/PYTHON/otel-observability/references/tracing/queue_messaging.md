@@ -20,32 +20,27 @@ instrumentation ownership. It does not cover DB-backed work or scheduled jobs.
 The producer span must be **current** when the carrier is injected. Injecting from an outer request span skips the queue boundary and produces a trace where the consumer appears to hang off the HTTP handler.
 
 ```python
-from opentelemetry import trace
 from opentelemetry.propagate import inject
+from opentelemetry.trace import SpanKind
 
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
 
 
-def publish_pricing_job(queue, payload: dict) -> None:
-    with tracer.start_as_current_span(
+def publish_pricing_job(queue: PricingQueue, payload: PricingJob) -> None:
+    with start_span(
         "send pricing-jobs",
-        kind=trace.SpanKind.PRODUCER,
-        record_exception=False,
+        kind=SpanKind.PRODUCER,
         attributes={
             "messaging.system": "aws_sqs",
             "messaging.destination.name": "pricing-jobs",
             "messaging.operation.name": "send",
             "messaging.operation.type": "send",
         },
-    ) as span:
+    ):
         carrier: dict[str, str] = {}
         # inject() only fills the carrier; queue.publish() performs the transport.
         inject(carrier)
-        try:
-            queue.publish(payload, headers=carrier)
-        except Exception as exc:
-            span.set_attribute("error.type", type(exc).__name__)
-            raise
+        queue.publish(payload, headers=carrier)
 ```
 
 ### SQS carrier adapter
@@ -110,32 +105,27 @@ carrier is 2–3 of those 10.
 ## Queue consumer side — continued trace
 
 ```python
-from opentelemetry import trace
 from opentelemetry.propagate import extract
+from opentelemetry.trace import SpanKind
 
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
 
 
-def handle_message(message) -> None:
+def handle_message(message: QueueMessage) -> None:
     parent_ctx = extract(message.headers)
 
-    with tracer.start_as_current_span(
+    with start_span(
         "process pricing-jobs",
         context=parent_ctx,
-        kind=trace.SpanKind.CONSUMER,
-        record_exception=False,
+        kind=SpanKind.CONSUMER,
         attributes={
             "messaging.system": "aws_sqs",
             "messaging.destination.name": "pricing-jobs",
             "messaging.operation.name": "process",
             "messaging.operation.type": "process",
         },
-    ) as span:
-        try:
-            process(message.payload)
-        except Exception as exc:
-            span.set_attribute("error.type", type(exc).__name__)
-            raise
+    ):
+        process(message.payload)
 ```
 
 ## Queue consumer side — new trace with a link
@@ -143,24 +133,23 @@ def handle_message(message) -> None:
 ```python
 from opentelemetry import context as otel_context, trace
 from opentelemetry.propagate import extract
-from opentelemetry.trace import Link
+from opentelemetry.trace import Link, SpanKind
 
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
 
 
-def handle_message(message) -> None:
+def handle_message(message: QueueMessage) -> None:
     incoming_ctx = extract(message.headers)
     producer_ctx = trace.get_current_span(incoming_ctx).get_span_context()
     links = [Link(producer_ctx)] if producer_ctx.is_valid else []
 
-    with tracer.start_as_current_span(
+    with start_span(
         "process pricing-jobs",
         # An explicit empty Context is what makes this a root span.
         # Passing None (or omitting it) reuses the CURRENT context instead.
         context=otel_context.Context(),
-        kind=trace.SpanKind.CONSUMER,
+        kind=SpanKind.CONSUMER,
         links=links,
-        record_exception=False,
         attributes={
             "messaging.system": "aws_sqs",
             "messaging.destination.name": "pricing-jobs",
@@ -168,12 +157,8 @@ def handle_message(message) -> None:
             "messaging.operation.type": "process",
             "app.message.attempt": message.receive_count,
         },
-    ) as span:
-        try:
-            process(message.payload)
-        except Exception as exc:
-            span.set_attribute("error.type", type(exc).__name__)
-            raise
+    ):
+        process(message.payload)
 ```
 
 `context=None` does **not** mean "create a root." It means "use the current context." This is the single most common bug in linked-consumer code, and it is invisible until you inspect an exported trace.
@@ -277,7 +262,7 @@ client instrumentation is never the causal parent of the work.
 
 - metrics: `../metrics/service.md` — queue depth, oldest-message age,
   processing duration, retry and dead-letter counts;
-- logs: `../logging/structlog.md` — `queue_message_received` and
-  `queue_message_processed`;
+- logs: the `python-logging` skill — `job_failed` from the owner plus one terminal business
+  event per message; trace IDs: `../logging/correlation.md`;
 - if the worker calls a model: `genai/attributes.md` for the span vocabulary,
   then the direct-SDK or LangChain path beneath it.

@@ -91,10 +91,9 @@ parent with instrumented children creates orphaned telemetry. If the endpoint
 does real child work, retain or tail-sample the whole trace instead.
 
 When enabled, insert this processor after resource enrichment and before
-redaction/tail sampling. Validate the exact config against the pinned image —
-`../../scripts/validate_skill.py --collector-image` now does this for **every**
-YAML fence on this page, wrapping partial snippets in a minimal config so a
-processor's schema is checked rather than assumed.
+redaction/tail sampling. Validate the exact assembled config with
+`otelcol validate` against the pinned image; a processor's schema is checked,
+not assumed.
 
 ---
 
@@ -172,7 +171,7 @@ processors:
   # Exception detail on SPANS only. This skill's error contract forbids
   # first-party exception events, but auto-instrumentation still emits them.
   # Never apply this to the logs pipeline: the correlated log record is where
-  # the stack trace is supposed to live (`../logging/structlog.md`).
+  # the stack trace is supposed to live (python-logging skill).
   attributes/drop_span_exception_detail:
     actions:
       - key: exception.message

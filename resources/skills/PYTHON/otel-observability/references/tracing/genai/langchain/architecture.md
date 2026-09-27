@@ -66,8 +66,8 @@ Nothing in the framework emits a span for "one agent invocation." Without it, th
 Each step is independently verifiable, so build and check them in this order:
 
 1. **SDK bootstrap** — providers, exporters, shutdown. `../../../setup/sdk_bootstrap.md`
-2. **The recorder modules** — `observability/genai_metrics.py` and
-   `observability/agent_counters.py`, from `../../../metrics/genai.md`. Every
+2. **The instruments and fan-out counters** — in the service's existing
+   metrics module, from `../../../metrics/genai.md`. Every
    tracing layer below imports them, so they come **before** the tracing code,
    not after it. Build the module here; the dashboards, cardinality traps, and
    fan-out rationale in that file can wait until step 6.
@@ -75,7 +75,7 @@ Each step is independently verifiable, so build and check them in this order:
 4. **Tool middleware** — confirm one span per tool execution. `tools_and_middleware.md`
 5. **Outer agent span** — confirm model and tool spans nest under it. `streaming_and_agent_span.md`
 6. **Metrics** — the rest of `../../../metrics/genai.md`: instruments beyond the module, dashboards, alerting.
-7. **Logging** — `../../../logging/structlog.md`, then `../../../logging/genai.md`
+7. **Logging** — the `python-logging` skill (`../../../../../python-logging/references/genai.md`), with `../../../logging/correlation.md`
 
 Do not build every layer and then debug. A missing token count is trivial to find at step 3 and painful at step 6.
 
@@ -101,13 +101,12 @@ the service's existing observability package by default
 ```
 observability/
     tracing.py               generic SDK setup — no langchain imports
-    metrics.py
+    metrics.py               instruments, incl. record_model_operation() and friends
     logging.py
     genai_attributes.py      shared constants — no langchain imports
     genai_usage.py           set_usage_attributes()
     genai_content.py         message and payload serializers
-    genai_metrics.py         record_model_operation() and friends
-    agent_counters.py        invocation_counters() / current_counters()
+    agent_counters.py        invocation_counters() / current_counters(), if not in metrics.py
     genai.py                 OTelModelCallback, trace_tool_call, and agent
                              invocation wrappers; may import LangChain
 ```
@@ -134,8 +133,8 @@ from langchain.chat_models import init_chat_model
 
 from observability.genai import OTelModelCallback, trace_tool_call
 
-# One handler instance is enough; it keys its state by run_id.
-otel_model_callback = OTelModelCallback()
+# Built in bootstrap from the settings slice; one instance is enough (state is keyed by run_id).
+otel_model_callback = OTelModelCallback(capture_content=settings.capture_ai_content)
 
 main_model = init_chat_model("openai:gpt-5", streaming=False).with_config(
     callbacks=[otel_model_callback],

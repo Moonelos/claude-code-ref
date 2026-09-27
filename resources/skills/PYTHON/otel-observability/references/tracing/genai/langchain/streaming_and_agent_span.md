@@ -24,23 +24,28 @@ POST /chat                          SERVER
 # observability/genai.py
 import asyncio
 import time
+from collections.abc import AsyncIterator
 
+from langchain_core.messages import BaseMessage
+from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import Span
 
-from observability.agent_counters import invocation_counters
+from observability.agent_counters import InvocationCounters, invocation_counters
 from observability.genai_attributes import (
-    ERROR_TYPE,
     GENAI_AGENT_NAME,
     GENAI_CONVERSATION_ID,
     GENAI_OPERATION_NAME,
 )
-from observability.genai_metrics import record_agent_invocation
+from observability.metrics import record_agent_invocation
+from observability.spans import error_type_of, mark_error, start_span
 
 tracer = trace.get_tracer(__name__)
 
 
-def record_agent_result(*, started_at, agent_name, error_type, counters) -> None:
+def record_agent_result(
+    *, started_at: float, agent_name: str, error_type: str | None, counters: InvocationCounters
+) -> None:
     """One duration and one pair of fan-out observations per invocation."""
     record_agent_invocation(
         duration_s=time.perf_counter() - started_at,
@@ -52,20 +57,19 @@ def record_agent_result(*, started_at, agent_name, error_type, counters) -> None
 
 
 async def invoke_agent(
-    agent,
-    messages: list,
+    agent: CompiledStateGraph,
+    messages: list[BaseMessage],
     *,
     agent_name: str,
     conversation_id: str | None = None,
-) -> dict:
+) -> AgentResult:
     started_at = time.perf_counter()
     error_type: str | None = None
 
     # The callback and the tool middleware increment these; this wrapper is
     # the only thing that reads them. See ../../../metrics/genai.md.
-    with tracer.start_as_current_span(
+    with start_span(
         f"invoke_agent {agent_name}",
-        record_exception=False,
         attributes={
             GENAI_OPERATION_NAME: "invoke_agent",
             GENAI_AGENT_NAME: agent_name,
@@ -76,16 +80,10 @@ async def invoke_agent(
 
         try:
             result = await agent.ainvoke({"messages": messages})
-        except asyncio.CancelledError:
-            # Real class name, bounded — ../../../conventions/errors.md.
-            error_type = "CancelledError"
-            span.set_status(Status(StatusCode.ERROR))
-            span.set_attribute(ERROR_TYPE, error_type)
-            raise
-        except Exception as exc:
-            error_type = type(exc).__name__
-            span.set_status(Status(StatusCode.ERROR))
-            span.set_attribute(ERROR_TYPE, error_type)
+        except BaseException as exc:
+            # start_span marks the span (cancellation is not ERROR); this
+            # only labels the metric.
+            error_type = error_type_of(exc)
             raise
         finally:
             record_agent_result(
@@ -142,15 +140,14 @@ the invocation counters must be current for each resumption and not between
 them. One helper says exactly that, and both wrappers use it:
 
 ```python
+from collections.abc import Iterator
 from contextlib import contextmanager
 
-from opentelemetry import trace
-
-from observability.agent_counters import InvocationCounters, bind_counters
+from observability.agent_counters import bind_counters
 
 
 @contextmanager
-def agent_step(span, counters: InvocationCounters):
+def agent_step(span: Span, counters: InvocationCounters) -> Iterator[None]:
     """Make the agent span and its counters current for ONE resumption.
 
     Never put a `yield` of the streaming wrapper inside this. That is the
@@ -167,14 +164,16 @@ explicitly rather than with `async for`.
 ### Token streaming
 
 ```python
-from observability.agent_counters import InvocationCounters
-from observability.genai_attributes import GENAI_CONVERSATION_ID
-from observability.genai_metrics import record_agent_time_to_first_chunk
+from observability.metrics import record_agent_time_to_first_chunk
 
 
 async def stream_agent_tokens(
-    agent, messages: list, *, agent_name: str, conversation_id: str | None = None
-):
+    agent: CompiledStateGraph,
+    messages: list[BaseMessage],
+    *,
+    agent_name: str,
+    conversation_id: str | None = None,
+) -> AsyncIterator[BaseMessage]:
     started_at = time.perf_counter()
     first_chunk_seen = False
     error_type: str | None = None
@@ -223,15 +222,15 @@ async def stream_agent_tokens(
 
             # Outside agent_step: nothing of ours is current in the consumer.
             yield token
-    except asyncio.CancelledError:
-        error_type = "CancelledError"
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, error_type)
+    except asyncio.CancelledError as exc:
+        # A manual span (this function yields), so it applies start_span's
+        # cancellation rule itself: outcome, not ERROR.
+        error_type = error_type_of(exc)
+        span.set_attribute("app.outcome", "cancelled")
         raise
-    except Exception as exc:
-        error_type = type(exc).__name__
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, error_type)
+    except BaseException as exc:
+        error_type = error_type_of(exc)
+        mark_error(span, exc)
         raise
     finally:
         record_agent_result(
@@ -249,7 +248,9 @@ async def stream_agent_tokens(
 Same skeleton; only the stream mode and the per-part handling change.
 
 ```python
-async def stream_agent_updates(agent, messages: list, *, agent_name: str):
+async def stream_agent_updates(
+    agent: CompiledStateGraph, messages: list[BaseMessage], *, agent_name: str
+) -> AsyncIterator[AgentUpdate]:
     started_at = time.perf_counter()
     step_count = 0
     error_type: str | None = None
@@ -281,15 +282,15 @@ async def stream_agent_updates(agent, messages: list, *, agent_name: str):
                 continue
             step_count += 1
             yield part["data"]
-    except asyncio.CancelledError:
-        error_type = "CancelledError"
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, error_type)
+    except asyncio.CancelledError as exc:
+        # A manual span (this function yields), so it applies start_span's
+        # cancellation rule itself: outcome, not ERROR.
+        error_type = error_type_of(exc)
+        span.set_attribute("app.outcome", "cancelled")
         raise
-    except Exception as exc:
-        error_type = type(exc).__name__
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, error_type)
+    except BaseException as exc:
+        error_type = error_type_of(exc)
+        mark_error(span, exc)
         raise
     finally:
         span.set_attribute("app.agent.step_count", step_count)
@@ -395,5 +396,5 @@ Use `invoke_workflow` for the coordinating process and `invoke_agent` for each a
 ## Then
 
 - metrics: `../../../metrics/genai.md`
-- logging: `../../../logging/genai.md`
+- logging: the `python-logging` skill (`../../../../../python-logging/references/genai.md`)
 - final checks: `../../../verification.md`

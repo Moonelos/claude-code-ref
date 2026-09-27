@@ -88,6 +88,15 @@ Record the date you checked the conventions in the module docstring. `gen_ai.sys
 
 ---
 
+## Span discipline
+
+- Spans are write-only: never read attributes back from a span to make a
+  decision or build another signal.
+- `gen_ai.usage.*` goes only on model-call spans (and the agent span that owns
+  them); roll-ups on business spans use `app.*` keys.
+- No spans as events: a point-in-time occurrence is a log plus a counter.
+- Do not copy `http.*` attributes onto internal spans; the server span has them.
+
 ## Operation vocabulary
 
 `gen_ai.operation.name` names the logical operation, and the span name is `{operation} {subject}`.
@@ -192,4 +201,4 @@ If the trace is one opaque span saying "called the model" with a duration, it is
 | Direct provider SDK | `provider_sdk.md` |
 | LangChain / LangGraph | `langchain/architecture.md` |
 | GenAI metrics | `../../metrics/genai.md` |
-| GenAI logging | `../../logging/genai.md` |
+| GenAI logging | the `python-logging` skill (`../../../../python-logging/references/genai.md`) |

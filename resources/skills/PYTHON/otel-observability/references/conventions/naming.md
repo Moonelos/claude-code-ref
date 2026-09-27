@@ -89,7 +89,7 @@ app.<domain>.<noun>.<qualifier>  app.retrieval.result_count
 app.outcome                      success | error | timeout | blocked
 ```
 
-Keep the enum values for `app.outcome` fixed across the whole service. A metric that groups on it is only useful if the set is closed.
+Keep the enum values for `app.outcome` fixed across the whole service. A metric that groups on it is only useful if the set is closed. Outcome is always `app.outcome` and classification always `error.type` (`errors.md`), on spans and app metrics alike: no `status`, `result`, or `error_code` synonyms. A business failure taxonomy is `app.failure.class`. Closed vocabularies are types, per the `python-code-conventions` skill (`../../../python-code-conventions/SKILL.md`, Closed vocabularies).
 
 ### The `app.*` registry
 
@@ -175,19 +175,9 @@ Backends rename metrics. Prometheus turns `app.pricing.updates` into `app_pricin
 
 ## Log event names
 
-A log event name identifies *what happened*, in the past tense or as a state change, and stays stable. Varying values go in fields.
-
-| Good | Bad |
-| --- | --- |
-| `request_received`, `request_completed` | `processing` |
-| `job_started`, `job_completed`, `job_failed` | `done` |
-| `queue_message_received`, `queue_message_processed` | `got message` |
-| `workflow_transition_started`, `workflow_transition_completed` | `state changed to paid for wf-123` |
-| `retrieval_completed` | `retrieved 5 docs` |
-| `tool_execution_failed` | `something_failed` |
-| `agent_invocation_completed` | `finished` |
-
-Full logging setup, field lists, and the OTel named-event mechanics are in `../logging/structlog.md`.
+Event-name style is owned by the `python-logging` skill
+(`../../../python-logging/SKILL.md`). Here: a service's log event names come
+from one enum, checked by a test against that style.
 
 ---
 
@@ -201,10 +191,10 @@ metric attribute gen_ai.request.model = "gpt-5"
 log field        gen_ai.request.model = "gpt-5"
 ```
 
-Where a name must differ (log fields are conventionally flat, metric labels get normalised by the backend), document the mapping once in the observability package rather than letting each call site improvise.
+Metric labels use the same keys as span attributes. Where a log field must differ (conventionally flat), document the mapping once. Keep one short key and value-set table per service in the `observability/` module docstring rather than letting each call site improvise.
 
 ---
 
 ## Where names live in code
 
-Do not scatter string literals. Put convention names in one module — see `../tracing/genai/attributes.md` for the GenAI constants module and `../setup/package_layout.md` for where it sits. When a convention changes, one file changes instead of forty call sites.
+Span, metric and event names, and attribute keys shared across signals, emitters or tests, are constants in the conventions module (`../tracing/genai/attributes.md` for GenAI, `../setup/package_layout.md` for placement). Semconv keys may be literals. A log-only field key used by one module may be a literal. Keep the conventions module as the vocabulary, not a mirror of every key; review large modules for single-use entries. Constant naming in general: the `python-code-conventions` skill (Magic values and constants).

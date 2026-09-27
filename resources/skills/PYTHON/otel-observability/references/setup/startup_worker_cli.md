@@ -8,8 +8,9 @@ flushes:
 
 ```python
 def main() -> None:
-    providers = configure_observability()
-    configure_logging(providers.logger_provider)
+    settings = load_settings()  # the service's settings entry point
+    configure_observability(telemetry_config(settings))
+    configure_logging(logging_config(settings), correlation=[add_otel_trace_context])
     try:
         run()
     finally:

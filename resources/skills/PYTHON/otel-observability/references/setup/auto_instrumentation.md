@@ -98,7 +98,7 @@ database query — only when its query-level value earns the volume
 Install process-wide hooks before any client is constructed; instrument the app instance after it exists but before it serves.
 
 ```python
-configure_observability()
+configure_observability(telemetry_config(settings))
 
 HTTPXClientInstrumentor().instrument()
 RedisInstrumentor().instrument()

@@ -57,8 +57,13 @@ the model loop.
 
 Use the fake model supported by the installed LangChain version, such as
 `GenericFakeChatModel`, to script strings, `AIMessage` tool calls, provider-like
-errors, and basic streaming. A `create_agent` test needs a fake compatible with
-tool binding.
+errors, and basic streaming. `GenericFakeChatModel` does not support
+`bind_tools`, so it cannot drive `create_agent` or any code that binds tools.
+For those, use one canonical scripted tool-calling model per member, a
+`BaseChatModel` subclass whose `bind_tools` returns `self` and records the tools
+and `tool_choice`, which mints fresh message and tool-call IDs per call, records
+the messages it saw, and fails when its script is exhausted (see the examples
+reference).
 
 - Derive retry/resume-safe fake responses from received messages or state where
   possible. A fake that returns "tool call on invocation 1, answer on invocation

@@ -115,7 +115,24 @@ may emit nothing useful.
 
 Units: `s` for duration (not `ms`), `By` for bytes, `{request}`/`{job}`/`{token}`/`{message}` for counts. Full naming rules in `../conventions/naming.md`.
 
-Histogram buckets must match the domain. The default buckets are tuned for sub-second HTTP calls; a 30-second LLM histogram or a 5-minute job histogram needs explicit bucket boundaries via a `View`, or every value lands in the overflow bucket and p95 becomes a lie. The reusable `View` definitions in `../setup/sdk_bootstrap.md` cover `app.worker.job.duration`, `app.job.duration`, and every standard GenAI duration/fan-out histogram; pass them to `MeterProvider(views=...)` rather than merely declaring a histogram.
+Histogram buckets must match the domain. The default buckets are tuned for sub-second HTTP calls; every histogram that can exceed ~5 s, or counts tokens or rows, declares its boundaries at creation with `explicit_bucket_boundaries_advisory`, or every value lands in the overflow bucket and p95 becomes a lie. A central `View` is only for third-party instruments (`../setup/sdk_bootstrap.md`).
+
+### One measurement, one instrument, one owner
+
+- Before adding a counter, list the instruments that already count the event,
+  including a histogram's `_count`. One measurement goes to one instrument.
+- Each new instrument or attribute names the query, dashboard, or alert it serves.
+- Each counter event has one owning call site. One metric name has exactly one
+  producing service; grep the other services before adding it.
+- Current state held in an object is an `ObservableGauge` whose callback reads
+  it, registered once at the composition root. A sync `Gauge.set()` is only for
+  a value computed at one well-defined point, with exactly one writer.
+- Zero baselines only for instruments with a live writer in that process.
+- New instruments use `app.<domain>.<noun>` with a UCUM unit and no `_total` or
+  unit suffix. Renaming an existing name is an explicit migration: dual-emit,
+  then remove.
+- Instruments live in the service's existing metrics module; split by
+  capability once it holds roughly fifteen.
 
 ---
 
@@ -125,14 +142,19 @@ Create them once at module load. Recording is cheap; creating is not.
 
 ```python
 # observability/metrics.py
+from collections.abc import Iterable
+
 from opentelemetry import metrics
 
 meter = metrics.get_meter(__name__)
+
+LONG_JOB_DURATION_BUCKETS = [1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0]
 
 job_duration = meter.create_histogram(
     "app.worker.job.duration",
     unit="s",
     description="Time to process one job, measured from dequeue to completion.",
+    explicit_bucket_boundaries_advisory=LONG_JOB_DURATION_BUCKETS,
 )
 
 jobs = meter.create_counter(
@@ -148,21 +170,23 @@ jobs_in_flight = meter.create_up_down_counter(
 )
 
 
-def observe_queue_depth(options):
-    yield metrics.Observation(
-        queue_client.depth("pricing-jobs"), {"messaging.destination.name": "pricing-jobs"}
+def register_queue_depth(backlog: BacklogTracker) -> None:
+    """Called once from the composition root; the callback reads held state."""
+
+    def observe(_: metrics.CallbackOptions) -> Iterable[metrics.Observation]:
+        yield metrics.Observation(backlog.depth, {"messaging.destination.name": backlog.queue})
+
+    meter.create_observable_gauge(
+        "app.worker.queue.depth",
+        callbacks=[observe],
+        unit="{message}",
+        description="Messages waiting in the queue.",
     )
-
-
-meter.create_observable_gauge(
-    "app.worker.queue.depth",
-    callbacks=[observe_queue_depth],
-    unit="{message}",
-    description="Messages waiting in the queue.",
-)
 ```
 
-Gauge callbacks run on the SDK's collection interval. Keep them fast and failure-tolerant — a callback that calls a slow API blocks metric collection for every metric in the process.
+Gauge callbacks run on the SDK's collection interval. They read state already
+held in memory; a callback that calls a slow API blocks metric collection for
+every metric in the process.
 
 ---
 
@@ -171,27 +195,34 @@ Gauge callbacks run on the SDK's collection interval. Keep them fast and failure
 Use one helper so duration, count, and in-flight always move together and every path is covered.
 
 ```python
+import asyncio
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from opentelemetry.util.types import AttributeValue
+
+from observability.spans import error_type_of
+
 
 @contextmanager
 def measure_job(*, queue: str, job_type: str) -> Iterator[None]:
-    attributes = {"messaging.destination.name": queue, "app.job.type": job_type}
+    attributes: dict[str, AttributeValue] = {
+        "messaging.destination.name": queue,
+        "app.job.type": job_type,
+    }
     jobs_in_flight.add(1, attributes)
     started = time.perf_counter()
-    outcome = "success"
-    error_type = "_NONE"
-
+    final = {**attributes, "app.outcome": "success"}
     try:
         yield
-    except Exception as exc:
-        outcome = "error"
-        error_type = type(exc).__name__
+    except asyncio.CancelledError:
+        final["app.outcome"] = "cancelled"
+        raise
+    except BaseException as exc:
+        final |= {"app.outcome": "error", "error.type": error_type_of(exc)}
         raise
     finally:
-        final = {**attributes, "app.outcome": outcome, "error.type": error_type}
         jobs.add(1, final)
         job_duration.record(time.perf_counter() - started, final)
         jobs_in_flight.add(-1, attributes)
@@ -199,12 +230,11 @@ def measure_job(*, queue: str, job_type: str) -> Iterator[None]:
 
 The `finally` is the point. Recording only on success produces an error rate whose denominator excludes errors — a metric that gets quieter exactly as the service gets worse.
 
-`error.type` needs a fixed placeholder on the success path (`_NONE`), or success and failure land in different label sets and cannot be divided against each other.
-
-This applies to **application-owned** instruments only. Standard OpenTelemetry
-instruments omit `error.type` on success instead, because the convention says
-so and a sentinel would not match what other producers emit. The rule for both
-lives in `../conventions/errors.md`, which owns `error.type`.
+Success omits `error.type`; `app.outcome` carries the split, with the same key
+on spans and metrics (`../conventions/errors.md`). In a unit-of-work helper this
+is one of the three signals closed on every exit path; combine it with the span
+and failure log in one `work_boundary`-style helper rather than N manual close
+calls.
 
 ---
 

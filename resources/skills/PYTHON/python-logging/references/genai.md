@@ -15,7 +15,7 @@ Bounded metadata is acceptable when useful: provider, requested/response model, 
 | Successful model call | No routine log; latency, usage, and success belong in existing telemetry or aggregate reporting |
 | Terminal model failure owned at provider boundary | One `model_request_failed` error |
 | Model failure escaping to HTTP/job/agent owner | Log only the outer boundary failure |
-| Recovered provider/tool retry | One warning per failed physical attempt, with attempt and `outcome=retried` |
+| Recovered provider/tool retry | Counted, not logged; log only transitions (`event-design.md#Loops and pollers`) |
 | Provider/model fallback | `model_fallback_activated` warning |
 | Guardrail block | `guardrail_blocked` |
 | Agent step limit | `agent_step_limit_reached` |

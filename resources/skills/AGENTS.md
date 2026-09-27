@@ -23,3 +23,10 @@ Prefer invoking another skill by name (`$skill-name`, `/skill-name`, or
 whatever the host's skill-invocation syntax is) over reading a file path
 directly. Use a literal relative path only as the documented fallback when
 invocation isn't available.
+
+## Rule ownership
+
+State each normative rule once, in the skill and file that owns the topic.
+Other skills link to it with one line (``See `../<skill>/<file>#<section>` ``)
+instead of restating or paraphrasing it. When a rule moves, leave a pointer
+behind, not a copy.

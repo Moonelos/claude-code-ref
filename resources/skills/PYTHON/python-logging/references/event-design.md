@@ -13,7 +13,7 @@ Log an occurrence when at least one is true:
 - it needs its own timestamp or severity;
 - it is the terminal outcome of an execution boundary.
 
-Do not log getters, loops, successful helpers, health-check success, or every step in a pipeline. For every proposed event, write the question it answers. If no concrete operational, support, audit, or business question exists, omit it.
+Do not log getters, loop iterations, successful helpers, health-check success, or every step in a pipeline. For every proposed event, write the question it answers. If no concrete operational, support, audit, or business question exists, omit it.
 
 ## Baseline catalogue
 
@@ -23,21 +23,22 @@ Choose only rows matching real boundaries:
 | --- | --- |
 | Process | `application_started`, `application_stopping` |
 | HTTP/API | `request_failed`; routine success belongs in access logs unless a business outcome must be independently searchable |
-| Worker/consumer | `job_started`, `job_completed`, `job_failed`, `queue_message_dead_lettered` |
-| Scheduled job/CLI | `job_started`, `job_completed`, `job_failed` |
+| Worker/consumer, scheduled job, CLI | `job_failed` from the owner plus one terminal business event (for example `invoice_issued`, `queue_message_dead_lettered`); no default `job_started`/`job_completed` pair |
 | Durable workflow | `workflow_transition_started`, `workflow_transition_completed`, `workflow_transition_failed` |
-| Retry/fallback | one warning for each recovered failed attempt or fallback activation |
+| Retry/fallback | recovered attempts are counted, not logged (see "Loops and pollers"); one warning when a fallback is activated |
 | Domain change | a past-tense event such as `order_approved`, `payment_declined`, `document_published` |
 
 On very hot boundaries, omit or sample routine start/completion records. Keep failure events, audit-relevant changes, and consequential external side effects.
+
+## Loops and pollers
+
+In a long-running loop or retry policy, count every failure but log only on state transitions: healthy→failing once with `exc_info`, failing→recovered once with the failure count and duration. A condition already exported as a gauge is alerted from the metric, not from repeated log lines.
 
 ## Naming
 
 The `event` value is stable, lowercase `snake_case`, and describes what happened. Variable information is a field.
 
-Good: `queue_message_received`, `workflow_transition_failed`, `payment_declined`.
-
-Bad: `processing`, `done`, `error`, `payment declined for order 8412`.
+Good: `queue_message_received`, `payment_declined`. Bad: `processing`, `done`, `error`, `payment declined for order 8412`.
 
 Do not encode severity, environment, IDs, counts, exception messages, or timestamps in event names.
 
@@ -61,4 +62,4 @@ High-cardinality identifiers are often appropriate in logs because they locate o
 
 Choose one owner for boundary outcomes. A framework access record and an application business record may both exist only when they answer different questions. Do not emit a new success record merely for symmetry with a failure record.
 
-For an exception that crosses layers, the outer boundary deciding the HTTP response, message disposition, or job result owns the single terminal error record. A recovered inner attempt may own one warning because the failure never reaches the outer boundary.
+For an exception that crosses layers, the outer boundary deciding the HTTP response, message disposition, or job result owns the single terminal error record. A recovered inner attempt is counted, not logged.

@@ -42,10 +42,8 @@ the user explicitly requests per-service configuration ownership. Apply the
 layout and merge precedence defined by `python-settings-config`; package-local Python
 settings modules remain governed by `python-service-architecture`.
 
-Workspace mode applies once a repository holds more than one independently built artifact
-(more than one Dockerfile, more than one Lambda, more than one deployed
-process). A single-service repository uses one ordinary root project and still
-follows the applicable sections below.
+Workspace mode applies once a repository holds more than one independently
+built artifact (Dockerfile, Lambda, or deployed process).
 
 ## Repository Layouts
 
@@ -71,19 +69,12 @@ development tooling.
 
 ## Naming The Top-Level Directory: `services/` vs `libs/`/`packages/`
 
-The workspace mechanics in this skill — one `pyproject.toml` per member, glob
-workspace members, one shared lockfile, `--package`-scoped installs — work
-identically no matter what the top-level directories are named. The names
-themselves are a semantic choice, not a `uv` requirement, and are worth
-getting right before laying out the repo:
+The names are a semantic choice, not a uv requirement:
 
-- **`services/`** — every independently deployable unit in the repo: an API,
-  a worker, a queue consumer, a scheduled batch job, a CLI, a frontend build —
-  whatever it is, if it ships as its own deployable it's a service. Use this
-  name for all of them, even a worker-only repo with no HTTP API in sight —
-  it's still a deployable service unit. Don't introduce an `apps/` directory
-  alongside it; every "things that get built and deployed on their own"
-  member lives under `services/`.
+- **`services/`** — every independently deployable unit: an API, a worker, a
+  queue consumer, a scheduled batch job, a CLI, a frontend build. Use this name
+  even in a worker-only repository, and don't add an `apps/` directory
+  alongside it.
 - **`libs/`** or **`packages/`** — cohesive reusable internal code with no
   deployable of its own: consumed by other members via `{ workspace = true }`,
   never has its own `Dockerfile`. A directory does not become a library merely
@@ -123,24 +114,12 @@ plumbing. An observability library may coherently own provider lifecycle, span
 helpers, propagation, trace/log correlation, redaction, and shared structured-
 logging processors when those policies are common. Service span names, business
 metrics, event vocabulary, and outcome decisions remain service-local. Use the
-`observability` skill for that package's API and lifecycle.
+`otel-observability` skill for that package's API and lifecycle.
 
-## Why Not One Root `pyproject.toml`
+## Workspace Layout
 
-A single shared dependency list forces every service to install every other
-service's dependencies. A worker that only needs `boto3` and `celery` still
-ships `fastapi` and `uvicorn` because the API service declared them in the same
-file. This is invisible at small scale and gets worse as services and
-dependencies accumulate — every Docker image grows, every image rebuild
-reinstalls unrelated packages, and `uv add <pkg>` for one service silently
-changes what every other service resolves and ships.
-
-A uv workspace fixes this without giving up a single, consistent dependency
-resolution: each service and library keeps its own dependency list, but `uv`
-still resolves the whole workspace into one lockfile and can scope an install
-to exactly one member's dependency closure.
-
-### Workspace layout
+Why one shared root dependency list fails, and what the shared dev environment
+does not guarantee: [references/workspace-rationale.md](references/workspace-rationale.md).
 
 ```text
 repo/
@@ -225,104 +204,67 @@ In CI, install the exact root `required-version`, run `uv python install`, and
 then use the root lockfile. `required-version` enforces the uv pin but does not
 install the matching uv binary by itself.
 
-## Root `pyproject.toml`
+## `pyproject.toml` Ownership
 
-### Single-service project
+- **Single deployable:** the root is an ordinary installable project with
+  runtime dependencies in `[project.dependencies]`, repo-wide tools in the root
+  `dev` group, and one root `uv.lock`. No `[tool.uv.workspace]`, no `--package`.
+- **Workspace:** the root is *virtual* — no `[project]`, no
+  `[project.dependencies]`, no `[build-system]`. It only declares members,
+  anchors the single `uv.lock`, pins uv (`required-version`), and holds the
+  shared `dev` group plus Ruff/pytest/coverage/mypy tables. Framework-specific
+  test plugins or stubs used by one member go in that member's own group.
+- **Every installable member** (service or library) owns its `pyproject.toml`
+  with `requires-python`, only the dependencies it imports, a
+  `src/<import_package>/` layout matching the project name (hyphens →
+  underscores), and `{ workspace = true }` sources for internal libraries it
+  consumes.
 
-For one deployable, the root is an ordinary installable project. Put runtime
-dependencies in root `[project.dependencies]`, development tools in the root
-`dev` dependency group, and source in `src/<import_package>/`. Keep one root
-`uv.lock`; do not add `[tool.uv.workspace]` or use `--package`:
+Read [references/pyproject-files.md](references/pyproject-files.md) for the
+concrete root, service, and library files before writing or reviewing one.
 
-```toml
-[project]
-name = "my-service"
-version = "0.1.0"
-requires-python = ">=3.13,<3.14"
-dependencies = ["fastapi", "uvicorn"]
+## Lint, Type, And Test Baseline
 
-[dependency-groups]
-dev = [
-    "mypy>=2.3.0,<3",
-    "pre-commit>=4.6.1,<5",
-    "pytest>=9.1.1,<10",
-    "pytest-cov>=7.1.0,<8",
-    "ruff>=0.16.3,<0.17",
-]
+Any rule a linter or type checker can enforce is enforced in configuration, not
+restated in prose. The template's `[tool.ruff.lint]` table is the baseline; each
+rule family carries its one-line rationale there.
 
-[build-system]
-requires = ["hatchling>=1.32.0,<2"]
-build-backend = "hatchling.build"
-```
+- `TID252` with `ban-relative-imports = "all"` is mandatory: absolute imports
+  only.
+- `C90` with `max-complexity = 10` enforces complexity. Ruff cannot measure
+  function length or nesting; those stay review signals, with the numbers in
+  `python-code-conventions` (fallback: `../python-code-conventions/SKILL.md`,
+  "Size signals").
+- `INP001` requires `__init__.py` in every package directory (rule owner:
+  `python-code-conventions`, "Imports and package markers"). With real package
+  markers mypy needs no `explicit_package_bases` or namespace-package
+  workaround; remove one when adopting the rule.
+- Do not enable `PLR0913` (keyword-only DI constructors legitimately exceed it)
+  or `EM`/`TRY003` (high volume, little value). `ANN401`, `FBT001`, and
+  `PLR2004` are optional; if enabled, exempt true adapters from `ANN401` and
+  tests from `PLR2004` through `per-file-ignores`.
+- When introducing the baseline into existing code, fix each finding or add a
+  `# noqa: <CODE> <reason>`. Never raise thresholds or broaden ignores to pass.
 
-Apply the same Ruff, pytest, coverage, and mypy configuration shown below, but
-set paths to the actual single-service roots (`src`, `tests`) instead of
-`services` and `libs`.
+mypy runs `strict` with `warn_unreachable` and the `ignore-without-code`,
+`redundant-expr`, and `possibly-undefined` error codes. Add
+`plugins = ["pydantic.mypy"]` whenever any member uses pydantic. The mypy paths
+include tests, test-support packages, and every `conftest.py`; never exclude
+them. For third-party types, add `boto3-stubs`/`types-*` to the dev group; for a
+package with no stubs, list it in one `[[tool.mypy.overrides]]` block with
+`ignore_missing_imports = true`, never per-import `# type: ignore[import-untyped]`.
 
-### Workspace virtual root and shared tooling
+Every package a member imports directly is declared in that member's
+`dependencies` (or dev group, for test-only imports); an install that arrives
+transitively is not a declaration. Coverage `source` lists every workspace
+import package.
 
-```toml
-[tool.uv]
-required-version = "==0.12.7"
-
-[tool.uv.workspace]
-members = [
-    "services/*",
-    "libs/*",
-]
-
-[dependency-groups]
-dev = [
-    "mypy>=2.3.0,<3",
-    "pre-commit>=4.6.1,<5",
-    "pytest>=9.1.1,<10",
-    "pytest-cov>=7.1.0,<8",
-    "ruff>=0.16.3,<0.17",
-]
-
-[tool.ruff]
-line-length = 100
-target-version = "py313"
-
-[tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "B", "TID252"]
-
-[tool.ruff.lint.flake8-tidy-imports]
-ban-relative-imports = "all"
-
-[tool.pytest.ini_options]
-addopts = ["-ra", "--strict-config", "--strict-markers"]
-testpaths = ["services", "libs"]
-
-[tool.coverage.run]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = true
-
-[tool.mypy]
-python_version = "3.13"
-strict = true
-```
-
-`TID252` with `ban-relative-imports = "all"` rejects every relative import
-(`from .foo import bar`, `from ..core import baz`) in favor of absolute
-imports rooted at the package name (`from api.core import baz`). Absolute
-imports stay unambiguous and grep-able regardless of which module does the
-importing, and they don't silently need updating when a module moves to a
-different nesting depth.
-
-uv supports a root with no `[project]` table at all — this is a "virtual"
-workspace root: nothing is built or installed for the root itself, it only
-groups members, anchors the single `uv.lock`, pins uv, and configures shared
-development tools. Keep repo-wide lint, test, coverage, and type-check tools in
-the root `dev` group. Keep framework-specific test plugins or type stubs used
-by only one member in that member's own dependency group.
-
-Do not add root `[project]`, root `[project.dependencies]`, or a root
-`[build-system]` merely to express Python compatibility. Put
-`requires-python` on every installable workspace member instead.
+The root `testpaths` lists member roots for discovery only. Do not add a root
+`pythonpath` listing every member; make shared test support importable per
+member as described in `../python-service-architecture/references/testing.md`
+("Test support packages"). Async tests are native `async def` under the one
+async plugin the repository already uses (anyio or pytest-asyncio); test design
+belongs to the `pytest` skill.
 
 ## Pre-commit And Pre-push
 
@@ -337,84 +279,6 @@ checks in the `pre-commit` stage and reserve workspace-wide type/test checks for
 `uv run --locked`; hook versions, root tool pins, CI, and Docker must not drift.
 Discover the repository's actual service and internal-library roots rather than
 assuming the example `services/` and `libs/` names.
-
-## Service `pyproject.toml`
-
-```toml
-[project]
-name = "api"
-version = "0.1.0"
-requires-python = ">=3.13,<3.14"
-dependencies = [
-    "fastapi",
-    "uvicorn",
-    "company-observability",
-]
-
-[tool.uv.sources]
-company-observability = { workspace = true }
-
-[build-system]
-requires = ["hatchling>=1.32.0,<2"]
-build-backend = "hatchling.build"
-```
-
-```toml
-[project]
-name = "worker"
-version = "0.1.0"
-requires-python = ">=3.13,<3.14"
-dependencies = [
-    "boto3",
-    "company-observability",
-]
-
-[tool.uv.sources]
-company-observability = { workspace = true }
-
-[build-system]
-requires = ["hatchling>=1.32.0,<2"]
-build-backend = "hatchling.build"
-```
-
-`workspace = true` tells uv to satisfy `company-observability` from
-`libs/company_observability/` instead of PyPI, and installs it editable. Each
-service declares only what it imports — `api` never sees `boto3`, `worker`
-never sees `fastapi`.
-
-Give every workspace member a `src/<package>/` layout with the import package
-matching the project name with hyphens replaced by underscores
-(`company-observability` → `src/company_observability/`). Hatchling
-autodetects that layout with no extra `[tool.hatch.build.targets.wheel]`
-config; add `packages = ["src/<package>"]` explicitly only if autodetection
-fails (for example, a project name that doesn't normalize to the directory
-name).
-
-## Shared Library `pyproject.toml`
-
-```toml
-[project]
-name = "company-observability"
-version = "0.1.0"
-requires-python = ">=3.13,<3.14"
-dependencies = [
-    "opentelemetry-api",
-    "opentelemetry-sdk",
-    "opentelemetry-exporter-otlp-proto-http",
-    "structlog",
-]
-
-[build-system]
-requires = ["hatchling>=1.32.0,<2"]
-build-backend = "hatchling.build"
-```
-
-A shared library is a workspace member exactly like a service — it gets its
-own `pyproject.toml`, its own dependencies, and is consumed by
-`{ workspace = true }` from whichever services import it. It does not need to
-know which services depend on it. The observability dependency list above is an
-example, not a default for other libraries; every member declares only what its
-own source imports.
 
 ## Internal Library Layout
 
@@ -433,7 +297,7 @@ one-file subpackages, speculative registries/factories, and generic `common`,
 Use the `python-service-architecture` skill's shared-library guidance for detailed
 module ownership, dependency direction, public exports, tests, and
 consumer-by-consumer modularization. Use the domain-specific skill as well when
-the library has one—for example, `observability` determines the internals of a
+the library has one—for example, `otel-observability` determines the internals of a
 shared telemetry and logging package.
 
 ## One Lockfile, Scoped Installs
@@ -454,23 +318,15 @@ get wrong by assuming the opposite:
   IDE environment.
 - `uv sync --package api` (or `uv run --package api …`, `uv export --package
   api`) scopes to `api` **and its transitive workspace dependencies only**.
-  Confirmed directly: `uv sync --package api` installed `api` and
-  `company-observability`, and left `worker` out entirely.
 
-The shared dev venv is not a dependency firewall. uv's own docs say so
-explicitly: *"uv can't ensure that packages don't import dependencies declared
-by another workspace member."* A stray `import worker` inside `api`'s source
-will run fine in the shared dev environment and only surface once something
-actually does a `--package`-scoped install — a production Docker build, or CI.
-Don't treat "it works locally" as proof of a clean dependency boundary; a
-scoped `uv sync --package <service>` (or the Docker build itself) is the real
-test.
+The shared dev venv is not a dependency firewall: a scoped
+`uv sync --package <service>` (or the Docker build itself) is the real test of
+a member's dependency boundary.
 
 ### Root Dev Dependencies and Docker
 
 A root `[dependency-groups] dev = [...]` group is installed **by default even
-with `--package`** — confirmed: `uv sync --package api` alone still pulled in
-a root-level dev dependency. Always pass `--no-dev` (or `--only-group
+with `--package`**. Always pass `--no-dev` (or `--only-group
 <name>` for a narrower selection) alongside `--package` when building anything
 that ships, or the "lean image" goal quietly fails:
 
@@ -601,11 +457,11 @@ in CI, or whether Terraform and application source share a repository — those
 decisions belong to the `terraform-aws`, `deploy-scripts`, and
 `split-repo-app-releases` skills. For a Lambda function's `handler.py`/`src/`
 boundary and packaging (ZIP vs. container), see `terraform-aws`'s
-`references/python-lambda.md`; a Lambda that shares code with other functions
+`../terraform-aws/references/python-lambda.md`; a Lambda that shares code with other functions
 through a uv workspace follows this skill for the workspace layout and that
 reference for the AWS-specific packaging step.
 
 Use `python-service-architecture` for the internal modularization of services and
-shared libraries. Use `observability` for the API, lifecycle, logging policy,
-and migration of a shared observability package; this skill owns only whether
+shared libraries. Use `otel-observability` for the API, lifecycle, and migration of a shared
+observability package (`python-logging` for its logging policy); this skill owns only whether
 it earns a workspace member and how consumers install it.

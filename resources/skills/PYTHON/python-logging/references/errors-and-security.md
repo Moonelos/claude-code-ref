@@ -10,28 +10,32 @@ The boundary that decides the operation's final outcome emits exactly one `error
 - current execution and permitted business correlation;
 - exception detail according to the central policy.
 
-Do not use `str(exc)` as `error.type`, an event name, or a bounded field. Do not log and re-raise at every layer. Inner code may wrap with a meaningful domain exception and preserve the cause, but it should not emit another terminal record.
+Do not use `str(exc)` as `error.type`, an event name, or a bounded field. Do not log and re-raise at every layer. Inner code may wrap with a meaningful domain exception and preserve the cause, but it should not emit another terminal record. A function that logs a summary and re-raises omits `exc_info`; the handling boundary logs the exception.
 
-A failed attempt that is handled and later succeeds may emit one `warning` at the recovery boundary with `outcome=retried|fallback|degraded`, attempt, and bounded error type. The successful outer operation is not an error.
+A failed attempt that is handled and later succeeds is counted, not logged; only state transitions are logged (see `event-design.md#Loops and pollers`). The successful outer operation is not an error.
 
-## Exception detail policy
+## Silent degradation leaves a trace
 
-Always add typed `LOG_FULL_EXCEPTION_TRACE`, default `true`, independently of environment and log level.
+When code catches and continues with a recorded fallback, it emits one `warning` with bounded `error.type` and the fallback taken, or carries a why-comment when a log would be pure noise. Which exception shapes may be caught at all is owned by `$python-service-architecture` (fallback `../../python-service-architecture/references/errors.md#Broad except shapes`).
 
-When true:
+## Exception detail
 
-- render the complete exception cause chain once;
-- place it in `exception.stacktrace`;
-- do not enable local-variable capture;
-- set `app.error.stacktrace_included=true`.
+This skill is the single owner of the exception-detail rule; tracing skills link here.
 
-When false:
+- **Call sites never build `exception.*` fields.** Pass `exc_info=exc` and nothing else. Hand-built stack traces drop the message and the `__cause__` chain. The central processor (`structlog-pipeline.md`) turns `exc_info` into `exception.type`, `exception.message`, and `exception.stacktrace`; that is the only field name for the traceback.
+- **One typed setting controls detail**: `log_full_exception_trace: bool`. It is YAML policy with no Python default, per `$python-settings-config` (fallback `../../python-settings-config/SKILL.md`): `base.yaml` sets `false` and an environment file overrides it. Never derive it from the environment name in code. Shared code takes the value as a required input and bakes in no environment policy.
+- When the service handles personal or financial data and no policy is stated, ask before enabling full detail in any environment.
 
-- remove the raw traceback and raw exception message;
-- retain a safe authored message, bounded `error.type`, stable reason/code, and correlation;
-- set `app.error.stacktrace_included=false`.
+The processor renders:
 
-Call sites pass exception information to the central renderer and never branch on the policy. Redact credentials and tokens in both modes. Check the destination's record-size limit: truncate safely below it when necessary, mark `app.error.stacktrace_truncated=true`, and retain the rest of the record. Never let an oversized traceback cause the only failure record to disappear silently.
+- **full:** fully qualified `exception.type`, the redacted message, the complete cause chain once in `exception.stacktrace`, no local-variable capture, `app.error.stacktrace_included=true`;
+- **safe** (the production baseline): `exception.type`, a safe authored message, bounded `error.type`, stable reason/code, correlation, and `app.error.stacktrace_included=false`; no raw traceback or exception message.
+
+Redact credentials and tokens in both modes.
+
+### Record-size limits
+
+A log backend can cap structured metadata per record — Grafana Loki, for example, rejects the whole line once it exceeds `max_structured_metadata_size`. A chained traceback or `ExceptionGroup` exceeds that easily, and the backend then drops the **entire record**, so the one failure record disappears with its correlation. Confirm the destination's limit before shipping full detail. Truncate the traceback safely below it and mark `app.error.stacktrace_truncated=true`; if the backend's log body has no comparable limit, carry `exception.stacktrace` in the body while bounded fields stay structured. Verify with a synthetic oversized traceback that exactly one record still arrives.
 
 ## Data classification
 
@@ -45,7 +49,7 @@ full request/response bodies and arbitrary message payloads
 personal data, document contents, prompts and model outputs
 ```
 
-Prefer allowlisting fields over chasing secret key names. When redaction is needed, traverse nested dictionaries, sequences, exception metadata, and rendered URLs; key-only top-level filters are insufficient. Use a stable marker such as `[REDACTED]`, never a reversible transform. Hashing personal identifiers still creates personal data and high-cardinality values; it requires policy approval and rotation rules.
+Prefer allowlisting fields over chasing secret key names. One redaction module (patterns plus a recursive mask), owned by the shared observability library, serves the log processor and any content serializer; do not write a second one per service. When redaction is needed, traverse nested dictionaries, sequences, exception metadata, and rendered URLs; key-only top-level filters are insufficient. Use a stable marker such as `[REDACTED]`, never a reversible transform. Hashing personal identifiers still creates personal data and high-cardinality values; it requires policy approval and rotation rules.
 
 Never capture process environment, local variables, object `repr`, or whole configuration objects. Treat user-controlled log fields as untrusted: prevent reserved-key overwrite and sanitize control characters that could forge multiline records.
 

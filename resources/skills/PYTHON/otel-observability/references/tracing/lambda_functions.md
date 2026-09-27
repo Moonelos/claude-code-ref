@@ -129,22 +129,12 @@ long-running worker loop from `worker_runtime.md` into the function.
 With the automatic invocation span already current, add only business work:
 
 ```python
-from opentelemetry import trace
-
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
 
 
-def process_price_update(payload: dict) -> None:
-    with tracer.start_as_current_span(
-        "process price update",
-        record_exception=False,
-        attributes={"app.pricing.source": payload["source"]},
-    ) as span:
-        try:
-            apply_update(payload)
-        except Exception as exc:
-            span.set_attribute("error.type", type(exc).__name__)
-            raise
+def process_price_update(update: PriceUpdate) -> None:
+    with start_span("process price update", attributes={"app.pricing.source": update.source}):
+        apply_update(update)
 ```
 
 Keep `aws_request_id`, message IDs, customer IDs, and other high-cardinality

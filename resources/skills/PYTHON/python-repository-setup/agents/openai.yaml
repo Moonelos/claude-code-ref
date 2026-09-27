@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Repository Setup"
+  short_description: "src-layout project or uv workspace, tooling, Docker"
+  default_prompt: "Use $python-repository-setup to structure or review this Python repository: uv workspace or single project, lockfile, toolchain pins, quality tooling, and Docker."

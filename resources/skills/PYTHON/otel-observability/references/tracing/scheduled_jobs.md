@@ -12,22 +12,18 @@ attempt with a `Span Link` as described in `async_handoffs.md` and
 `durable_work.md`.
 
 ```python
-from opentelemetry import trace
-
-from observability.logging import configure_logging
+from observability.logging import add_otel_trace_context, configure_logging
+from observability.spans import start_span
 from observability.tracing import configure_observability, shutdown_observability
-
-tracer = trace.get_tracer(__name__)
 
 
 def main() -> None:
-    providers = configure_observability()
-    configure_logging(providers.logger_provider)
+    settings = load_settings()
+    configure_observability(telemetry_config(settings))
+    configure_logging(logging_config(settings), correlation=[add_otel_trace_context])
     try:
-        with tracer.start_as_current_span(
-            "run nightly-repricing",
-            record_exception=False,
-            attributes={"app.job.name": "nightly-repricing"},
+        with start_span(
+            "run nightly-repricing", attributes={"app.job.name": "nightly-repricing"}
         ) as span:
             result = run_job()
             span.set_attribute("app.pricing.product_count", result.product_count)
@@ -41,5 +37,5 @@ is exactly the run whose trace you need.
 
 Use `app.job.name` and bounded `app.outcome` span attributes. Keep run IDs and
 domain record identifiers on spans and logs, never on metrics. Read
-`../metrics/service.md` for `app.job.duration` and `../logging/structlog.md` for
-`job_started`, `job_completed`, and `job_failed`.
+`../metrics/service.md` for `app.job.duration` and the `python-logging` skill
+for `job_failed` plus one terminal business event.

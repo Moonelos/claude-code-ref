@@ -24,30 +24,44 @@ queue or workflow identity. Child business spans record the decision, strategy,
 result count/category, dependency, and `error.type` actually needed to explain
 the phase; do not copy payloads or every available value.
 
-Configure providers once at startup, not per message. Shut down on the termination signal, after the in-flight message finishes:
+Start the root span only after the claim or receive returns work; count empty
+polls with a counter instead of tracing them, and never filter empty-poll spans
+at the exporter.
+
+Loop structure, stop signalling, and drain are owned by the
+`python-service-architecture` skill
+(`../../../python-service-architecture/references/api-and-workers.md`, Long-running
+worker). The telemetry parts: configure providers once at startup, one bounded
+span per unit of work, and shut telemetry down last, after the in-flight unit
+finishes:
 
 ```python
+import asyncio
 import signal
 
-stopping = False
+from opentelemetry.trace import SpanKind
 
 
-def _request_stop(*_):
-    global stopping
-    stopping = True
+async def run_worker(stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        message = await receive_message()
+        if message is None:
+            empty_polls.add(1)
+            continue
+        with start_span("process pricing-jobs", kind=SpanKind.CONSUMER, links=links_for(message)):
+            await handle_message(message)
 
 
-def main() -> None:
-    # Always this pair, in this order, with the provider passed through — the
-    # same call in every entry point (`../setup/startup_worker_cli.md`).
-    providers = configure_observability()
-    configure_logging(providers.logger_provider)
-    signal.signal(signal.SIGTERM, _request_stop)
-    signal.signal(signal.SIGINT, _request_stop)
+async def main() -> None:
+    settings = load_settings()
+    configure_observability(telemetry_config(settings))
+    configure_logging(logging_config(settings), correlation=[add_otel_trace_context])
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
     try:
-        while not stopping:
-            for message in receive_messages():
-                handle_message(message)
+        await run_worker(stop)
     finally:
         shutdown_observability()
 ```
@@ -62,18 +76,21 @@ already flows can create confusing ownership and detach errors. The symptom of
 a real loss is a span that should be a child suddenly becoming a root.
 
 ```python
+from concurrent.futures import Executor
+
 from opentelemetry import context
+from opentelemetry.context import Context
 
 
-def submit_background_work(executor, payload: dict) -> None:
+def submit_background_work(executor: Executor, payload: Payload) -> None:
     current_ctx = context.get_current()
     executor.submit(_run_with_context, current_ctx, payload)
 
 
-def _run_with_context(parent_ctx, payload: dict) -> None:
+def _run_with_context(parent_ctx: Context, payload: Payload) -> None:
     token = context.attach(parent_ctx)
     try:
-        with tracer.start_as_current_span("process payload", record_exception=False):
+        with start_span("process payload"):
             process(payload)
     finally:
         context.detach(token)
@@ -87,5 +104,5 @@ per process.
 
 - the unit-of-work transport: `queue_messaging.md` or `durable_work.md`
 - metrics: `../metrics/service.md` — queue depth, oldest-message age, job duration
-- logs: `../logging/structlog.md`
+- logs: the `python-logging` skill, with `../logging/correlation.md`
 - final checks: `../verification.md`

@@ -1,359 +1,31 @@
 # `settings.py`
 
-Use this reference when creating or changing `src/<package>/config/settings.py`.
+Scaffold for `src/<package>/config/settings.py`. The ownership rules are in
+`../SKILL.md`; this file shows how they look in code. When adapting it, keep the
+repository's environment names, grouping and existing env variable names.
 
-## Purpose
-
-`settings.py` owns typed, non-secret operational config. It should not fetch
-remote secrets and should not contain credentials. By default it reads YAML
-application baselines and knows how to locate root `config/*.yaml`, while env
-and `.env` sources retain higher precedence. It uses env vars plus Pydantic
-field defaults without YAML only after an explicit user opt-out.
-
-## Source Order
-
-Use the YAML environment-baseline source order unless the user explicitly opts
-out of YAML configuration.
-
-Env vars + Pydantic field defaults (explicit YAML opt-out only):
-
-1. Explicit kwargs for tests.
-2. Process environment variables.
-3. `.env` for local overrides.
-4. Class defaults.
-
-YAML environment baselines (default):
-
-1. Explicit kwargs for tests.
-2. Process environment variables.
-3. `.env` for local overrides.
-4. The merged repository-root YAML layers, from broadest to most specific:
-   `config/base.yaml`, `config/{ENVIRONMENT_NAME}.yaml`,
-   `config/services/<service>.yaml`, and
-   `config/services/<service>.{ENVIRONMENT_NAME}.yaml`.
-5. Class defaults.
-
-Do not ask the user to choose when they have expressed no preference: use YAML.
-Use the env-only source order only after an explicit request not to use YAML.
-
-## YAML Discovery
-
-Only add YAML discovery when using the YAML environment-baseline pattern.
-Resolve `config/` by walking upward from `settings.py`'s actual installed file
-path until a real ancestor-owned `config/` directory is found. Do not hard-code
-`Path(__file__).resolve().parents[N] / "config"`: that only works for editable
-source-tree installs. Non-editable Docker installs commonly put the module
-under `.venv/.../site-packages` while `config/` is copied to the app root, so a
-fixed parent index can point inside `.venv` and miss the deployed YAML files.
-
-In a multi-service repository, discovery must continue past the service root to
-the repository-owned `config/`; a service-local `config/` containing Python
-modules is not a YAML root. A narrow service-specific env override such as
-`MY_SERVICE_CONFIG_DIR` may select another YAML root, including the explicitly
-requested per-service layout.
-
-Do not walk upward from the process's working directory. The CWD is launch
-context, not package layout. A narrow service-specific env override such as
-`MY_SERVICE_CONFIG_DIR` is acceptable as an emergency/operator escape hatch,
-but normal runtime discovery should work without it.
-
-## Field Conventions
-
-- Use snake_case Python field names.
-- Use SCREAMING_SNAKE_CASE aliases for env vars.
-- In the YAML pattern, set `populate_by_name=True` whenever fields have env-var
-  aliases but `config/*.yaml` uses snake_case field names. Without it, YAML
-  values for aliased fields can be ignored as extras and the app may silently
-  use Python defaults.
-- Do not assume `BaseSettings(env_file=".env")` exports values to
-  `os.environ`. It only reads and merges sources into the settings instance.
-- For SDKs that normally read their own env vars, either pass the resolved
-  settings value explicitly to the SDK constructor or create a narrow bootstrap
-  helper that writes selected values to `os.environ` before SDK initialization.
-  Prefer explicit constructor arguments whenever the SDK supports them.
-- Include concise `description=` text on fields.
-- Use `Literal[...]` for constrained strings.
-- Prefer a specific Pydantic type over bare `str`/`int`/`float` whenever the
-  field's value maps onto one; see "Preferred Pydantic Types" below.
-- Use `Field(...)` only when the app cannot provide a safe default.
-- Use `Field(default=...)` only for safe, intentional application defaults.
-- In the env vars + Pydantic defaults pattern, keep environment-specific values
-  out of Python code and provide them through `.env` locally or deployment env
-  vars in staging/production.
-- In the YAML pattern, keep only intentionally environment-specific,
-  rarely-changing, application-owned non-secret policy in `config/*.yaml`.
-
-## Environment-Only Runtime Contract
-
-Under the YAML application-baseline pattern, deployment topology is still
-env-only. Add typed required `Settings` fields for non-secret runtime inputs
-that the application consumes, but do not give those fields a YAML value or
-Python default. This includes infrastructure-owned resource names,
-deployment-specific base URLs, hosts, ports, network addresses, regions or
-zones, and runtime identity. `.env` satisfies them locally; the selected
-deployment system injects them elsewhere.
-
-GenAI runtime coordinates follow the same rule even when they are not created
-by Terraform: model IDs, provider deployment names, model/provider endpoints
-or base URLs, regions/projects/resource identifiers, and deployment-owned API
-versions are required env inputs with no YAML or class default. Keep retries,
-timeouts, token limits, prompt/evidence versions, thresholds, and feature
-policy in YAML. With nested settings, derive the env name from the actual field
-path (for example, `classification.model.model_id` becomes
-`CLASSIFICATION__MODEL__MODEL_ID`); do not shorten it to an invented alias.
-
-Do not classify a relative API path as topology. Paths such as token, resource,
-or versioned API routes are integration behavior: keep them in YAML when they
-are application-owned configuration, or in code when they are invariants. A
-client normally combines an env-owned base URL with a YAML/code-owned relative
-path after both have validated.
-
-Keep the repository's existing field grouping. A nested repository may expose
-`WORKBOOK_STORE__BUCKET_NAME`; a flat repository may expose
-`WORKBOOK_STORE_BUCKET_NAME`. Do not flatten or regroup unrelated settings as
-part of moving one value to the runtime contract.
-
-Validate cross-field invariants at startup. When two platform variables are
-aliases or compatibility forms for one concept, require them to agree rather
-than silently choosing one. When an SDK consumes its own environment variable,
-validate the application-facing contract before SDK initialization; pass the
-validated value explicitly when supported, otherwise leave the SDK variable in
-the process environment and use one narrow bootstrap check. Never create a
-service-specific override for a value that the chosen architecture requires all
-clients to share.
-
-Do not put secret-source variables on `Settings` when the same variable carries
-a secret payload locally and a remote locator when deployed. Read and mask it
-inside `secrets.py`; see `secrets-py.md`.
-
-## Preferred Pydantic Types
-
-Env vars and `.env`/YAML values arrive as strings; pydantic-settings parses
-them into the field's declared type automatically, including URLs, UUIDs,
-dates, and `ByteSize`. Choose the narrowest type below before falling back to
-a bare `str`/`int`/`float` — do not hand-roll validation in code that
-Pydantic already gives you for free on the field.
-
-| Value shape | Type | Examples |
-| --- | --- | --- |
-| Must be `> 0` / `>= 0` | `PositiveInt`, `NonNegativeInt` | ports, retry counts, pool sizes, page sizes |
-| Must be `> 0.0` / `>= 0.0` | `PositiveFloat`, `NonNegativeFloat` | timeouts, backoff multipliers, ratios |
-| Must reject NaN/inf | `FiniteFloat` | any float used in arithmetic or comparisons |
-| HTTP(S) base or complete callback URL | `AnyHttpUrl` (or stricter `HttpUrl`) | downstream base URL, webhook target |
-| Non-HTTP URL/DSN without credentials | `AnyUrl` | `postgresql://`, `redis://` connection strings |
-| Filesystem location | `Path` | log directory, mount point, cert/key file path |
-| Opaque identifier | `UUID` (or `UUID4` when the version is guaranteed) | tenant ID, request ID, external resource ID |
-| Exact decimal quantity | `Decimal` | money, billing units — anything where float rounding is a bug |
-| Calendar date | `date` | billing cycle date, effective date |
-| Timestamp | `datetime`, `AwareDatetime` | schedules, expirations — use `AwareDatetime` whenever a naive value would be a bug |
-| Email address | `EmailStr` | operator/notification address |
-| Human-readable size | `ByteSize` | memory/disk/payload limits (`"512MB"`) instead of a raw byte count |
-| Fixed set of named values used elsewhere as `.name`/`.value` | `Enum` subclass | only when code needs named members, not just string comparison |
-| Fixed set of values compared only as strings | `Literal[...]` | environments, log levels, providers, modes (already covered above) |
-| Coercion itself would hide a bug | `StrictBool`, `StrictInt`, `StrictStr` | reach for these only when implicit coercion (e.g. `"false"` parsing truthy) is the specific failure to guard against, not as a default habit |
-| No narrower type applies | `str`, `bool`, `list[str]`, etc. | free-text titles, flags, tag lists |
-
-`SecretStr`/`SecretBytes` never belong on `Settings` — see `secrets-py.md`.
-
-## Nested Field Grouping
-
-Use this section once the Field Grouping decision (see `SKILL.md`) has landed
-on nested — either the user asked for it, or an existing project already
-groups fields this way. This is a namespacing change, not a functional split:
-keep one `Settings(BaseSettings)` root and one cached `get_settings()`, and
-group related fields into plain `BaseModel` subgroups nested under it.
-
-Do not create multiple independent `BaseSettings` classes to categorize
-config (e.g. a separate `DatabaseSettings(BaseSettings)` and
-`LLMSettings(BaseSettings)`). Each `BaseSettings` subclass re-runs the full
-source-resolution stack (env vars, `.env`, YAML discovery,
-`settings_customise_sources`) independently, which duplicates `model_config`
-and drifts out of sync over time. A nested `BaseModel` group under the single
-root avoids this: it is still resolved by the root's one source order.
-
-Keep environment-selection fields (`environment_name`, `log_level`) at the
-top level, ungrouped. `environment_name` is required with no default in every
-pattern; resolve it from the process environment or `.env` before choosing the
-YAML file, and fail startup naming `ENVIRONMENT_NAME` when it is absent. In the YAML pattern, `_env_name()` reads
-`ENVIRONMENT_NAME` directly from `env_settings`/`dotenv_settings` before
-`Settings` is constructed, so it must stay a flat top-level key with the stable
-`ENVIRONMENT_NAME` validation alias.
-
-Before adopting nested groups, account for these mechanics:
-
-- Set `env_nested_delimiter="__"` in `model_config`. Env vars become
-  `SERVER__APP_PORT`, `MODEL__PRIMARY_MODEL_ID` instead of flat `APP_PORT`,
-  `PRIMARY_MODEL_ID`. This changes every deployment env var and
-  `.env.example` entry for grouped fields; treat it as a breaking change, not
-  a transparent refactor.
-- Per-field `alias=` on nested model fields does not compose cleanly with
-  `env_nested_delimiter`. Keep snake_case Python names and use
-  `case_sensitive=False` for conventional uppercase variables such as
-  `SERVER__APP_PORT`, or add explicit validation aliases and contract tests if
-  case sensitivity is required. Do not claim uppercase names will bind to
-  lowercase fields under `case_sensitive=True`.
-- In the YAML pattern, nested YAML maps onto nested models directly
-  (`server: {app_port: ...}` onto `ServerSettings`), but alias/
-  `populate_by_name` precedence gets harder to verify with nesting. Test the
-  YAML load path explicitly for every grouped field, not just the flat ones.
-
-### Nested Grouping Scaffold
+## Scaffold (YAML baselines + env contract)
 
 ```python
-from functools import lru_cache
-from typing import Literal
-
-from pydantic import BaseModel, Field, PositiveFloat, PositiveInt
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-EnvironmentName = Literal["local", "staging", "production"]
-LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-
-class ServerSettings(BaseModel):
-    """HTTP server bind config."""
-
-    app_title: str = Field(default="AI Service", description="FastAPI application title.")
-    app_host: str = Field(default="0.0.0.0", description="Server bind host.")
-    app_port: PositiveInt = Field(default=8080, description="Server bind port.")
-
-
-class ModelSettings(BaseModel):
-    """LLM provider config."""
-
-    model_provider: Literal["openai", "bedrock", "bedrock_converse", "azure-openai"] = Field(
-        default="openai", description="Primary LLM provider."
-    )
-    primary_model_id: str = Field(description="Primary model used by the main agent.")
-    request_timeout_seconds: PositiveFloat = Field(
-        default=30.0, description="Default outbound request timeout."
-    )
-
-
-class Settings(BaseSettings):
-    """Non-secret settings. Secrets belong in config/secrets.py."""
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-        env_nested_delimiter="__",
-    )
-
-    environment_name: EnvironmentName = Field(..., alias="ENVIRONMENT_NAME")
-    log_level: LogLevel = Field(default="INFO", alias="LOG_LEVEL")
-
-    server: ServerSettings = Field(default_factory=ServerSettings)
-    model: ModelSettings = Field(default_factory=ModelSettings)
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
-```
-
-Usage: `settings.server.app_port`, `settings.model.primary_model_id`.
-
-## Env Vars + Pydantic Defaults Scaffold
-
-Use this scaffold only when the user explicitly opts out of YAML. Python then
-owns safe defaults, `.env` is for local overrides, and real deployments inject
-env vars.
-
-```python
-"""Application settings: typed, non-secret operational config."""
-
-from __future__ import annotations
-
-from functools import lru_cache
-from typing import Literal
-
-from pydantic import Field, PositiveFloat, PositiveInt
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-EnvironmentName = Literal["local", "staging", "production"]
-LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-
-class Settings(BaseSettings):
-    """Non-secret settings. Secrets belong in config/secrets.py."""
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore",
-    )
-
-    environment_name: EnvironmentName = Field(
-        ...,
-        alias="ENVIRONMENT_NAME",
-        description="Deployment environment name for logging/telemetry.",
-    )
-    log_level: LogLevel = Field(
-        default="INFO",
-        alias="LOG_LEVEL",
-        description="Application log level.",
-    )
-    app_title: str = Field(
-        default="AI Service",
-        alias="APP_TITLE",
-        description="FastAPI application title.",
-    )
-    app_host: str = Field(
-        default="0.0.0.0",
-        alias="APP_HOST",
-        description="Server bind host.",
-    )
-    app_port: PositiveInt = Field(
-        default=8080,
-        alias="APP_PORT",
-        description="Server bind port.",
-    )
-    model_provider: Literal[
-        "openai",
-        "bedrock",
-        "bedrock_converse",
-        "azure-openai",
-    ] = Field(
-        default="openai",
-        alias="MODEL_PROVIDER",
-        description="Primary LLM provider.",
-    )
-    primary_model_id: str = Field(
-        alias="PRIMARY_MODEL_ID",
-        description="Primary model used by the main agent.",
-    )
-    request_timeout_seconds: PositiveFloat = Field(
-        default=30.0,
-        alias="REQUEST_TIMEOUT_SECONDS",
-        description="Default outbound request timeout.",
-    )
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
-```
-
-## YAML Environment-Baseline Scaffold
-
-Use this scaffold by default. YAML should own values that rarely change, are
-intentionally environment-specific, and are not normally overridden by
-deployment env vars.
-
-```python
-"""Application settings: typed, non-secret operational config."""
+"""Typed, non-secret service settings. Secrets live in config/secrets.py."""
 
 from __future__ import annotations
 
 import os
-from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, PositiveFloat, PositiveInt
+from pydantic import (
+    AfterValidator,
+    AnyHttpUrl,
+    AnyUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    ValidationError,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -361,111 +33,80 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-
-def _discover_config_dir(module_file: Path) -> Path | None:
-    """Find the nearest ancestor-owned YAML `config` directory.
-
-    Source-tree runs place `config` next to `src`. Non-editable Docker installs
-    can place this module under `.venv/.../site-packages` while copying
-    `config` to the app root. Walking upward from the module path covers both
-    layouts without depending on the process working directory.
-    """
-    for parent in module_file.resolve().parents:
-        candidate = parent / "config"
-        if (candidate / "base.yaml").is_file():
-            return candidate
-    return None
-
-
-_CONFIG_DIR = _discover_config_dir(Path(__file__))
 SERVICE_NAME = "my-service"
+CONFIG_DIR_VARIABLE = "MY_SERVICE_CONFIG_DIR"
+
+EnvironmentName = Literal["local", "staging", "production"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+PositiveSeconds = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+Ratio = Annotated[float, Field(ge=0, lt=1, allow_inf_nan=False)]
+NonEmptyStr = Annotated[str, Field(min_length=1)]
 
 
-def _config_dir() -> Path:
-    override = os.environ.get("MY_SERVICE_CONFIG_DIR")
-    if override:
-        return Path(override)
-    if _CONFIG_DIR is None:
-        raise FileNotFoundError("Could not discover the repository-root config directory")
-    return _CONFIG_DIR
+def _reject_password(url: AnyUrl) -> AnyUrl:
+    if url.password is not None:
+        raise ValueError("URL embeds a password; move the credential to a secret")
+    return url
 
 
-def _env_name(
-    env_settings: PydanticBaseSettingsSource,
-    dotenv_settings: PydanticBaseSettingsSource,
-) -> str:
-    """ENVIRONMENT_NAME, checked in the same priority order as the rest of
-    Settings. Needed before Settings is constructed, to pick which
-    config/{ENVIRONMENT_NAME}.yaml to load. Reuses the already-configured
-    env_settings/dotenv_settings sources instead of hand-parsing `.env`, so
-    this stays consistent with whatever `.env` file is actually in effect
-    (including `_env_file` overrides in tests).
-    """
-    return (
-        env_settings().get("ENVIRONMENT_NAME")
-        or dotenv_settings().get("ENVIRONMENT_NAME")
-        or raise_missing_environment_name()
-    )
+CredentialFreeUrl = Annotated[AnyUrl, AfterValidator(_reject_password)]
 
 
-def raise_missing_environment_name() -> str:
-    raise ValueError("Missing required environment variable: ENVIRONMENT_NAME")
+class ConfigurationError(Exception):
+    """Configuration is missing or invalid. Messages name fields, never values."""
+
+
+class SettingsSection(BaseModel):
+    """Base for every nested section: YAML typos inside a section fail startup."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class RetrySettings(SettingsSection):
+    max_attempts: PositiveInt
+    initial_backoff_seconds: PositiveSeconds
+    max_backoff_seconds: PositiveSeconds
+    jitter: Ratio
+
+    @model_validator(mode="after")
+    def _check_backoff_order(self) -> Self:
+        if self.initial_backoff_seconds > self.max_backoff_seconds:
+            raise ValueError(
+                "retry.initial_backoff_seconds must not exceed retry.max_backoff_seconds"
+            )
+        return self
 
 
 class Settings(BaseSettings):
-    """Non-secret settings. Secrets belong in config/secrets.py."""
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=True,
-        populate_by_name=True,
-        extra="ignore",
+        case_sensitive=False,
+        env_nested_delimiter="__",
+        env_ignore_empty=True,  # Compose passes unset variables as ""
+        extra="ignore",  # .env is shared with unrelated variables
+        frozen=True,
+        hide_input_in_errors=True,  # cache_url input may carry a password
     )
 
-    environment_name: Literal["local", "staging", "production"] = Field(
-        ...,
-        alias="ENVIRONMENT_NAME",
-        description="Deployment environment; selects config/{environment}.yaml.",
-    )
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        default="INFO",
-        alias="LOG_LEVEL",
-        description="Application log level.",
-    )
-    app_title: str = Field(
-        default="AI Service",
-        alias="APP_TITLE",
-        description="FastAPI application title.",
-    )
-    app_host: str = Field(
-        default="0.0.0.0",
-        alias="APP_HOST",
-        description="Local server bind host.",
-    )
-    app_port: PositiveInt = Field(
-        default=8080,
-        alias="APP_PORT",
-        description="Local server bind port.",
-    )
-    model_provider: Literal[
-        "openai",
-        "bedrock",
-        "bedrock_converse",
-        "azure-openai",
-    ] = Field(
-        default="openai",
-        alias="MODEL_PROVIDER",
-        description="Primary LLM provider.",
-    )
-    primary_model_id: str = Field(
-        alias="PRIMARY_MODEL_ID",
-        description="Runtime-selected primary model; required from env.",
-    )
-    request_timeout_seconds: PositiveFloat = Field(
-        default=30.0,
-        alias="REQUEST_TIMEOUT_SECONDS",
-        description="Default outbound request timeout.",
+    # Env-only deployment contract: REQUIRED, never in YAML, no default.
+    environment_name: EnvironmentName
+    downstream_base_url: AnyHttpUrl
+    cache_url: CredentialFreeUrl
+    primary_model_id: NonEmptyStr
+
+    # YAML application policy: no Python default.
+    log_level: LogLevel
+    secret_provider: Literal["env", "remote"]
+    request_timeout_seconds: PositiveSeconds
+    batch_size: PositiveInt
+    log_full_exception_trace: bool
+    retry: RetrySettings
+
+    # OPTIONAL: platform identity and diagnostics whose default is safe everywhere.
+    service_instance_id: str | None = None
+    otlp_endpoint: AnyHttpUrl | None = Field(
+        default=None, description="Telemetry export is disabled when unset."
     )
 
     @classmethod
@@ -477,39 +118,152 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        config_dir = _config_dir()
-        environment = _env_name(env_settings, dotenv_settings)
-        required_files = [config_dir / "base.yaml", config_dir / f"{environment}.yaml"]
-        missing_files = [path for path in required_files if not path.is_file()]
-        if missing_files:
-            raise FileNotFoundError(
-                "Missing required config file(s): "
-                + ", ".join(str(path) for path in missing_files)
-            )
-        candidate_files = [
-            *required_files,
-            config_dir / "services" / f"{SERVICE_NAME}.yaml",
-            config_dir / "services" / f"{SERVICE_NAME}.{environment}.yaml",
-        ]
-        yaml_files = [path for path in candidate_files if path.is_file()]
+        environment = _environment_name(env_settings, dotenv_settings)
         yaml_source = YamlConfigSettingsSource(
-            settings_cls,
-            yaml_file=yaml_files,
-            deep_merge=True,
+            settings_cls, yaml_file=yaml_layers(environment), deep_merge=True
         )
-        return (
-            init_settings,
-            env_settings,
-            dotenv_settings,
-            yaml_source,
-            file_secret_settings,
-        )
+        return (init_settings, env_settings, dotenv_settings, yaml_source, file_secret_settings)
 
 
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()
+def _environment_name(*sources: PydanticBaseSettingsSource) -> str:
+    """Read the selector from the env sources, before YAML is chosen."""
+    for source in sources:
+        value = source().get("environment_name")
+        if isinstance(value, str) and value:
+            return value
+    raise ConfigurationError("ENVIRONMENT_NAME is required")
+
+
+def _config_dir() -> Path:
+    override = os.environ.get(CONFIG_DIR_VARIABLE)
+    if override:
+        return Path(override)
+    # Walk up from the installed module: works for source trees and site-packages.
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "config" / "base.yaml").is_file():
+            return parent / "config"
+    raise ConfigurationError(f"No config/base.yaml above the package; set {CONFIG_DIR_VARIABLE}")
+
+
+def yaml_layers(environment: str) -> list[Path]:
+    config_dir = _config_dir()
+    required = [config_dir / "base.yaml", config_dir / f"{environment}.yaml"]
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise ConfigurationError(f"Missing config file(s): {', '.join(missing)}")
+    service_layers = [
+        config_dir / "services" / f"{SERVICE_NAME}.yaml",
+        config_dir / "services" / f"{SERVICE_NAME}.{environment}.yaml",
+    ]
+    return [*required, *(path for path in service_layers if path.is_file())]
+
+
+def describe_validation_error(exc: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or 'model'}: {error['msg']}"
+        for error in exc.errors(include_input=False, include_url=False)
+    )
+
+
+def load_settings() -> Settings:
+    """Build Settings once, in the composition root."""
+    try:
+        return Settings()
+    except ValidationError as exc:
+        raise ConfigurationError(f"Invalid settings: {describe_validation_error(exc)}") from None
 ```
 
-When adapting this to an existing repo, keep its current environment enum and
-project-specific settings.
+Types: pick the narrowest Pydantic type before `str`/`int`/`float`: `Path`,
+`UUID`, `Decimal` for money, `AwareDatetime`, `EmailStr`, `ByteSize` for sizes,
+`AnyHttpUrl` for credential-free HTTP URLs. Put value-shape checks in the type
+(`AfterValidator`), not in a one-field validator. Choose bounds from library
+semantics (`max_overflow=0` is valid), and give one concept the same alias in
+every service.
+
+Notes on the scaffold:
+
+- `Settings()` type-checks under the `pydantic.mypy` plugin, which
+  `python-repository-setup` enables. Without the plugin, the accepted form is
+  `Settings()  # type: ignore[call-arg]`, once, in `load_settings()`. Don't wrap
+  it in a cached `get_settings()`; bootstrap calls `load_settings()` once.
+
+- `from None` matters: `errors(include_input=False)` only cleans your message; a
+  chained `ValidationError` would still print `input_value=...`.
+- `_environment_name` raises explicitly; don't hide the raise inside an `or` chain.
+- The root keeps `extra="ignore"`, so a top-level YAML typo is silent. Catch it
+  with the contract test below, or with a YAML source that rejects keys outside
+  an allowlist derived from `Settings.model_fields`. Don't keep a hand-written
+  allowlist that nothing consumes.
+- Keep each model validator small (about ten checks). Validate a policy object once. If bootstrap builds a frozen policy dataclass
+  that checks itself in `__post_init__`, don't repeat the check on `Settings`.
+- When variables were renamed, reject the old names with a migration message
+  until no deployment sets them:
+
+```python
+_RENAMED_VARIABLES = {"HTTP_TIMEOUT": "REQUEST_TIMEOUT_SECONDS"}
+
+
+def reject_renamed_variables() -> None:
+    stale = sorted(name for name in _RENAMED_VARIABLES if name in os.environ)
+    if stale:
+        renames = ", ".join(f"{old} -> {_RENAMED_VARIABLES[old]}" for old in stale)
+        raise ConfigurationError(f"Renamed variables are still set: {renames}")
+```
+
+## Variants
+
+- **Env-only (explicit YAML opt-out):** return
+  `(init_settings, env_settings, dotenv_settings)` and drop the YAML helpers.
+  Policy fields then carry their safe Python defaults, the only case where they do.
+- **Process env only** (the launcher already loads `.env`): set `env_file=None`,
+  then `del dotenv_settings, file_secret_settings` and return
+  `(init_settings, env_settings, yaml_source)`. `SecretSources` must match.
+- **Credentials on `Settings`:** a single-process job with one or two secrets may
+  keep `RequiredSecret` fields here. Otherwise use `secrets.py`.
+
+## Tests
+
+Unit tests are hermetic; contract tests read the committed files.
+
+```python
+@pytest.fixture(autouse=True)
+def runtime_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    for key in list(os.environ):
+        if key.split("__")[0].lower() in Settings.model_fields:
+            monkeypatch.delenv(key)
+    monkeypatch.chdir(tmp_path)  # no stray .env
+    monkeypatch.setenv(CONFIG_DIR_VARIABLE, str(tmp_path))
+    return tmp_path
+
+
+def test_backoff_order_is_enforced() -> None:
+    with pytest.raises(ValidationError, match="initial_backoff_seconds"):
+        RetrySettings(
+            max_attempts=3, initial_backoff_seconds=5, max_backoff_seconds=1, jitter=0
+        )
+
+
+# contract/: committed YAML holds only policy fields, and none has a Python default.
+ENV_ONLY_FIELDS = frozenset(
+    {"environment_name", "downstream_base_url", "cache_url", "primary_model_id"}
+)
+
+
+@pytest.mark.parametrize("environment", ["local", "staging", "production"])
+def test_yaml_keys_are_policy_fields(
+    environment: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(CONFIG_DIR_VARIABLE)
+    for path in yaml_layers(environment):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        assert isinstance(document, dict), path.name
+        keys = set(document)
+        assert keys <= set(Settings.model_fields) - ENV_ONLY_FIELDS, path.name
+        assert all(Settings.model_fields[k].is_required() for k in keys)
+```
+
+Test each meaningful invalid combination and its valid boundary; don't assert
+literal defaults one by one. If a class default on a YAML-owned field is kept
+deliberately, a contract test asserts it equals every committed baseline. A test
+that needs `Settings.model_construct()` to skip fields signals a missing
+policy slice.

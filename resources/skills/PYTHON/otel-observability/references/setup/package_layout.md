@@ -13,7 +13,7 @@ Look at what the service already has and extend it. Two shapes are common and bo
 ```
 core/
     config.py            <- existing; add the telemetry settings here
-    logging.py           <- existing or new; structlog setup
+    logging.py           <- existing logging owner (python-logging skill)
     observability.py     <- new; SDK bootstrap
 ```
 
@@ -24,16 +24,15 @@ observability/
     __init__.py          <- exports configure_observability / shutdown_observability
     tracing.py           <- Resource, TracerProvider, span processors, propagators
     metrics.py           <- MeterProvider, readers, instrument definitions
-    logging.py           <- structlog configuration and trace correlation
-    genai.py             <- model callbacks, tool middleware, agent wrappers
-    genai_attributes.py  <- GenAI convention constants        }
-    genai_usage.py       <- token usage normalization         } GenAI
-    genai_content.py     <- message/payload serializers       } services
-    genai_metrics.py     <- GenAI instruments and recorders   } only
-    agent_counters.py    <- per-invocation fan-out counters   }
+    logging.py           <- add_otel_trace_context (../logging/correlation.md)
+    spans.py             <- start_span, mark_error, error_type_of
+    genai.py             <- model callbacks, tool middleware, agent wrappers  }
+    genai_attributes.py  <- GenAI convention constants                        } GenAI
+    genai_usage.py       <- token usage normalization                         } only
+    genai_content.py     <- message/payload serializers                      }
 ```
 
-Pick the second when the service has GenAI instrumentation, more than one boundary type, or business metrics — those three together outgrow a single module quickly.
+Pick the second when the service has GenAI instrumentation, more than one boundary type, or business metrics — those three together outgrow a single module quickly. GenAI instruments go in the existing `metrics.py`; split instruments by capability only once that module holds roughly fifteen.
 
 ---
 
@@ -48,8 +47,9 @@ With a workspace library, generic plumbing belongs there; vocabulary and adapter
 The package owns all code whose sole purpose is telemetry, including:
 
 - the `Resource`
-- `TracerProvider`, `MeterProvider`, and (if used) `LoggerProvider`
-- exporters and span/metric/log processors
+- `TracerProvider` and `MeterProvider` (no OTel `LoggerProvider`; logs leave
+  through the python-logging sink)
+- exporters and span/metric processors
 - propagator configuration
 - SDK initialization and shutdown, or the managed-runtime force-flush lifecycle
 - shared helper functions — a `set_usage_attributes()`, a stable cross-service
@@ -94,91 +94,12 @@ import pressure. One callback plus one tool middleware stays flat.
 
 This matters because config objects are where a service already does validation, defaults, type coercion, and documentation. A `os.getenv("CAPTURE_AI_CONTENT")` buried in a callback is untyped, untested, and invisible to anyone reading the config.
 
-Typical addition to a `pydantic-settings` config:
-
-```python
-# core/config.py
-from functools import lru_cache
-from uuid import uuid4
-
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-    # --- existing application settings above ---
-
-    # --- observability ---
-    # Required: a reusable skill cannot choose a stable repository-specific
-    # service identity. Missing it fails during settings construction.
-    otel_service_name: str = Field(alias="OTEL_SERVICE_NAME")
-    service_namespace: str = Field(alias="SERVICE_NAMESPACE")
-    service_version: str = Field("unknown", alias="SERVICE_VERSION")
-    # The platform should override this with the Pod UID, container identity,
-    # or ECS task/container identity. UUID v4 is the safe process fallback.
-    service_instance_id: str = Field(
-        default_factory=lambda: str(uuid4()), alias="SERVICE_INSTANCE_ID"
-    )
-    environment: str = Field("development", alias="ENVIRONMENT")
-
-    otel_exporter_otlp_endpoint: str = Field(
-        "http://localhost:4318", alias="OTEL_EXPORTER_OTLP_ENDPOINT"
-    )
-    otel_traces_endpoint: str | None = Field(
-        None, alias="OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-    )
-    otel_metrics_endpoint: str | None = Field(
-        None, alias="OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
-    )
-    otel_logs_endpoint: str | None = Field(
-        None, alias="OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-    )
-    # Enable only when named OTel log events are exported. Plain JSON stdout
-    # logging and trace correlation do not need an OTel LoggerProvider.
-    otel_logs_enabled: bool = Field(False, alias="OTEL_LOGS_ENABLED")
-
-    # Batch span processor. Keep these in the application settings object so
-    # deployment overrides are validated and visible with the rest of config.
-    otel_bsp_max_queue_size: int = Field(2048, alias="OTEL_BSP_MAX_QUEUE_SIZE")
-    otel_bsp_max_export_batch_size: int = Field(
-        512, alias="OTEL_BSP_MAX_EXPORT_BATCH_SIZE"
-    )
-    otel_bsp_schedule_delay_millis: int = Field(
-        5000, alias="OTEL_BSP_SCHEDULE_DELAY"
-    )
-    otel_bsp_export_timeout_millis: int = Field(
-        30000, alias="OTEL_BSP_EXPORT_TIMEOUT"
-    )
-
-    # Periodic metric export. The 15-second interval is an intentional
-    # responsiveness trade-off; the OpenTelemetry SDK default is 60 seconds.
-    otel_metric_export_interval_millis: int = Field(
-        15000, alias="OTEL_METRIC_EXPORT_INTERVAL"
-    )
-    otel_metric_export_timeout_millis: int = Field(
-        30000, alias="OTEL_METRIC_EXPORT_TIMEOUT"
-    )
-
-    # Capture prompts, completions, tool arguments, and tool results.
-    # Off by default: these carry user content.
-    capture_ai_content: bool = Field(False, alias="CAPTURE_AI_CONTENT")
-
-    log_level: str = Field("INFO", alias="LOG_LEVEL")
-    # Always declared; independent of log level and environment. Users set
-    # false when raw traceback/message detail, including PII, must be masked.
-    log_full_exception_trace: bool = Field(
-        True, alias="LOG_FULL_EXCEPTION_TRACE"
-    )
-
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
-```
-
-For a plain-dataclass or `os.environ`-based config, add fields in the same style the file already uses. Match the house pattern; do not introduce `pydantic-settings` into a project that does not use it.
+Declare each field per the `python-settings-config` skill
+(`../../../python-settings-config/SKILL.md`): which values are required, which
+live in YAML (including exception detail), and which are OPTIONAL diagnostic
+switches with a safe Python default (content capture, export intervals). Preserve the
+service's existing settings shape. Nothing reads settings at import time;
+bootstrap maps them to explicit telemetry and logging inputs.
 
 ### Variables you will typically add
 
@@ -192,8 +113,6 @@ For a plain-dataclass or `os.environ`-based config, add fields in the same style
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base OTLP endpoint | `http://localhost:4318` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Per-signal override | derived from base |
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | Per-signal override | derived from base |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Per-signal override for named OTel events | derived from base |
-| `OTEL_LOGS_ENABLED` | Build and own an OTel `LoggerProvider` | `false` |
 | `OTEL_BSP_MAX_QUEUE_SIZE` | Maximum queued spans waiting for export | `2048` |
 | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | Maximum spans in one export batch | `512` |
 | `OTEL_BSP_SCHEDULE_DELAY` | Delay between scheduled span exports, in milliseconds | `5000` |
@@ -202,8 +121,7 @@ For a plain-dataclass or `os.environ`-based config, add fields in the same style
 | `OTEL_METRIC_EXPORT_TIMEOUT` | Metric export timeout, in milliseconds | `30000` |
 | `OTEL_PROPAGATORS` | Set explicitly in deployment; add baggage only when routed by `SKILL.md` | `tracecontext` |
 | `CAPTURE_AI_CONTENT` | GenAI content capture switch | `false` |
-| `LOG_LEVEL` | structlog level | `INFO` |
-| `LOG_FULL_EXCEPTION_TRACE` | Include the complete chained traceback in `exception.stacktrace` | `true` |
+| `LOG_LEVEL` | Log level, owned by the python-logging pipeline | `INFO` |
 
 Sampling configuration follows the provider owner and the policy selected in
 discovery. For a code-owned provider, pass `ALWAYS_ON` directly for Collector

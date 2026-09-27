@@ -10,37 +10,42 @@ startup or the request fails.
 
 ```python
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_submit_order
+from app.application.submit import SubmitOrderRequest
 from app.bootstrap.app_factory import create_app
-from tests.support.orders import RecordingSubmitOrder
+from app_testing.orders import RecordingSubmitOrder
+
+
+@dataclass(frozen=True)
+class OrdersApi:
+    client: TestClient
+    submit_order: RecordingSubmitOrder
 
 
 @pytest.fixture
-def api_client() -> Iterator[tuple[TestClient, RecordingSubmitOrder]]:
-    app: FastAPI = create_app(environment="test")
+def orders_api() -> Iterator[OrdersApi]:
+    app = create_app(environment="test")
     submit_order = RecordingSubmitOrder()
     previous_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_submit_order] = lambda: submit_order
 
     try:
         with TestClient(app) as client:
-            yield client, submit_order
+            yield OrdersApi(client=client, submit_order=submit_order)
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous_overrides)
 
 
-def test_submit_order_returns_accepted_and_forwards_identity(
-    api_client: tuple[TestClient, RecordingSubmitOrder],
+def test_submit_order_forwards_idempotency_key_and_quantity(
+    orders_api: OrdersApi,
 ) -> None:
-    client, submit_order = api_client
-
-    response = client.post(
+    response = orders_api.client.post(
         "/orders",
         headers={"Idempotency-Key": "order-op-7"},
         json={"customer_id": "customer-3", "sku": "sku-9", "quantity": 2},
@@ -48,8 +53,9 @@ def test_submit_order_returns_accepted_and_forwards_identity(
 
     assert response.status_code == 202
     assert response.json() == {"operation_id": "order-op-7", "status": "accepted"}
-    assert submit_order.requests[0].operation_id == "order-op-7"
-    assert submit_order.requests[0].quantity == 2
+    assert orders_api.submit_order.requests == [
+        SubmitOrderRequest(operation_id="order-op-7", quantity=2)
+    ]
 ```
 
 The interaction assertions are justified because translating public HTTP
@@ -69,9 +75,12 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 from asgi_lifespan import LifespanManager
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bootstrap.app_factory import create_app
 from app.db.models import Job
+
+pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
@@ -92,16 +101,15 @@ async def async_client() -> AsyncIterator[httpx.AsyncClient]:
             yield client
 
 
-@pytest.mark.anyio
 async def test_create_job_commits_visible_state(
     async_client: httpx.AsyncClient,
-    async_session_factory,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     response = await async_client.post("/jobs", json={"source": "inbox-12"})
 
     assert response.status_code == 201
-    job_id = response.json()["id"]
-    async with async_session_factory() as verification_session:
+    job_id: int = response.json()["id"]
+    async with session_factory() as verification_session:
         saved = await verification_session.get(Job, job_id)
     assert saved is not None
     assert saved.status == "queued"

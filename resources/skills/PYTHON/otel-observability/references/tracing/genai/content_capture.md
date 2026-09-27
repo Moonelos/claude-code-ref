@@ -20,11 +20,8 @@ Read `attributes.md` first for the constants module this imports from.
 **`CAPTURE_AI_CONTENT`**, read from the service config object (`../../setup/package_layout.md`), never from `os.environ` at a call site.
 
 ```python
-from core.config import get_settings
-
-settings = get_settings()
-
-if settings.capture_ai_content:
+# capture_ai_content is passed in from bootstrap, never read at import time.
+if capture_ai_content:
     system_instructions, input_messages, _ = serialize_chat_model_input(
         messages,
         separate_system_instructions=provider_uses_separate_system_field,
@@ -365,7 +362,10 @@ Conversely, a plausible UI does not prove fidelity. Provider adapters differ in
 content-block normalization and metadata casing. A serializer must retain the
 actual provider content blocks and use the provider compatibility gate in
 `langchain/model_callback.md`; do not reduce every list block to its `text` key or
-assume only snake_case finish reasons.
+assume only snake_case finish reasons. Never infer provider serialization from
+generic framework names; inspect the locked adapter source or current official
+docs and protect raw callback and export shapes with provider fixtures
+(`langchain/provider_compatibility.md`).
 
 Keep two representations when the selected backend has a documented native display
 shape:
@@ -383,7 +383,8 @@ branch maps the neutral presentation attributes to, for example,
 `langfuse.observation.input` / `langfuse.observation.output`, then deletes the neutral
 copies. Every other trace branch deletes these payload attributes with the other GenAI
 content keys. This preserves portability, prevents duplicate metadata, and keeps the
-capture switch and backend retention policy authoritative.
+capture switch and backend retention policy authoritative. Never deform `gen_ai.*`
+to satisfy one UI.
 
 For batched LangChain input, record `app.gen_ai.input.batch_size` from the returned integer. If it is greater than one, set `app.gen_ai.input.capture_mode="truncated"`; the standard attributes intentionally contain only the first conversation and its system instructions rather than merging independent inputs.
 
@@ -407,7 +408,7 @@ Without that marker, a filtered payload looks like a complete request, and someo
 
 Capturing content in the application is one decision; which backend may store it is another. **`../../collector/component.md` owns the per-backend content policy** — read it before assuming a captured payload is allowed to leave the process.
 
-The consequence for this file: capture being *on* does not mean every trace destination may receive the payload. If traces fan out to more than one backend, redact the payload attributes on the path to the general one — Collector work, in `../../collector/production.md` — and keep prompts out of the logs entirely (`../../logging/genai.md`).
+The consequence for this file: capture being *on* does not mean every trace destination may receive the payload. If traces fan out to more than one backend, redact the payload attributes on the path to the general one — Collector work, in `../../collector/production.md` — and keep prompts out of the logs entirely (the `python-logging` skill, `../../../../python-logging/references/genai.md`).
 
 Mask in the application first. A Collector `attributes` processor deletes by key; it cannot find a secret embedded inside an otherwise-permitted JSON string.
 

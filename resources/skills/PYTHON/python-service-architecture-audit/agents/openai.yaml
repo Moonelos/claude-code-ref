@@ -1,4 +1,4 @@
 interface:
   display_name: "Python Service Architecture Audit"
-  short_description: "Find and repair Python service architecture drift"
-  default_prompt: "Use $python-service-architecture-audit to audit this Python service and repair confirmed boundary violations."
+  short_description: "Find Python service architecture drift"
+  default_prompt: "Use $python-service-architecture-audit to audit this Python service."

@@ -1,113 +1,162 @@
-# `repositories/` and `queries/`
+# Repositories and queries
 
-## Repositories are the only DB-access boundary
+## Where SQL lives
 
-A repository takes a session by constructor injection — never reaches for a
-global session, never opens its own:
+Only the service's `db/` package (and shared DB libraries) imports
+`AsyncSession`, `text()`, `select()` or table models for querying.
+
+- Ordinary entity reads and writes go in repositories.
+- A cohesive operation (UoW or transaction coordinator, lease manager,
+  advisory lock, retention pass, schema probe, external read-only database)
+  may live in a precisely named `db/` module instead.
+- Application, domain and ports never run SQL. No application port per table
+  is required.
+- Direct psycopg is valid for PostgreSQL-specific privilege, cursor or policy
+  work (`psycopg.md`).
+
+## Repositories
+
+A repository receives its session by keyword and never opens, begins or
+commits one (`engine-and-session.md`, "Transactions and the unit of work"):
 
 ```python
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import col, select
 
 from myservice.db.models.user import User
 
 
 class UserRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+    def __init__(self, *, session: AsyncSession) -> None:
+        self._session = session
 
     async def get_by_email(self, email: str) -> User | None:
-        result = await self.session.exec(select(User).where(User.email == email))
+        result = await self._session.scalars(select(User).where(col(User.email) == email))
         return result.first()
 ```
 
-Constructor injection (rather than a module-level singleton repository) is
-what makes this testable against a real transactional test database and safe
-under concurrent requests, since the session it wraps is itself scoped per
-unit of work (`references/engine-and-session.md`).
+- Keep one query style per repository package: `session.scalars(select(...))`
+  with `col()` for model-returning code, or Core `execute()` for projections
+  and `RETURNING`. Don't mix them method by method.
+- Map projections into frozen kw-only dataclasses through named row
+  attributes, never `row: Any` indexed by string keys.
+- Repositories apply decisions; they don't make them (no choosing statuses,
+  retry delays or user-visible text). The read → observe → decide → write
+  shape is owned by `../../python-service-architecture/references/boundaries.md`.
+  SQL predicates that *are* the eligibility rule for a claim stay in SQL
+  (`work-queues.md`).
 
-Bootstrap constructs `UserRepository(session)` and injects it behind an
-application-owned repository port. Business/workflow code calls that port; it
-never imports the concrete repository, session, `select`, `text`, or a table
-model. That rule preserves inward dependency direction and keeps "where does
-this table get read or written" answerable by grepping one directory.
+## Inline queries vs. packaged `.sql`
 
-## Inline query builder vs. an external `.sql` file
+Keep a query beside its method when filters, joins, locking, projection and
+bound parameters read clearly together in SQLAlchemy. That holds especially
+for queries that compose, vary, or reuse shared predicates and the database
+clock helpers.
 
-Simple filters and lookups stay inline, using SQLModel's `select()` +
-`session.exec()` as above — `.exec()` (not `.execute()`) is what returns
-model instances directly for a `Select[T]`; `.execute()` still works but is
-the SQLAlchemy-core-shaped path and is the one to reach for specifically when
-running a raw `text()` query, as below.
-
-Once a query is a multi-table join, a reporting aggregate, or anything long
-enough that reading it interleaved with Python hurts, move it to its own
-`.sql` file under `queries/`, read once at import time, and run it via
-`text()`:
-
-```sql
--- queries/monthly_report.sql
-SELECT ...
-FROM ...
-WHERE created_at >= :month_start AND created_at < :month_end
-GROUP BY ...
-```
+Move **long, static** reporting or DBA-reviewed SQL to a packaged `.sql`
+resource. Choose by readability and ownership, never by join count. Load it
+once through a resource helper, not file I/O at import time. A test loads every
+packaged query, and CI runs it against the built wheel installed into a clean
+environment (not the source tree), so a wheel that dropped `*.sql` fails:
 
 ```python
-# repositories/report_repository.py
+from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from functools import cache
+from importlib.resources import files
 
-from sqlalchemy import text
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import TextClause, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-QUERY_PATH = Path(__file__).parent.parent / "queries" / "monthly_report.sql"
-MONTHLY_REPORT_SQL = QUERY_PATH.read_text()
+
+@cache
+def load_query(name: str) -> TextClause:
+    return text(files("myservice.db.queries").joinpath(name).read_text(encoding="utf-8"))
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class MonthlyTotal:
+    region: str
+    order_count: int
 
 
 class ReportRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+    def __init__(self, *, session: AsyncSession) -> None:
+        self._session = session
 
-    async def get_monthly_report(self, month_start: datetime, month_end: datetime):
-        result = await self.session.execute(
-            text(MONTHLY_REPORT_SQL),
+    async def monthly_totals(
+        self, *, month_start: datetime, month_end: datetime
+    ) -> list[MonthlyTotal]:
+        result = await self._session.execute(
+            load_query("monthly_report.sql"),
             {"month_start": month_start, "month_end": month_end},
         )
-        return result.all()
+        return [MonthlyTotal(region=row.region, order_count=row.order_count) for row in result]
 ```
 
-The `await` is on `execute()` itself; once the `Result` object comes back,
-`.all()`/`.first()`/`.scalars()` on it are plain synchronous calls — there's
-no second `await` needed to consume it.
+The `await` is on `execute()`; iterating the returned `Result` is synchronous.
 
-Read the file once, at module import, not on every call — `QUERY_PATH.read_text()`
-at module level, not inside `get_monthly_report`. The module-level constant in
-the example above already does this correctly; the mistake to avoid is moving
-the `.read_text()` call inside the method "for clarity" and re-reading the
-file from disk on every query.
+## Async relationships: eager-load explicitly
 
-## Async relationships: eager-load explicitly, never lazy-load implicitly
-
-A `Relationship()` field on a model (`references/models-and-base.md`) is not
-safe to access lazily inside an async session — the default lazy-load
-strategy issues a query synchronously under the hood, and doing that inside
-an async context either raises (`MissingGreenlet`-style errors) or silently
-reintroduces blocking I/O on the event loop. Load what you need explicitly,
-in the repository method, with `selectinload`/`joinedload`:
+Lazy-loading a `Relationship()` inside an async session raises
+(`MissingGreenlet`) or blocks the loop. Load what the call needs, in the
+repository method:
 
 ```python
+from uuid import UUID
+
 from sqlalchemy.orm import selectinload
 
 
-async def get_with_reports(self, user_id: uuid.UUID) -> User | None:
-    result = await self.session.exec(
-        select(User).where(User.id == user_id).options(selectinload(User.reports))
+async def get_with_reports(self, user_id: UUID) -> User | None:
+    # SQLModel types `User.reports` as `list[Report]`, not an ORM attribute.
+    reports = selectinload(User.reports)  # type: ignore[arg-type]
+    result = await self._session.scalars(
+        select(User).where(col(User.id) == user_id).options(reports)
     )
     return result.first()
 ```
 
-If a caller only needs `user.email`, don't eager-load `reports` for it —
-eager-loading is a per-query decision made in the repository method that
-matches what that specific call site actually needs, not a blanket option set
-once on the model.
+Eager loading is a per-query decision, not a blanket option on the model.
+
+## Raw SQL safety
+
+- Values are always bound, including `IN` lists
+  (`bindparam(..., expanding=True)` or `= ANY(:ids)`). Never hand-escape.
+- Identifiers go through one validated quoting function in a *public* module
+  of the DB package (`psycopg.sql.Identifier`, dialect quoting, or a trusted
+  allowlist). DDL identifiers and passwords use `format('%I', …)` /
+  `format('%L', …)` server-side.
+- An f-string in SQL is allowed only for a module constant or an
+  already-validated int, with a comment saying which.
+- Composed optional filters use one builder that returns `(clauses, params)`
+  and owns all placeholder naming. Use `$n` placeholders only where externally
+  authored SQL must round-trip exactly.
+- Never execute SQL text taken from outside the repository under an
+  application role; untrusted SQL follows `external-read-databases.md`.
+- Inside a transaction, never run cleanup SQL in `finally`; rely on rollback
+  or `ON COMMIT DROP`.
+
+## Efficient reads and bulk writes
+
+- Select only the columns the result needs, especially for hot claim, scan,
+  status and list queries over wide rows (large JSONB or text). Apply the
+  page bound in SQL before building objects. A detail read may load everything.
+- A page of N items costs a bounded number of queries, not one per item:
+  `IN` / `= ANY` lookups into a dict, one query per hop for graph traversal.
+- Build counters and indexes once, outside loops. Validate paginated
+  accumulation incrementally (a `seen_keys` set), not by rescanning.
+- Pagination and "latest per key" are SQL (keyset predicates,
+  `DISTINCT ON`), not deserialize-then-filter.
+- A bulk state or FK change is one `UPDATE … WHERE id IN (…)` (or
+  `= ANY(:ids)`), not a load-modify-flush loop.
+- Bulk upsert uses `insert(...).on_conflict_do_update(...)`, chunked at
+  `65535 // n_columns` rows (the bind-parameter limit).
+- A projection "rebuilt every run" deletes rows this run didn't produce; an
+  upsert alone isn't a rebuild.
+- Repository methods accept collections when callers would otherwise loop,
+  and return early on empty input.
+- A per-row loop inside a transaction is acceptable only when bounded by
+  configuration and each row depends on the previous one; state the bound.
+- Add an operation-count regression test only for a demonstrated hot path,
+  asserting a bound or scaling shape.

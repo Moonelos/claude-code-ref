@@ -1,6 +1,6 @@
 # Integration pytest examples
 
-Adapt this pattern to the installed SQLAlchemy version and the actual ownership
+Adapt these patterns to the installed SQLAlchemy version and the actual ownership
 of the application session. It applies to framework-neutral backends as well as
 FastAPI services.
 
@@ -37,3 +37,36 @@ def db_session(test_engine: Engine) -> Iterator[Session]:
 Inject this exact session through the application boundary. Do not use this
 fixture for a worker or concurrent second connection and assume its commits
 roll back; use a unique committed database/schema and explicit cleanup there.
+
+## Async SQLAlchemy same-connection transaction fixture
+
+The asyncio equivalent binds an `AsyncSession` to an `AsyncConnection` inside
+an outer transaction. `test_engine` is the session-scoped engine from the core
+examples; the fixture's loop scope must match it.
+
+```python
+from collections.abc import AsyncIterator
+
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def db_session(test_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    async with test_engine.connect() as connection:
+        outer_transaction = await connection.begin()
+        session = AsyncSession(
+            bind=connection,
+            join_transaction_mode="create_savepoint",
+            expire_on_commit=False,
+        )
+        try:
+            yield session
+        finally:
+            await session.close()
+            await outer_transaction.rollback()
+```
+
+The same caveat applies: this isolates only work on this one connection. A
+worker, a second connection, or a concurrent claimer needs committed setup in a
+unique database, schema, or tenant with explicit cleanup.

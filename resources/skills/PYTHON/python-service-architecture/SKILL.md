@@ -37,13 +37,11 @@ Before proposing or changing a structure:
    library modules.
 6. Preserve repository conventions unless changing them provides a clear,
    stated benefit. Never reorganize unrelated services merely for symmetry.
-7. Before adding or copying technical plumbing in a workspace member, inspect
-   existing libraries and matching implementations in current consumers. Compare
-   operational meaning, lifecycle, inputs, and dependency needs, not just syntax.
-   When a stable capability is repeated, evaluate shared ownership and state why
-   it should be extracted or remain local. Read-only comparison does not expand
-   the edit scope; propose a later extraction when consumer migration is outside
-   the task. Prefer an existing compatible public library API over another copy.
+7. Before adding or copying technical plumbing, inspect existing libraries and
+   matching implementations in other members, comparing meaning, lifecycle,
+   inputs, and dependencies. Prefer an existing compatible public library API
+   over another copy. Duplicates are resolved by the triggers in
+   [shared-libraries.md](references/shared-libraries.md#extraction-triggers).
 
 ## Reference routing
 
@@ -52,9 +50,11 @@ For a deployable service, read:
 - [references/templates.md](references/templates.md) for the canonical tree and
   placement map;
 - [references/boundaries.md](references/boundaries.md) for dependency,
-  ownership, ports, errors, constants, and package-growth rules;
-- [references/testing.md](references/testing.md) for test classification,
-  fixtures, markers, CI, and migration.
+  ownership, ports, bootstrap, constants, and package-growth rules;
+- [references/errors.md](references/errors.md) for raising, translating,
+  classifying, handling, and exposing failures;
+- [references/testing.md](references/testing.md) for test placement, profiles,
+  markers, CI selection, and support packages.
 
 For an internal library, read
 [references/shared-libraries.md](references/shared-libraries.md) and
@@ -62,6 +62,8 @@ For an internal library, read
 authoritative wherever service rules would imply extra folders. Load only the
 additional references that apply:
 
+- Read [references/async-and-lifecycle.md](references/async-and-lifecycle.md)
+  for any service with async I/O or long-lived resources.
 - Read [references/api-and-workers.md](references/api-and-workers.md) for an HTTP
   API, worker, scheduled process, queue/Kafka/SQS consumer, or hybrid service.
 - Read [references/ai.md](references/ai.md) when the package invokes an LLM,
@@ -74,29 +76,28 @@ additional references that apply:
   Keep it loaded when extracting service code into `libs/*` or reorganizing an
   existing library.
 
+Below module placement, language-level idioms and size signals are owned by
+`python-code-conventions` (fallback: `../python-code-conventions/SKILL.md`).
+General code-style rules come from CLAUDE.md.
+
 ## Enforced invariants
 
 These are requirements, not optional examples:
 
 1. **Business execution lives in `application/`.** Use it for executable
-   business-value actions, use cases, and orchestration. Do not create root
-   `pipeline/`, `use_cases/`, `workflows/`, `operations/`, generic service
-   catch-alls, or root business-capability packages as alternatives. A true
-   transport-only or health-only process is an explicit exception that must be
-   explained.
+   business-value actions, use cases, and orchestration. Business capabilities
+   are organized inside `application/` and `domain/`; there are no root-level
+   peers of the technical boundaries (`pipeline/`, `use_cases/`, `workflows/`,
+   `operations/`). A true transport-only or health-only process is an explicit
+   exception that must be explained.
 2. **Dependencies point inward.** Application code never imports `bootstrap`,
    `api`, consumers, `adapters`, `db`, or `genai`; domain and ports never know
    framework or SDK details. `bootstrap/` is the ordinary runtime composition
    root. See `boundaries.md` for the complete dependency and contract rules.
 3. **Concrete integrations have stable owners.** HTTP belongs in `api/`,
    persistence in `db/`, and all other non-GenAI integrations in root
-   `adapters/`. Keep adapter modules flat initially and encode the provider or
-   technology in the filename when needed. Introduce a provider or technology
-   subpackage only after multiple cohesive modules, independent change or setup,
-   distinct test infrastructure, or demonstrated naming pressure justifies it;
-   provider identity alone does not justify a folder. Do not create root
-   `messaging/`, one-file provider subpackages, or place concrete integrations
-   in business packages.
+   `adapters/`, flat until the promotion rule in `boundaries.md` justifies a
+   provider subpackage. There is no root `messaging/`.
 4. **Every GenAI implementation concern lives in root `genai/`; telemetry stays
    in root `observability/` or a justified observability library.** LLMs, agents,
    prompts, AI schemas, tools, graphs, model bindings, and behavior-changing AI
@@ -104,40 +105,30 @@ These are requirements, not optional examples:
    Telemetry-only callbacks, tracing middleware, usage adapters, and agent-span
    wrappers belong in the service's existing `observability/` boundary by
    default, even when they import LangChain or another framework. Application
-   code sees a typed port and business result. Every GenAI task keeps model
-   construction in an `llm.py` factory; an agent adds an `agent.py` factory;
-   `bootstrap/` calls those factories with resolved configuration and
-   dependencies. An application-facing implementation is named after its port
-   capability. Read `ai.md` for the enforced internal shape and ownership rules.
+   code sees a typed port and business result. Models are built by factory
+   functions that `bootstrap/` calls with the task's settings slice; there is no
+   mandatory `llm.py`. The application-facing implementation is named after its
+   port capability. Read `ai.md` for the ownership rules.
 5. **Package growth is flat-first.** Start with the fewest cohesive modules and
    introduce only the narrower subpackage whose independent ownership, change,
-   setup, or naming pressure justifies it. Do not create file-per-class layouts,
-   speculative extension points, or catch-alls.
+   setup, or naming pressure justifies it (`boundaries.md`).
 6. **Names, errors, constants, and contracts follow ownership.** Ports describe
    caller-needed external capabilities, not implementations or deterministic
-   in-process logic. Never create global `utils`, `common`, `shared`, root
-   `constants.py`, or root/`core`/`common` error collections. Translate concrete
-   failures to the port-owned contract before application code sees them.
+   in-process logic. Never create root `constants.py` or root/`core`/`common`
+   error collections. Translate concrete failures to the port-owned contract
+   before application code sees them; error design is in `errors.md`.
 7. **Tests belong to their member and actual execution profile.** Keep them
    beside the member's `src/`. When multiple profiles exist, classify them as
    `unit`, `integration`, `contract`, or `e2e` by what they execute, then by
-   behavioral owner. Fixtures and support code stay at the narrowest shared
-   scope; markers and CI selectors must match the profiles.
+   behavioral owner (`testing.md`). Test design is owned by `pytest`.
 8. **Internal libraries use the library shape.** They do not acquire a service
    shell for symmetry, import deployable-private code, or become generic shared
    dumping grounds. Promote code only after real reuse or a concrete independent
    compatibility boundary exists.
-9. **All Python imports are absolute.** Always import through the full package
-   path in production code, tests, scripts, migrations, and support modules.
-   Never use relative imports, including single-dot imports within one package.
-10. **Do not confuse Python configuration code with YAML ownership.** A
-   service's `src/<package>/config/` contains Python modules such as
-   `settings.py` and `secrets.py`; it is not the location for committed YAML
-   baselines. In a multi-service repository, YAML baselines live in the shared
-   repository-root `config/` by default, even though every service owns its
-   `pyproject.toml`. Create service-local YAML `config/` directories only when
-   the user explicitly requests the per-service alternative. Use
-   `python-settings-config` for the shared layout and merge order.
+9. **All Python imports are absolute** (enforced by Ruff `TID252`).
+10. **`src/<package>/config/` holds Python settings code, not YAML baselines.**
+   YAML location and merge order are owned by `python-settings-config`
+   (fallback: `../python-settings-config/SKILL.md`).
 
 Create only directories required by the current member. The canonical tree is
 a placement policy, not permission to add empty packages.
@@ -166,8 +157,12 @@ requests both.
 - Use `python-repository-setup` to decide whether shared code earns a
   workspace member and for `pyproject.toml`, dependency isolation, lockfiles,
   scoped installs, root pre-commit/pre-push tooling, and Docker build layout.
+- Use `python-code-conventions` for language-level idioms and size signals.
 - Use `python-settings-config` for detailed settings/secrets implementation.
-- Use `python-sqlmodel-alembic` for SQLModel, repositories, sessions, and
-  Alembic structure.
-- Use `otel-observability` for actual OpenTelemetry implementation or audit,
-  including the lifecycle and logging contract of a shared observability library.
+- Use `python-sqlmodel-alembic` for SQLModel, repositories, sessions, units of
+  work, work queues, and Alembic structure.
+- Use `otel-observability` for OpenTelemetry tracing, metrics, and shared
+  observability libraries; `python-logging` for application logging, including
+  exception detail.
+- Use `pytest` for test design and `python-service-architecture-audit` for the
+  audit procedure.

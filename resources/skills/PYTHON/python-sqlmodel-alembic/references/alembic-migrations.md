@@ -17,16 +17,17 @@ shape by hand — see the template below.
 ```python
 import asyncio
 from logging.config import fileConfig
+from typing import Final
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import Connection, pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Import every model module before this line — a model that was never
-# imported never registered on the metadata, and autogenerate will see an
-# empty schema for it. See references/models-and-base.md.
+import db_models.models  # noqa: F401  registers every table on the metadata
 from db_models.base import SQLModel
-from db_models.models import *  # noqa: F401,F403
+
+MIGRATION_LOCK_NAME: Final = "db-migrate"
+MIGRATION_LOCK_TIMEOUT: Final = "60s"
 
 config = context.config
 if config.config_file_name is not None:
@@ -35,7 +36,7 @@ if config.config_file_name is not None:
 target_metadata = SQLModel.metadata
 
 
-def do_run_migrations(connection):
+def do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -43,22 +44,28 @@ def do_run_migrations(connection):
         compare_server_default=True,
     )
     with context.begin_transaction():
+        connection.execute(
+            text("SELECT set_config('lock_timeout', :timeout, true)"),
+            {"timeout": MIGRATION_LOCK_TIMEOUT},
+        )
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:name))"),
+            {"name": MIGRATION_LOCK_NAME},
+        )
         context.run_migrations()
 
 
-async def run_async_migrations():
+async def run_async_migrations() -> None:
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
-
-
-def run_migrations_online():
-    asyncio.run(run_async_migrations())
+    try:
+        async with connectable.connect() as connection:
+            await connection.run_sync(do_run_migrations)
+    finally:
+        await connectable.dispose()
 
 
 if context.is_offline_mode():
@@ -66,25 +73,27 @@ if context.is_offline_mode():
     with context.begin_transaction():
         context.run_migrations()
 else:
-    run_migrations_online()
+    asyncio.run(run_async_migrations())
 ```
 
-Three things that are easy to get wrong here, in order of how often they bite:
+Things that are easy to get wrong here, in order of how often they bite:
 
 - **Import the models before `target_metadata = SQLModel.metadata`.** This is
-  the single most common cause of "I added a model but `--autogenerate`
-  produced an empty migration" — the class exists in your source tree, but
-  nothing ever ran the module that defines it, so it never attached itself to
-  the metadata object Alembic is diffing against.
-- **`poolclass=pool.NullPool` on the migration engine specifically.** A
-  migration run is one connection, used once, then torn down — pooling adds
-  nothing here and only risks a lingering connection outliving the process.
-  This is *only* for this throwaway engine; the app's real `engine.py`
-  (`references/engine-and-session.md`) must not use `NullPool`.
-- **`compare_type=True, compare_server_default=True`.** Current Alembic enables
-  type comparison by default, while server-default comparison remains disabled
-  because accuracy varies by dialect. Set both explicitly so the intended drift
-  policy remains visible and stable across supported Alembic versions.
+  the most common cause of "I added a model but `--autogenerate` produced an
+  empty migration": nothing ever ran the module that defines it, so it never
+  attached itself to the metadata Alembic diffs against.
+- **Serialize runs.** The transaction-scoped advisory lock with a bounded
+  `lock_timeout` makes two concurrent runners (two deploys, a retried job)
+  queue or fail instead of interleaving. It is released at commit. With
+  `transaction_per_migration=True`, take a session-level `pg_advisory_lock`
+  on the connection instead and unlock in `finally`. Keep a test that starts
+  two runners and asserts they can't overlap.
+- **`poolclass=pool.NullPool` on the migration engine only.** A migration run
+  is a one-shot process (`engine-and-session.md`); the app engine must not use
+  `NullPool`.
+- **`compare_type=True, compare_server_default=True`.** Type comparison is on
+  by default in current Alembic; server-default comparison is not. Set both
+  explicitly so the drift policy is visible.
 
 ## `alembic.ini`
 
@@ -93,7 +102,7 @@ real connection string. Set it at runtime from the same resolved settings the
 app uses, either via an environment variable Alembic reads
 (`sqlalchemy.url = ${DATABASE_URL}` with `os.path.expandvars` wired into
 `env.py`, or simplest: `config.set_main_option("sqlalchemy.url", settings.database_url)`
-near the top of `env.py`, before `run_migrations_online()` is called.
+near the top of `env.py`, before the online/offline branch runs.
 
 `script_location` points at wherever `alembic/` actually lives per
 `references/repo-layout.md` — colocated under `db/alembic/`
@@ -169,8 +178,9 @@ new NOT NULL column or reshapes existing rows. When a revision needs data
 work:
 
 - Do it with `op.execute` / `sa.table()` lightweight constructs, **not** by
-  importing application models — the models describe *today's* schema, and a
-  model-importing migration breaks the moment the model evolves past it.
+  importing application models or live model constants (enum members,
+  defaults). Those describe *today's* schema; inline a frozen copy of the
+  values instead, or the migration breaks the moment the model evolves.
 - The additive-column pattern: add nullable (or with a server default) →
   backfill → then tighten to NOT NULL, in that order, so the table is never
   invalid mid-flight.
@@ -182,12 +192,75 @@ work:
 ## One head, even with many authors
 
 Two branches that each add a revision merge into a history with two heads,
-and `alembic upgrade head` refuses to guess. Catch it in CI rather than at
-deploy time — fail the build when `alembic heads` prints more than one line —
-and repair with a merge revision (`alembic merge -m "merge" <rev1> <rev2>`)
+and `alembic upgrade head` refuses to guess. Catch it in CI with the
+single-head test under "Migration tests", and repair with a merge revision (`alembic merge -m "merge" <rev1> <rev2>`)
 or by re-parenting the newer branch's `down_revision`. The monorepo layout
 already minimizes this (one place can generate revisions), but it cannot
 prevent two PRs racing.
+
+## Runner commands
+
+The migration runner exposes three commands and nothing else is needed to
+operate it: `upgrade` (`alembic upgrade head`), `check` (`alembic check`,
+used by CI and before deploys) and `sql` (`alembic upgrade head --sql`, the
+offline script for DBA review). All run with the `env.py` settings above.
+
+## Writing revisions
+
+- **Naming:** the metadata naming convention (`models-and-base.md`) names
+  every PK/FK/UQ/CK/IX; revisions refer to names through `op.f()`. Hand-name
+  only what the convention can't express.
+- **Revision ids** are `YYYYMMDD_NNNN` via `alembic revision --rev-id`, with
+  `file_template = %%(rev)s_%%(slug)s` so files read
+  `YYYYMMDD_NNNN_<slug>.py`. Keep the id itself short: `alembic_version.version_num`
+  is `VARCHAR(32)`.
+- **`script.py.mako` follows house style:** PEP 604 unions,
+  `collections.abc`, and typed module attributes:
+
+  ```mako
+  from collections.abc import Sequence
+
+  revision: str = ${repr(up_revision)}
+  down_revision: str | None = ${repr(down_revision)}
+  branch_labels: str | Sequence[str] | None = ${repr(branch_labels)}
+  depends_on: str | Sequence[str] | None = ${repr(depends_on)}
+  ```
+
+- Use one SQLAlchemy type per concept across revisions (`sa.Uuid()`,
+  `sa.DateTime(timezone=True)`, `sa.func.now()`).
+- **Check data before tightening constraints.** Before adding NOT NULL, a
+  CHECK or a unique constraint, query for violations and fail with example
+  keys and an operator instruction, instead of letting the DDL fail opaquely.
+- A backfill's temporary `server_default` is dropped after the backfill,
+  unless the model declares it permanently.
+- **Every `downgrade()` is an exact inverse**, or raises deliberately with an
+  operator-facing reason. A downgrade never silently loses data.
+- After a feature removal, file the contract (drop) migration for the next
+  release, and remove dialect variants nothing uses any more.
+
+## Migration tests
+
+Call Alembic `command.*` from async tests through `asyncio.to_thread`, since
+`env.py` runs its own event loop. Test placement follows
+`../../python-service-architecture/references/testing.md` (Profiles and markers).
+
+```python
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+from myservice.db.schema import EXPECTED_SCHEMA_REVISION
+
+
+def test_history_has_a_single_head(alembic_config: Config) -> None:
+    assert len(ScriptDirectory.from_config(alembic_config).get_heads()) == 1
+
+
+def test_code_expects_the_current_head(alembic_config: Config) -> None:
+    assert ScriptDirectory.from_config(alembic_config).get_current_head() == EXPECTED_SCHEMA_REVISION
+```
+
+Both are DB-free. Never count revision files; other tests reference
+`EXPECTED_SCHEMA_REVISION`, never a literal revision id.
 
 ## A fresh database replays the entire history
 

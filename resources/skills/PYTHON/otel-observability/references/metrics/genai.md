@@ -11,17 +11,23 @@ each conditional row whose capability exists. These sit on top of the matching
 service baseline in `service.md`. Use the standard names rather than inventing
 `llm.requests`, so dashboards, backends, and future instrumentation agree.
 
-| Default when | Metric | Instrument | Unit | Answers |
-| --- | --- | --- | --- | --- |
-| Every GenAI app | `gen_ai.client.operation.duration` | Histogram | `s` | model latency, error rate, timeouts |
-| Every GenAI app | `gen_ai.client.token.usage` | Histogram | `{token}` | token distribution and prompt growth |
-| Streaming | `gen_ai.client.operation.time_to_first_chunk` | Histogram | `s` | streaming UX |
-| Tool use | `gen_ai.execute_tool.duration` | Histogram | `s` | tool latency and error rate |
-| Agent | `gen_ai.invoke_agent.duration` | Histogram | `s` | one agent invocation |
-| Agent | `gen_ai.invoke_agent.inference_calls` | Histogram | `{inference_call}` | model fan-out per invocation |
-| Agent with tools | `gen_ai.invoke_agent.tool_calls` | Histogram | `{tool_call}` | tool fan-out per invocation |
-| Streaming agent | `app.agent.time_to_first_chunk` | Histogram | `s` | end-user agent response latency |
-| Multi-agent workflow | `gen_ai.invoke_workflow.duration` | Histogram | `s` | multi-agent workflow latency |
+The Stability column is taken from the pinned convention revision
+(`../compatibility.md`): it defines no stable GenAI metric, so every `gen_ai.*`
+row is **development**; `app.*` rows are app-defined.
+Before adding a `gen_ai.*` row, confirm the pinned revision defines that name;
+if it does not, emit it as `app.gen_ai.*` instead.
+
+| Default when | Metric | Instrument | Unit | Stability | Answers |
+| --- | --- | --- | --- | --- | --- |
+| Every GenAI app | `gen_ai.client.operation.duration` | Histogram | `s` | development | model latency, error rate, timeouts |
+| Every GenAI app | `gen_ai.client.token.usage` | Histogram | `{token}` | development | token distribution and prompt growth |
+| Streaming | `gen_ai.client.operation.time_to_first_chunk` | Histogram | `s` | development | streaming UX |
+| Tool use | `gen_ai.execute_tool.duration` | Histogram | `s` | development | tool latency and error rate |
+| Agent | `gen_ai.invoke_agent.duration` | Histogram | `s` | development | one agent invocation |
+| Agent | `gen_ai.invoke_agent.inference_calls` | Histogram | `{inference_call}` | development | model fan-out per invocation |
+| Agent with tools | `gen_ai.invoke_agent.tool_calls` | Histogram | `{tool_call}` | development | tool fan-out per invocation |
+| Streaming agent | `app.agent.time_to_first_chunk` | Histogram | `s` | app-defined | end-user agent response latency |
+| Multi-agent workflow | `gen_ai.invoke_workflow.duration` | Histogram | `s` | development | multi-agent workflow latency |
 
 The two `*_calls` metrics are **histograms recorded once per invocation**, not counters incremented per call. They describe fan-out. Do not sum them against a per-call counter; the aggregation semantics differ and the result is meaningless.
 Add `app.*` metrics only for product facts these do not express.
@@ -30,25 +36,38 @@ Add `app.*` metrics only for product facts these do not express.
 
 ## The metrics module
 
-Every recorder is a function so that call sites cannot drift apart on labels. This is what the code in `../tracing/genai/langchain/` and `../tracing/genai/provider_sdk.md` imports.
+Put these in the service's existing metrics module. A recorder function earns
+its place only when an instrument is recorded from two or more call sites or
+needs normalization, as the ones below do; otherwise record at the call site.
+This is what the code in `../tracing/genai/langchain/` and
+`../tracing/genai/provider_sdk.md` imports.
 
 ```python
-# observability/genai_metrics.py
-from typing import Any
+# observability/metrics.py (GenAI section)
+from collections.abc import Mapping
 
 from opentelemetry import metrics
 
 meter = metrics.get_meter(__name__)
 
+# GenAI semantic-convention boundaries, pinned by ../compatibility.md.
+CLIENT_DURATION_BUCKETS = [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92]
+TOKEN_BUCKETS = [float(4**i) for i in range(14)]  # 1 .. 67108864
+AGENT_DURATION_BUCKETS = [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8, 409.6]
+WORKFLOW_DURATION_BUCKETS = [1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0]
+FAN_OUT_BUCKETS = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]
+
 model_duration = meter.create_histogram(
     "gen_ai.client.operation.duration",
     unit="s",
     description="Duration of one GenAI client operation.",
+    explicit_bucket_boundaries_advisory=CLIENT_DURATION_BUCKETS,
 )
 token_usage = meter.create_histogram(
     "gen_ai.client.token.usage",
     unit="{token}",
     description="Tokens used by a GenAI client operation.",
+    explicit_bucket_boundaries_advisory=TOKEN_BUCKETS,
 )
 # Cache and reasoning counts are subsets of input/output totals. Keep them on
 # separate application-owned instruments so summing the standard histogram can
@@ -57,51 +76,61 @@ cache_read_token_usage = meter.create_histogram(
     "app.gen_ai.client.token.cache_read.usage",
     unit="{token}",
     description="Input tokens served from a provider cache.",
+    explicit_bucket_boundaries_advisory=TOKEN_BUCKETS,
 )
 cache_write_token_usage = meter.create_histogram(
     "app.gen_ai.client.token.cache_write.usage",
     unit="{token}",
     description="Input tokens written to a provider cache.",
+    explicit_bucket_boundaries_advisory=TOKEN_BUCKETS,
 )
 reasoning_token_usage = meter.create_histogram(
     "app.gen_ai.client.token.reasoning.usage",
     unit="{token}",
     description="Output tokens used for provider-reported reasoning.",
+    explicit_bucket_boundaries_advisory=TOKEN_BUCKETS,
 )
 time_to_first_chunk = meter.create_histogram(
     "gen_ai.client.operation.time_to_first_chunk",
     unit="s",
     description="Time from request to first streamed chunk.",
+    explicit_bucket_boundaries_advisory=CLIENT_DURATION_BUCKETS,
 )
 tool_duration = meter.create_histogram(
     "gen_ai.execute_tool.duration",
     unit="s",
     description="Duration of one tool execution.",
+    explicit_bucket_boundaries_advisory=CLIENT_DURATION_BUCKETS,
 )
 agent_duration = meter.create_histogram(
     "gen_ai.invoke_agent.duration",
     unit="s",
     description="Duration of one agent invocation.",
+    explicit_bucket_boundaries_advisory=AGENT_DURATION_BUCKETS,
 )
 agent_inference_calls = meter.create_histogram(
     "gen_ai.invoke_agent.inference_calls",
     unit="{inference_call}",
     description="Model calls made during one agent invocation.",
+    explicit_bucket_boundaries_advisory=FAN_OUT_BUCKETS,
 )
 agent_tool_calls = meter.create_histogram(
     "gen_ai.invoke_agent.tool_calls",
     unit="{tool_call}",
     description="Tool calls made during one agent invocation.",
+    explicit_bucket_boundaries_advisory=FAN_OUT_BUCKETS,
 )
 workflow_duration = meter.create_histogram(
     "gen_ai.invoke_workflow.duration",
     unit="s",
     description="Duration of one coordinated GenAI workflow.",
+    explicit_bucket_boundaries_advisory=WORKFLOW_DURATION_BUCKETS,
 )
 agent_ttfc = meter.create_histogram(
     "app.agent.time_to_first_chunk",
     unit="s",
     description="Agent invocation to first chunk visible to the caller.",
+    explicit_bucket_boundaries_advisory=AGENT_DURATION_BUCKETS,
 )
 
 
@@ -112,7 +141,7 @@ def record_model_operation(
     provider: str,
     request_model: str | None,
     response_model: str | None = None,
-    usage: dict[str, Any] | None = None,
+    usage: Mapping[str, object] | None = None,
     error_type: str | None = None,
 ) -> None:
     """Record duration and token usage for one physical model request."""
@@ -239,7 +268,9 @@ do not add it to `gen_ai.execute_tool.duration`, the agent duration/fan-out
 metrics, or the workflow duration metric unless a later pinned revision
 declares it there.
 
-The `View` definitions that apply the convention's explicit boundaries to these instruments live in `../setup/sdk_bootstrap.md`. Declaring a histogram here does not configure its boundaries.
+Declare each histogram's boundaries at creation with
+`explicit_bucket_boundaries_advisory` (`service.md`); the central `View`
+registry in `../setup/sdk_bootstrap.md` is only for third-party instruments.
 
 ---
 
@@ -249,7 +280,7 @@ The `View` definitions that apply the convention's explicit boundaries to these 
 
 <!-- complete-python-template -->
 ```python
-# observability/agent_counters.py
+# observability/agent_counters.py (or the existing metrics module)
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -390,11 +421,9 @@ If quality scores are exported as metrics, publish the sample count next to ever
 - No metric carries a conversation ID, user ID, or response ID.
 - Series count stays flat under sustained load.
 
-When the target repository contains architecture/02_metrics_design_cheatsheet.md, use its starter dashboards and burn-rate alerts to build on these metrics.
-
 ---
 
 ## Then
 
-- logging: `../logging/structlog.md`, then `../logging/genai.md`
+- logging: the `python-logging` skill (`../../../python-logging/references/genai.md`), with `../logging/correlation.md`
 - final checks: `../verification.md`

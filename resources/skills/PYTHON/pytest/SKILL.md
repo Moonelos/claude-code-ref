@@ -79,7 +79,8 @@ do not claim that example code ran.
 
 ## Make a risk-to-proof map
 
-For non-trivial work, record a compact matrix before implementation:
+When designing or reviewing a suite (not for a single regression test), a
+compact matrix is a useful heuristic before implementation:
 
 | Behavior or risk | Regression the test catches | Stable oracle | Cheapest faithful profile | Controlled or real dependencies |
 | --- | --- | --- | --- | --- |
@@ -91,8 +92,7 @@ journeys over getters, constructors, and incidental branches.
 
 ## Select the proof boundary
 
-Classify by what the test actually executes, not by its filename or the package
-under test:
+Choose by what the test must execute to expose the defect:
 
 - **Unit:** wholly in process and deterministic. Exercise domain rules,
   application actions, parsers, routers, graph nodes, and concrete adapters with
@@ -103,6 +103,9 @@ under test:
 - **Contract:** verify an externally consumed compatibility surface such as a
   schema, serialized message, package export, configuration document, or
   provider/client conformance without claiming the live system works.
+- **Framework characterization:** a contract test that pins third-party
+  behavior the application relies on; design rules are in
+  [references/core-principles.md](references/core-principles.md).
 - **Integration:** run a concrete adapter against a real disposable
   implementation: the production database dialect, broker, filesystem,
   checkpointer, protocol endpoint, or service emulator.
@@ -116,6 +119,14 @@ Move upward only when the lower boundary cannot expose the intended defect.
 Keep a higher-level test when its wiring, lifecycle, serialization, process, or
 real-infrastructure coverage adds distinct confidence.
 
+Directory placement, profile classification, markers, CI selection, and where
+shared test-support types live are owned by `$python-service-architecture`:
+`../python-service-architecture/references/testing.md` ("Profiles and
+markers", "Test support packages"). This skill owns test design, doubles,
+assertions, async, and flakiness. For telemetry tests see
+`../otel-observability/references/testing.md`; for settings tests and settings
+fixtures see `$python-settings-config` (`../python-settings-config/SKILL.md`).
+
 ## Required references
 
 Read [references/core-principles.md](references/core-principles.md) for every
@@ -124,16 +135,17 @@ task using this skill. Then read only the references relevant to the system:
 - Read
   [references/integration-boundaries.md](references/integration-boundaries.md)
   for framework-neutral database or SQLAlchemy, filesystem, subprocess,
-  external-service, contract, E2E, live, marker, or CI design. The framework
+  external-service, contract, E2E, live, skip/xfail, or CI job design. The framework
   references below contain their specialized integration guidance; do not load
   this one as well unless the task genuinely crosses both concerns.
 - Read [references/fastapi.md](references/fastapi.md) for FastAPI or Starlette
   request tests, ASGI lifespan, async clients, dependency overrides, streaming,
   WebSockets, or SQLAlchemy sessions and migrations exercised through FastAPI
   dependencies and request paths.
-- Read [references/workers.md](references/workers.md) for task queues, Celery,
-  consumers, schedulers, retries, acknowledgements, duplicate delivery, or
-  worker-process integration.
+- Read [references/workers.md](references/workers.md) for asyncio worker loops,
+  database-backed work queues, task queues such as Celery or RQ, consumers,
+  schedulers, retries, acknowledgements, duplicate delivery, or worker-process
+  integration.
 - Read
   [references/langchain-langgraph.md](references/langchain-langgraph.md) for
   LangChain agents, LangGraph graphs, tools, model fakes, state, checkpointing,
@@ -144,15 +156,18 @@ matching example reference or references. A task that genuinely crosses domains
 may require more than one; do not load unrelated examples:
 
 - [references/examples-core.md](references/examples-core.md) for plain Python
-  units, parametrization, Hypothesis, or pytest configuration;
+  units, recording fakes, typed builders, bounded waits, async fixtures,
+  parametrization, or Hypothesis;
 - [references/examples-fastapi.md](references/examples-fastapi.md) for FastAPI
   or async ASGI patterns;
 - [references/examples-integration.md](references/examples-integration.md) for
-  framework-neutral SQLAlchemy integration patterns;
-- [references/examples-workers.md](references/examples-workers.md) for Celery
-  task adapters or worker round trips;
+  framework-neutral sync or async SQLAlchemy integration patterns;
+- [references/examples-workers.md](references/examples-workers.md) for asyncio
+  worker loops, database work queues, Celery task adapters, or worker round
+  trips;
 - [references/examples-langchain-langgraph.md](references/examples-langchain-langgraph.md)
-  for graph routing, checkpoint isolation, or interrupt/resume.
+  for scripted tool-calling models, graph routing, checkpoint isolation, or
+  interrupt/resume.
 
 For strategy-only work, load an example only when it materially clarifies the
 recommendation. Examples are scaffolding, not project contracts; adapt them to
@@ -166,12 +181,18 @@ the repository's APIs and installed versions.
 2. Choose the stable oracle before arranging doubles. A test with no meaningful
    oracle is not rescued by elaborate setup.
 3. Arrange only facts relevant to the behavior. Use typed builders or explicit
-   values when a fixture would hide the scenario.
+   values when a fixture would hide the scenario; setup that carries no
+   scenario facts should become a fixture once it repeats.
 4. Perform one meaningful action. Multiple calls are appropriate when the
    behavior is inherently sequential, such as retry, idempotency, resume, or
    state-machine behavior.
-5. Assert the complete semantic outcome, including the absence of dangerous
-   partial effects. Do not assert every field merely because it exists.
+5. Assert one behavior's complete semantic outcome, including the absence of
+   dangerous partial effects, with exact values for deterministic results. Do
+   not assert every field merely because it exists. Business outcome, emitted
+   telemetry, and framework graph shape are separate behaviors: separate tests
+   share the harness, not the assertions. A name joining independent outcomes
+   with `_and_` signals a split; sequential protocols are exempt. This is not a
+   one-assert-per-test rule.
 6. Put the test at the narrowest owner and fixture scope. Prefer one behavioral
    owner and execution profile per module; split a mixed module when the
    distinction affects setup, selection, or readability.
@@ -188,12 +209,16 @@ the repository's APIs and installed versions.
 Reject or rewrite a test that does any of the following without a specific
 contractual reason:
 
-- patches or reimplements the subject under test;
+- patches or reimplements the subject under test, or reimplements production
+  control flow in the test;
 - asserts only that a mock returned what the test configured it to return;
-- locks private helper calls, incidental call order, exact log prose, generated
-  IDs, timestamps, token chunks, or full natural-language responses;
+- locks private helper calls, incidental call order, log prose, generated IDs,
+  timestamps, token chunks, or full natural-language responses (a structured
+  log event that is an operational contract is a valid oracle; see
+  [references/core-principles.md](references/core-principles.md));
 - checks a framework, Pydantic, SQLAlchemy, Celery, or LangGraph feature without
-  exercising application-owned policy or wiring;
+  exercising application-owned policy or wiring, outside the framework
+  characterization profile;
 - broadens fixtures or uses distant `autouse` setup to make dependencies less
   visible;
 - shares mutable state, a fake with a call counter, a checkpointer, a database
@@ -206,11 +231,44 @@ contractual reason:
 - duplicates a lower-level behavior matrix at a more expensive layer;
 - exists only to hit a line, branch, percentage, or test-count target.
 
+### Mechanical checklist
+
+Grep for these in every new or reviewed test. Each is a defect unless the test
+states the contractual exception:
+
+- a bare `.wait()`, `await task`, `await queue.get()`, or future await outside
+  `asyncio.timeout(...)`;
+- `while ...: await asyncio.sleep(0)` or any poll outside the one bounded
+  `wait_until` helper;
+- `time.sleep` or `asyncio.sleep` in a unit test;
+- `assert` inside a double;
+- an asserted value that no code path under test writes; an assertion on a
+  local literal, the environment (`datetime.now().year`), or `is not None` on a
+  factory that cannot return `None`;
+- an expected value computed with the production expression;
+- `pytest.raises((A, B))` unless the contract is a union and says so; a
+  rejection test without `match=` or an attribute check identifying the
+  reason, including every case of a parametrized rejection table;
+- a spec-less `Mock`/`AsyncMock` for a port, or `call_args` echoed back into
+  the expected value;
+- `SimpleNamespace` for a typed collaborator or constructible library type;
+- `cast(Any, ...)`, `object.__new__(Subject)`, or `# type: ignore` to force a
+  double to fit (general rule: `$python-code-conventions`,
+  `../python-code-conventions/SKILL.md` "Type escape hatches");
+- private `._x` access or calls, unless the test declares itself an explicit
+  white-box contract;
+- a non-trivial parameter table without `pytest.param(..., id=...)`, an unused
+  parameter, or a test body branching on a parameter (split success and
+  failure);
+- a compound `assert x is not None and x.y == ...` (narrow on its own line);
+- a fixture returning `Any`, a tuple, a module, or a class or function only so
+  tests can reach it.
+
 When the requested review or refactor explicitly includes test removal, delete
 redundant or misleading tests only when actual risk coverage is preserved or
 improved. Otherwise report them as candidates and leave them unchanged. Test
-code is production code: type it where the repository types tests, keep helpers
-cohesive, and make failures readable to the engineer on call.
+code is production code: type it, include tests and test support in the mypy
+run, keep helpers cohesive, and make failures readable to the engineer on call.
 
 ## Verification and handoff
 

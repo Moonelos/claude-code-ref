@@ -6,7 +6,7 @@ Read this before copying version-sensitive examples. The GenAI conventions, Lang
 
 Review date: **2026-09-02**. Review by: **2027-03-02**.
 
-Past the review-by date, treat every version-sensitive example here as unverified and say so in your report. `validate_skill.py` warns but does not fail: a stale contract is a prompt to re-check, not a broken package.
+Past the review-by date, treat every version-sensitive example here as unverified and say so in your report: a stale contract is a prompt to re-check, not a broken package.
 
 | Surface | Contract used by this skill |
 | --- | --- |
@@ -80,10 +80,10 @@ Before changing any version above:
    periodic reader, stop against a hanging — not DNS-failing — sink and remeasure
    its timeout and total shutdown against the platform grace period.
 8. Confirm whether the `batch` **processor** is still the recommended batching mechanism at the candidate version, or whether exporter-level `sending_queue.batch` supersedes it. If batching moves into the exporter, the "`batch` last, after `tail_sampling`" ordering advice in `collector/production.md` changes with it.
-9. Re-check every `gen_ai.*` attribute this skill uses against the pinned convention revision, not only the metric names. `validate_skill.py` pins the attribute set as an allowlist, so a convention change shows up as a validation failure with the exact key — resolve each one deliberately rather than widening the allowlist.
+9. Re-check every `gen_ai.*` attribute this skill uses against the pinned convention revision, not only the metric names. Resolve each changed key deliberately; never keep a key the pinned revision no longer defines.
 10. Re-check backend authentication, endpoints, required headers, and whether trace ingestion remains real-time.
     Also send a text-only and a native structured-output canary and inspect the stored observation
     input/output, not only the raw span attributes; backend parsing and UI renderers evolve separately.
-11. Run `python scripts/validate_skill.py` (add `--collector-image` in CI), then perform the exported-telemetry checks in `verification.md`. The script runs without any external toolchain; `--official-validator` additionally requires the Codex skill-creator validator.
+11. Run `otelcol validate` with the candidate image against every Collector config, run `python scripts/audit_telemetry.py` on the instrumented code, then perform the exported-telemetry checks in `verification.md`.
 
 Record the new version set, convention tag or commit, and review date in this file in the same change.

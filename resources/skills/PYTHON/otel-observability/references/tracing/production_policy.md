@@ -213,7 +213,7 @@ Three things belong to the same policy conversation and are often missed:
   by value at the Collector; logs are retained by severity. The default is keep
   `WARN`/`ERROR`, sample or drop high-volume `INFO`/`DEBUG` — and the mechanism
   is the log pipeline or the backend's own retention rules, not tail sampling
-  (`../logging/structlog.md`).
+  (`../logging/correlation.md`).
 - **Cost attribution needs an owner.** `app.gen_ai.estimated_cost_usd` is only
   as good as its price table. Decide where prices live, who updates them when a
   provider changes pricing, and how a historical figure is interpreted after a

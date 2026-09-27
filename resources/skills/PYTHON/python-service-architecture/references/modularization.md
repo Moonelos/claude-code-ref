@@ -31,8 +31,8 @@ Consider splitting when a module:
 - forces consumers to import private details to access one contract.
 
 Line count, function count, and nesting are review signals, not reasons by
-themselves. Around 300–350 lines, explicitly review a module for separable
-responsibilities, but never split solely to satisfy that threshold.
+themselves; the numbers live in `python-code-conventions` (fallback:
+`../../python-code-conventions/SKILL.md`, "Size signals").
 
 ## Resolve the target shape
 
@@ -41,7 +41,8 @@ Do not redefine the structural rules during a migration:
 - Use [templates.md](templates.md) for the target service tree and placement
   map.
 - Use [boundaries.md](boundaries.md) for dependency direction, port admission,
-  ownership, flat-first growth, errors, constants, and the final audit.
+  ownership, flat-first growth, and constants; [errors.md](errors.md) for error
+  design; `python-service-architecture-audit` for the final audit.
 - Use [ai.md](ai.md) when any GenAI responsibility exists.
 - Use [api-and-workers.md](api-and-workers.md) for process-specific boundaries.
 - Use [testing.md](testing.md) before moving tests or fixtures.
@@ -64,29 +65,18 @@ than preserve a conflicting legacy layout for cosmetic compatibility.
 7. Move composition and lifecycle into `bootstrap/`; keep `main.py` thin.
 8. Update API/consumer entry points, diagnostics, configuration, deployment
    entry points, telemetry names, tests, markers, hooks, and CI selectors.
-9. Remove compatibility imports only after all internal consumers migrate.
+9. Remove compatibility re-exports in the same change once in-repo consumers
+   migrate; an in-repo shim with only internal consumers is a violation.
 
-Use temporary re-exports only when consumers cannot migrate atomically. Mark
-them as transitional. Move one coherent boundary or action at a time, run its
+When a capability is removed, delete in the same change the parameters,
+branches, `**kwargs` pass-throughs, HTTP verbs, shims, and error mappings it
+justified; its domain-record fields and read paths; and dead helpers and stale
+e2e or live expectations. Keep DB columns until a contract migration drops them.
+Before finishing, search for single-value parameters and test-only call paths.
+
+Move one coherent boundary or action at a time, run its
 focused tests and import/type checks, then finish with repository-wide
 verification proportional to the change.
-
-## Review questions
-
-- Can startup wiring be found without reading business code?
-- Is every public business action under `application/` and every external
-  application contract under `ports/`?
-- Does each external technology have one explicit owner?
-- Do dependencies point inward, with concrete failures translated at ports?
-- Can business tests replace external effects without patching SDK internals?
-- Are settings injected and API/consumer boundaries transport-only?
-- Are process lifecycles isolated from business execution?
-- Does every GenAI, broker, storage, HTTP, browser, database, and vendor concern
-  occupy its enforced boundary?
-- Are packages flat until demonstrated growth justifies nesting?
-- Do errors, static values, and helpers remain with their semantic owner?
-- Does any deployable import another deployable's private source?
-- Were any empty packages or abstractions created without a current consumer?
 
 ## Reporting a structural review
 

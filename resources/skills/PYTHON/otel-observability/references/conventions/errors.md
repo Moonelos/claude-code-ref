@@ -1,238 +1,261 @@
 # The Error Contract
 
-Every code sample in this skill records failures the same way. Use this contract everywhere; do not mix it with the older span-event style.
-## Why not `record_exception()`
+Every code sample in this skill records failures the same way. This file owns
+the span-error contract, `error.type`, and telemetry failure isolation; other
+files link here instead of restating them.
 
-OpenTelemetry is moving exception detail off span events and onto log records
-correlated with the active span: a log record has its own timestamp, severity,
-and schema, and can be retained, sampled, and redacted independently of the
-trace. At the revisions pinned by `../compatibility.md`, the exception-on-span
-semantic convention is deprecated, while the Trace API still requires
-`AddEvent` and documents `RecordException` as its specialized exception-event
-variant. **The rule below is this skill's forward-looking house contract, not a
-claim that those Python methods have already been removed or deprecated.**
-Re-check both API and semantic-convention status on every compatibility update.
+General exception-handling shapes (broad `except`, translation, mislabelled
+unknown failures) are owned by
+`../../../python-service-architecture/references/errors.md` (Broad except
+shapes; Never mislabel unknown failures). This file adds only the telemetry
+parts.
 
-Practical consequence, either way: **do not add new span events.** Not for
-exceptions, not for checkpoints. The span carries status and bounded attributes;
-the logs pipeline carries the detail.
+## No span events
 
-### The trade-off this makes for you
+Do not call `span.record_exception()` or `span.add_event()`: not for
+exceptions, not for checkpoints. The span carries status and bounded
+attributes; exception detail travels as one correlated log record, which can be
+retained, sampled, and redacted independently of the trace.
 
 Some trace backends render an error's message and stack trace from the
-`exception` span event, and their error views go quiet when that event is
-absent. With this contract, the detail arrives as a correlated log record
-instead. Before adopting it, confirm the backend can pivot from a span to its
-logs by `trace_id`/`span_id` — and that the Collector is not deleting the log
-attribute the detail travels in (`../collector/production.md` splits the
-exception-detail processor out of the logs pipeline precisely for this).
+`exception` span event. Before adopting this contract, confirm the backend can
+pivot from a span to its logs by `trace_id`/`span_id`, and that the Collector
+does not delete the log attribute the detail travels in
+(`../collector/production.md`). If it cannot pivot, say so and let the user
+choose.
 
-If a backend cannot pivot, say so and let the user choose; do not quietly
-degrade their error view. This is the one place in the skill where a house rule
-has a visible product consequence.
 ## The contract
 
-Three things happen when an operation fails:
+When an operation fails:
 
 1. the span ends with `ERROR` status;
-2. the span carries a low-cardinality `error.type`;
-3. the configured exception detail is emitted once, as a named structured log, while the span is still active.
+2. the span carries a bounded `error.type`;
+3. the exception is logged once, by the owning boundary, while the span is
+   still active (see [Exception detail](#exception-detail)).
 
-Nothing else. No `str(exc)` in the span status message, no exception message as an attribute, no duplicated log at every call depth.
+Nothing else. No `str(exc)` in the span status message, no exception message
+as an attribute, no log at every call depth.
 
-Always declare `LOG_FULL_EXCEPTION_TRACE`, defaulting to `true` independently
-of environment and `LOG_LEVEL`; do not ask for confirmation. True stores the
-complete chained traceback in `exception.stacktrace`. When the user explicitly
-sets it to `false`, remove raw traceback and exception-message detail—including
-PII—and keep a safe authored message, `error.type`, stable reason/code, and
-trace/span correlation. Secrets are redacted in both modes. See
-`../logging/structlog.md` for the central processor contract.
-## Case 1 — the exception escapes the span
+## The span helper
 
-The common case. Pass `record_exception=False` so the context manager does not
-create the automatic exception span event, but leave `set_status_on_exception`
-at its default so it still sets `ERROR` on the way out.
+Every sample calls one shared helper. It lives in the shared observability
+library when one exists (`../setup/shared_library.md`), otherwise in the
+service's `observability/` package. Before writing one, read the helper
+signatures sibling services already use and reuse them verbatim.
 
 ```python
-from opentelemetry import trace
-tracer = trace.get_tracer(__name__)
+# observability/spans.py
+import asyncio
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
-def retrieve_documents(query: str, top_k: int) -> list[dict]:
-    with tracer.start_as_current_span(
-        "retrieval product_docs",
-        # Suppresses the automatic exception span event; this skill sends the
-        # detail as a correlated log. Status is still set to ERROR when the
-        # exception escapes.
+from opentelemetry import trace
+from opentelemetry.context import Context
+from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode
+from opentelemetry.util.types import Attributes
+
+_tracer = trace.get_tracer(__name__)
+
+
+def error_type_of(exc: BaseException) -> str:
+    """The one place that turns an exception into a bounded error.type."""
+    return type(exc).__name__
+
+
+def mark_error(span: Span, exc: BaseException) -> None:
+    span.set_status(Status(StatusCode.ERROR))
+    span.set_attribute("error.type", error_type_of(exc))
+
+
+@contextmanager
+def start_span(
+    name: str,
+    *,
+    kind: SpanKind = SpanKind.INTERNAL,
+    attributes: Attributes = None,
+    links: Sequence[Link] = (),
+    context: Context | None = None,  # Context() for a new root; None = current
+) -> Iterator[Span]:
+    with _tracer.start_as_current_span(
+        name,
+        context=context,
+        kind=kind,
+        attributes=attributes,
+        links=links,
         record_exception=False,
-        attributes={
-            "gen_ai.operation.name": "retrieval",
-            "gen_ai.data_source.id": "product_docs",
-            "gen_ai.request.top_k": top_k,
-        },
+        # This helper sets status itself, below, for every BaseException.
+        set_status_on_exception=False,
     ) as span:
         try:
-            documents = vector_store.search(query, top_k=top_k)
-        except Exception as exc:
-            # Bounded class name only. Never the message.
-            span.set_attribute("error.type", type(exc).__name__)
+            yield span
+        except asyncio.CancelledError:
+            span.set_attribute("app.outcome", "cancelled")
             raise
+        except BaseException as exc:
+            mark_error(span, exc)
+            raise
+```
 
+Callers add attributes and outcome to the yielded span; they never catch just
+to mark the span.
+
+```python
+def retrieve_documents(query: str, top_k: int) -> list[Document]:
+    with start_span(
+        "retrieval product_docs",
+        attributes={"gen_ai.operation.name": "retrieval", "gen_ai.request.top_k": top_k},
+    ) as span:
+        documents = vector_store.search(query, top_k=top_k)
         span.set_attribute("app.retrieval.result_count", len(documents))
         return documents
 ```
 
-The `except` block adds `error.type` and re-raises. It does not log — the logging boundary that finally handles the exception owns that, and logging at every level produces one incident with six stack traces.
+### `set_status_on_exception`
 
-## Case 2 — the exception is caught and handled inside the span
+Ad-hoc spans pass only `record_exception=False` and leave
+`set_status_on_exception` at its default. Only a generic helper that itself
+catches `BaseException`, sets `ERROR` and `error.type`, and re-raises (the one
+above) may disable it. A narrow `except SpecificError` does not make disabling
+it safe: every other exception would leave the span `UNSET`, and error-biased
+sampling then drops it.
 
-The context manager cannot infer failure from a caught exception. Set the status yourself, and only if the operation genuinely failed.
+### Cancellation
+
+- Shutdown cancellation records `app.outcome=cancelled` without `ERROR`.
+- A timeout is a failure: open the span outside `asyncio.timeout(...)` so it
+  sees `TimeoutError` and records `ERROR` with `error.type=TimeoutError`. A
+  span inside the timeout scope sees `CancelledError`; its enclosing span
+  records the timeout.
+- `except CancelledError: raise` next to `except Exception` is redundant;
+  `CancelledError` is not an `Exception`. Cancellation-safe idioms are owned by
+  `../../../python-service-architecture/references/async-and-lifecycle.md`
+  (Cancellation-safe idioms).
+
+## A failure handled inside the span
+
+A context manager cannot infer failure from a caught exception. Mark the span
+yourself, and only if the operation genuinely failed.
 
 ```python
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
-import structlog
-log = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
-
 def fetch_price(sku: str) -> Decimal | None:
-    with tracer.start_as_current_span(
-        "fetch price", record_exception=False
-    ) as span:
+    with start_span("fetch price") as span:
         try:
             return pricing_client.get(sku)
-        except TimeoutError as exc:
-            span.set_status(Status(StatusCode.ERROR))
-            span.set_attribute("error.type", type(exc).__name__)
-            # The shared logging processor applies the environment detail policy.
-            log.error(
-                "price_fetch_failed",
-                otel_event_name="app.pricing.fetch.failed",
-                exc_info=True,
-                **{
-                    "error.type": type(exc).__name__,
-                    "server.address": pricing_client.host,
-                },
-            )
+        except PricingTimeoutError as exc:
+            mark_error(span, exc)
+            log.error("price_fetch_failed", exc_info=exc, **{"error.type": error_type_of(exc)})
             return None
 ```
 
-If a fallback succeeds and the operation as a whole is fine, **do not** mark the span `ERROR`. A successful fallback is a successful operation; record it as `app.fallback.used=true` and leave status unset. Marking it failed makes error-rate alerts and error-biased tail sampling both wrong.
+A successful fallback is a successful operation: record
+`app.fallback.used=true` and leave status unset. Marking it failed breaks
+error-rate alerts and error-biased tail sampling.
 
-## Case 3 — you started the span manually
+## A manually started span
 
-Callbacks and middleware often cannot use a context manager. Then you own status, attributes, and `end()`.
+Only inside framework callbacks where a context manager cannot be used
+(callback pairs, middleware hooks) do you own status, attributes, and `end()`:
 
 ```python
 span = tracer.start_span("chat gpt-5", attributes=request_attributes)
 try:
     response = call_model()
-except Exception as exc:
-    span.set_status(Status(StatusCode.ERROR))
-    span.set_attribute("error.type", type(exc).__name__)
-    span.end()
+except BaseException as exc:
+    mark_error(span, exc)
     raise
 else:
     span.set_attribute("gen_ai.response.model", response.model)
+finally:
     span.end()
 ```
 
-`tracer.start_span()` does **not** set status on exception for you and does **not** make the span current. Use `trace.use_span(span, end_on_exit=False, record_exception=False)` if child spans must nest under it.
+`tracer.start_span()` neither sets status on exception nor makes the span
+current. Use `trace.use_span(span, end_on_exit=False, record_exception=False)`
+if children must nest under it.
 
-## Custom exceptions when the domain needs them
-
-Prefer a custom exception when the application must distinguish an actionable
-domain failure from an implementation or provider failure: for example
-`PaymentDeclined`, `OrderNotFulfillable`, or `DocumentPolicyViolation`. Give it
-a stable machine-readable reason/code and only the safe context needed by the
-boundary. Chain the original failure with `raise DomainError(...) from exc` so
-the default full traceback preserves the complete cause chain.
-
-Do not wrap merely to rename every exception, and do not put PII, secrets, raw
-payloads, or dynamic messages into the class name/reason code. If callers
-cannot handle, map, retry, alert on, or present the custom type differently,
-keep the original exception. `error.type` uses the bounded custom class name;
-the detailed cause remains in the one owning `exception.stacktrace` log.
 ## `error.type` values
 
-Low-cardinality, and stable enough to alert on.
+`error.type` is exactly one of:
+
+- the exception class name, from the shared `error_type_of(exc)`;
+- a provider status or error code the SDK exposes stably (`429`,
+  `rate_limit_exceeded`); extract it once, in the shared library;
+- a value of the service's documented closed error-code enum;
+- a sentinel: `_OTHER` (a real failure that could not be classified) or
+  `_ABANDONED` (the operation never reported an outcome: a dropped stream, a
+  callback with no end event).
 
 | Good | Bad |
 | --- | --- |
 | `TimeoutError` | `TimeoutError: pricing-api timed out after 3.0s` |
-| `RateLimitError` | `429 Too Many Requests for sku=ABC-123` |
-| `429` (provider status code) | the full response body |
-| `_OTHER` for an unclassified failure | `type(exc)` repr |
+| `429` | `429 Too Many Requests for sku=ABC-123` |
+| `_OTHER` | `type(exc)` repr, or the response body |
 
-Prefer the exception class name, or a provider error code when the SDK exposes a stable one. Wrapped exceptions are worth unwrapping — `RetryError` tells you nothing; the cause does.
+On success, omit `error.type`; `app.outcome` carries the split. Unwrap wrapper
+exceptions (`RetryError` says nothing; its cause does). A business failure
+taxonomy (declined, not fulfillable, policy violation) goes in
+`app.failure.class`, not `error.type`. Cancellation is not a sentinel:
+`CancelledError` and `GeneratorExit` are class names.
 
-### The sentinel set is closed
+Add a custom exception only when its stable type or reason changes handling,
+retry, alerting, or user-facing mapping; chain the cause with
+`raise DomainError(...) from exc`. Classification bases and translation are
+owned by `../../../python-service-architecture/references/errors.md`
+(Classification bases; Translate once).
 
-Not every failure has an exception class. Those cases use a sentinel, and the
-set of sentinels is exactly these three — anything else is a class name:
+## Exception detail
 
-| Sentinel | Means |
-| --- | --- |
-| `_NONE` | success, on an **application-owned** instrument only (see below) |
-| `_OTHER` | a real failure that could not be classified into the bounded set |
-| `_ABANDONED` | the operation never reported an outcome — a stream the consumer dropped, a callback run with no end event |
+The exception-detail rule (`exc_info=exc` only at call sites, the
+`log_full_exception_trace` setting, safe vs full projection, record-size
+limits) is owned by the `python-logging` skill
+(`../../../python-logging/references/errors-and-security.md`, Exception detail).
+The telemetry side is only this: spans never carry the exception message or
+stack trace — the span gets `ERROR` status and bounded `error.type`, and the
+owning log record carries the detail.
 
-The `_UPPER` shape is the point: it cannot be mistaken for a class name, so a
-dashboard reading `error.type` can tell "we do not know" from "it raised
-`TimeoutError`". Cancellation is **not** a sentinel — `CancelledError` and
-`GeneratorExit` are real classes, so use their names.
-
-### `_NONE` on success: application instruments only
-
-| Instrument | On success |
-| --- | --- |
-| Standard OTel (`gen_ai.*`, `http.*`, `db.*`, `messaging.*`) | **omit** `error.type` — the convention says so, and a sentinel would not match what other producers emit |
-| Application-owned (`app.*`) | set `error.type="_NONE"`, so success and failure share one label set and can be divided against each other |
-
-Both metrics files defer to this rule: `../metrics/service.md` for the `app.*`
-case, `../metrics/genai.md` for the standard one. When you add an `app.*`
-instrument next to a standard one, they will disagree on this attribute by
-design.
 ## Where the exception log goes
 
-Emit it at the boundary that decides the request's outcome: the HTTP exception handler, the worker's per-message handler, the job's top-level `try`. That is one record per failed operation with the configured exception detail, correlated by `trace_id`/`span_id` to every span in the trace.
+The boundary that decides the outcome logs it: the HTTP exception handler, the
+worker's per-message handler, the job's top-level `try`. One record per failed
+operation. Inner layers mark the span and re-raise. Handling boundaries are
+owned by `../../../python-service-architecture/references/errors.md`
+(Handling boundaries).
 
-The structlog processor that turns these into named OpenTelemetry events, and the duplicate-ingestion guard it needs, are in `../logging/structlog.md`.
+## Failures visible in both signals
 
-### GenAI client exception event versus an application boundary event
+Log severity and span status are independent. `log.error(...)` does not set the
+span to `ERROR`, and tail sampling sees only span status: a failure logged with
+its span `UNSET` is sampled away exactly when you need it. Set both at the
+boundary that knows the operation failed.
 
-When the log record itself represents a failed provider-facing model operation
-and the service exports named OTel events, use the standard event name
-`gen_ai.client.operation.exception`. When an outer HTTP, job, or agent boundary
-logs the overall application failure, use an application-owned event such as
-`app.request.failed` or `app.agent.invocation.failed`. Do not emit both for the
-same escaping exception merely to satisfy both names; the one-record ownership
-rule still wins. A recovered physical model attempt may use the standard event
-at warning level because it never reaches the outer boundary.
-## Making failures visible in both signals
+An errored trace is any trace containing an `ERROR` span; filters and tail
+sampling match any span, not only the root. Successful fallback, expected
+business HITL, and safe deferral keep unset status plus their bounded outcome.
+Terminal failure-driven HITL carries `ERROR`, `error.type`, and
+`app.outcome=hitl`.
 
-Log severity and span status are independent fields. `logger.error(...)` does not set the active span to `ERROR`, and an `ERROR` span does not create a log. A tail-sampling policy that keeps error traces sees only the span status — so an operation that logged an error but left its span `UNSET` will be sampled away exactly when you need it.
+## Telemetry failure isolation
 
-Set both, deliberately, at the boundary that knows the operation failed.
+- Do not wrap OpenTelemetry API calls in `try/except`; the API is specified
+  not to throw.
+- Guard app-owned telemetry code (serializers, usage parsers) at most once, at
+  the framework-callback or close boundary, with one `telemetry_failed`
+  warning carrying `exc_info`. Never `except Exception: return`.
+- Instrumentation wrappers record the failure and re-raise; business code
+  decides whether to contain it.
+- Telemetry observes an outcome; it never chooses or mutates it, and never
+  enforces business behaviour such as cancellation.
+- Replace `if telemetry is not None` branches with a no-op implementation.
 
-### Define an errored trace from span status
-
-OpenTelemetry has span status, not trace status. Here an errored trace means any
-trace containing an `ERROR` span; backend filters and tail sampling must match
-any span, not only the root. Successful fallback, expected business HITL, and
-safe deferral keep unset status plus their bounded outcome. Terminal
-failure-driven HITL carries `ERROR`, bounded `error.type`, and `app.outcome=hitl`.
-Log detail once while the owning span is active for correlation. Retain complete error traces; sample critical non-errors with a bounded-outcome policy.
 ## Checklist
 
-- [ ] No `record_exception()` or `add_event()` anywhere in the new code.
-- [ ] Every manually created span passes `record_exception=False`.
-- [ ] Every failure path sets a bounded `error.type` — a class name, a provider code, or one of the three documented sentinels.
-- [ ] `error.type="_NONE"` appears on `app.*` instruments and on no standard one.
-- [ ] The trace backend can reach the exception log record from the span, and the Collector's logs pipeline does not delete `exception.stacktrace`.
-- [ ] Caught-and-handled failures set span status explicitly, and only when the operation actually failed.
-- [ ] Terminal failure-driven HITL sets both `ERROR` and `app.outcome=hitl`; expected business HITL remains non-error.
-- [ ] Error filtering and tail sampling match any `ERROR` span in the trace, not only the root.
-- [ ] `LOG_FULL_EXCEPTION_TRACE` is always declared and defaults to `true`; `false` masks raw traceback/message detail while preserving safe classification and correlation.
-- [ ] Domain exceptions exist only where their stable type/reason changes handling, retry, alerting, or user-facing mapping; wrapped causes use `raise ... from exc`.
-- [ ] Provider-facing GenAI client exception events use `gen_ai.client.operation.exception`; outer application failures use an `app.*` event and are not duplicated.
-- [ ] No exception message appears in a span attribute, span status message, or metric attribute.
+- [ ] No `record_exception()` or `add_event()` in new code.
+- [ ] Spans come from `start_span`; manual spans exist only in framework
+      callbacks and pass `record_exception=False`.
+- [ ] Only the generic helper disables `set_status_on_exception`.
+- [ ] Every failure sets `error.type` from the allowed set; success omits it.
+- [ ] Handled failures mark the span only when the operation actually failed.
+- [ ] One owning log per failure, with `exc_info=exc`; exception-detail checks
+      are in the `python-logging` skill.
+- [ ] No exception message in a span attribute, status message, or metric.
+- [ ] No `try/except` around OpenTelemetry API calls.

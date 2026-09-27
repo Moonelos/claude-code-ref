@@ -54,9 +54,9 @@ false telemetry.
 
 | Situation | Attach |
 | --- | --- |
-| Non-streaming model | `OTelModelCallback()` |
-| Streaming model | `OTelModelCallback(streaming=True)` |
-| Adapter with a separate system field, such as Bedrock Converse | `OTelModelCallback(separate_system_instructions=True)` |
+| Non-streaming model | `OTelModelCallback(capture_content=...)` |
+| Streaming model | `OTelModelCallback(capture_content=..., streaming=True)` |
+| Adapter with a separate system field, such as Bedrock Converse | `OTelModelCallback(capture_content=..., separate_system_instructions=True)` |
 | Both in one service | Use one instance per model with matching flags; instances may be shared only by models with the same wire contract |
 | Completion-style non-chat LLM | Add `on_llm_start` as described in `model_callback.md` |
 

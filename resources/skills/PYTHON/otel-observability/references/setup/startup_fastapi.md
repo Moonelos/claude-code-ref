@@ -12,13 +12,15 @@ from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-from observability.logging import configure_logging
+from observability.logging import add_otel_trace_context, configure_logging
 from observability.tracing import configure_observability, shutdown_observability
 
 # 1. Providers exist before any instrumented work happens. The same owner
-# shuts down traces, metrics, and optional OTel logs.
-providers = configure_observability()
-configure_logging(providers.logger_provider)
+# shuts down traces and metrics. The config values come
+# from the service settings, built by the composition root.
+settings = load_settings()
+configure_observability(telemetry_config(settings))
+configure_logging(logging_config(settings), correlation=[add_otel_trace_context])
 
 # 2. Process-wide hooks, before any client is constructed.
 HTTPXClientInstrumentor().instrument()

@@ -8,4 +8,4 @@
 interface:
   display_name: "OTel Observability"
   short_description: "Instrument OpenTelemetry services and libraries"
-  default_prompt: "Use $otel-observability to build, consolidate, or repair low-noise OpenTelemetry and structured logging with explicit boundary ownership."
+  default_prompt: "Use $otel-observability to build, consolidate, or repair low-noise OpenTelemetry tracing and metrics with explicit boundary ownership."

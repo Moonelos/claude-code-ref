@@ -23,8 +23,15 @@ portfolio, not a required ratio.
 
 ## Databases
 
-- Use an explicitly test-scoped disposable database and make destructive setup
-  refuse ordinary production or developer service URLs.
+- Use an explicitly test-scoped disposable database. The guard that makes
+  destructive setup refuse ordinary service URLs is owned by
+  `$python-sqlmodel-alembic` (`../../python-sqlmodel-alembic/SKILL.md`), as are
+  the claim, lease, and fencing rules that work-queue tests exercise.
+- Keep one engine fixture per member. Prefer a unique schema or tenant
+  namespace per test over table wipes; any wipe first asserts that it targets a
+  test database.
+- Give migration tests one throwaway-database fixture and one subprocess helper
+  with a timeout for running the migration tool.
 - Test repositories, constraints, migrations, transaction isolation, locking,
   and dialect-specific SQL on the production database family.
 - Apply real migrations to an empty database. `metadata.create_all()` cannot
@@ -78,18 +85,12 @@ compatibility guarantee.
 - Contract-test installed entry points and package resources through the same
   installation shape used in CI or deployment.
 
-## Markers, skips, xfails, warnings, and CI
+## Skips, xfails, warnings, and CI jobs
 
 These are review and design criteria. Do not modify pytest configuration or CI
 unless the user's requested scope includes those files; otherwise report the
 specific change required.
 
-- Register custom markers and enable the strict validation supported by the
-  locked pytest version.
-- Mark by execution cost or prerequisite (`integration`, `e2e`, `live`,
-  `slow`), not by business package.
-- A selected infrastructure job must fail when its prerequisite is absent.
-  Silent all-skipped success is a broken job.
 - `skip` means the test cannot apply in the selected environment. `xfail` means
   a precise known defect or dependency limitation; include a reason or issue,
   narrow condition and failure type, and strict XPASS behavior.
@@ -109,7 +110,6 @@ when parallel execution is used or planned.
 ## Primary references
 
 - [pytest good integration practices](https://docs.pytest.org/en/stable/explanation/goodpractices.html)
-- [pytest markers and strict marker validation](https://docs.pytest.org/en/stable/how-to/mark.html)
 - [pytest skips and expected failures](https://docs.pytest.org/en/stable/how-to/skipping.html)
 - [pytest temporary paths](https://docs.pytest.org/en/stable/how-to/tmp_path.html)
 - [SQLAlchemy external-transaction recipe](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html#joining-a-session-into-an-external-transaction-such-as-for-test-suites)

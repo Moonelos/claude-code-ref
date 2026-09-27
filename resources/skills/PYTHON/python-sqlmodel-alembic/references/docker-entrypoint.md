@@ -1,7 +1,7 @@
 # Dockerfile Entrypoint: Monorepo vs. Single-Service
 
 Follows the multi-stage shape from `python-repository-setup`'s
-`references/docker-builds.md` (uv stage → python-base → builder → runtime,
+`../../python-repository-setup/references/docker-builds.md` (uv stage → python-base → builder → runtime,
 `.venv` copied into runtime, non-root numeric user, `tini` as the process
 entrypoint). This file only covers the one piece that's specific to running
 migrations: what the runtime stage's `ENTRYPOINT`/`CMD` should be, and how

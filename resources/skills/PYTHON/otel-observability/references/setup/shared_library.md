@@ -9,8 +9,9 @@ consumer migration outside the task's scope; preserve the scope in `SKILL.md`.
 
 - Read `package_layout.md` for settings ownership and service-local placement.
 - Read `sdk_bootstrap.md` for provider construction, startup, and shutdown.
-- Read `../logging/structlog.md` when logging configuration or processors are
-  part of the shared package.
+- Use the `python-logging` skill when logging configuration or processors are
+  part of the shared package, and `../logging/correlation.md` for the
+  trace-context enricher.
 - Read `../testing.md` before implementing deterministic helpers or migration
   contracts, and `../verification.md` last.
 - In a uv workspace, use the `python-repository-setup` skill for member,
@@ -23,7 +24,10 @@ Do not create a package merely because two files look similar. Extract only a
 cohesive contract that has demonstrated reuse across current deployables and
 the same operational meaning in each consumer. A library is justified when it
 removes duplicated policy or lifecycle behavior without importing one
-service's business model into the others.
+service's business model into the others. When duplication is a finding that
+must be resolved (copy counts, semantic drift, an existing natural library) is
+owned by `../../../python-service-architecture/references/shared-libraries.md`
+(duplication and extraction triggers).
 
 Good shared responsibilities include:
 
@@ -124,16 +128,15 @@ import company_observability  # no provider, logger, or instrumentation side eff
 Each process configures it explicitly from its composition root:
 
 ```python
-providers = configure_observability(config, metric_views=service_views)
-configure_logging(logging_config, logger_provider=providers.logger_provider)
+providers = configure_observability(config, third_party_views=views)
+configure_logging(logging_config, correlation=[add_otel_trace_context])
 ```
 
-Apply these invariants:
+Implement only the lifecycle invariants a current consumer exercises. With one
+bootstrap call per process, "configure once; raise on a second call" is enough.
+Always:
 
 - one provider owner per process; never mix code-owned and zero-code setup;
-- initialization is idempotent for the same effective configuration;
-- a second incompatible configuration fails explicitly instead of silently
-  returning providers stamped with the wrong service identity;
 - provider handles are returned to bootstrap rather than hidden behind imports;
 - shutdown is idempotent, bounded where the runtime requires it, and runs after
   clients/background work stop;
@@ -148,9 +151,11 @@ vendor-specific integrations stay outside the generic provider module.
 ## Spans: context manager first
 
 The primary helper is a context manager because callers often add attributes,
-links, status, and business outcome during execution. It must start the span
-with `record_exception=False` and `set_status_on_exception=False`, apply the
-error contract from `../conventions/errors.md`, and re-raise exceptions.
+links, status, and business outcome during execution. Its shape, including when
+`set_status_on_exception` may be disabled and how cancellation is recorded, is
+`start_span` in `../conventions/errors.md`. The library also owns the one
+`error_type_of(exc)`, provider error-code extraction, and transient-failure
+classification.
 
 A decorator may wrap a stable synchronous or asynchronous execution boundary
 when its span name and initial attributes are available before the call. It is
@@ -161,33 +166,23 @@ cannot detect an exception swallowed inside the wrapped body; handled terminal
 failures must mark the active span explicitly.
 
 The generic helper may set standard failure status and bounded `error.type`.
-It must not guess a service's `app.outcome`, retry classification, HITL state,
+Beyond `app.outcome=cancelled`, it must not guess a service's outcome, retry classification, HITL state,
 or metric labels. A thin service-local wrapper may add those semantics.
 
 ## Shared structured logging
 
 Logging belongs in the same shared package when multiple services use the same
-transport, JSON schema, trace-correlation fields, redaction rules, and exception
-detail policy. Sharing only a `get_logger()` call while each service has a
-different processor chain is not a useful abstraction.
+transport, JSON schema, redaction rules, and exception-detail policy. Sharing
+only a `get_logger()` call while each service has a different processor chain
+is not a useful abstraction.
 
-The shared logging module may own:
-
-- stdlib/structlog processor construction and level normalization;
-- current-span `trace_id`/`span_id` injection;
-- credential/token redaction and the default-on, environment-controlled full-trace policy;
-- stable common fields such as timestamp, severity, and service identity;
-- optional named OTel log-event export when it has one delivery owner.
-
-It must remain inert on import. Bootstrap passes the service name, level,
-exception-detail policy, output stream, and optional `LoggerProvider` into an
-explicit `configure_logging(...)` call. Do not bind one service identity into a
-module-global logger at import time.
-
-Business event names and fields remain at the call site or in the service's
-observability package. The shared processor enforces shape and safety; it does
-not decide which business event occurred. Preserve one delivery owner: stdout
-collection and OTLP log export must not both emit the same record.
+What the shared logging module owns, and how it is built (inert on import,
+explicit `configure_logging(...)`, root stdlib logger through the same chain,
+one redaction module, the exception-detail processor), is owned by the
+`python-logging` skill (`../../../python-logging/SKILL.md`). This skill adds
+only `add_otel_trace_context` (`../logging/correlation.md`), passed into that
+pipeline by bootstrap. Business event names and fields stay at the call site.
+Preserve one delivery path per record.
 
 ## Migration
 
@@ -208,12 +203,11 @@ unrelated services merely to make their folder trees symmetrical.
 ## Verification
 
 - Importing the library creates no providers, instruments, or logging handlers.
-- Same-config initialization is idempotent; conflicting initialization is
-  rejected deterministically.
+- A second initialization is rejected deterministically.
 - Success, escaping failure, handled failure, cancellation, and linked-root
   behavior satisfy the common contract.
 - Logging inside a span has valid trace/span identifiers and applies the same
-  redaction and `LOG_FULL_EXCEPTION_TRACE` behavior in every consumer.
+  redaction and exception-detail behavior in every consumer.
 - A record has one delivery path; a boundary has one span owner.
 - Shutdown flushes each enabled signal once and cannot replace business failure.
 - Library tests pass independently, then each migrated consumer's contract and
