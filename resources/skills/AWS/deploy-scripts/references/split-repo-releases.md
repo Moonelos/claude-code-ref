@@ -10,6 +10,12 @@ per-stack `deploy-*.sh` / `destroy-*.sh` bodies are identical, and the plan-on-P
 / apply-on-merge gate is identical. Only the artifact handoff and the CI wiring
 differ. Read [`ci-workflows.md`](ci-workflows.md) first; this file is the delta.
 
+In an infrastructure repository with many scripts, place app deploy/destroy
+wrappers under `scripts/application/` and use those paths in workflows. The
+application repository's own build scripts follow its source layout; use
+`scripts/release/` there only when that repository has enough entrypoints to
+benefit from grouping.
+
 ## Contents
 
 - [When To Split](#when-to-split)
