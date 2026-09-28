@@ -1,42 +1,42 @@
-# `base.py` and `models/`
+# `base.py` and `models`
 
 ## `base.py`: shared metadata + reusable table base
 
-`SQLModel.metadata` is a single global `MetaData` object — every
-`table=True` class in the process attaches to it, the same way a classic
-SQLAlchemy declarative `Base` works. `base.py` is where you configure that
-metadata once and define any shared non-table SQLModel base, so `models/` files
-stay pure data-shape declarations.
+`SQLModel.metadata` is the single global `MetaData` every `table=True` class
+attaches to. `base.py` configures it once and defines any shared non-table
+base, so model modules stay pure data-shape declarations.
 
-Two things belong here:
-
-**1. A naming convention**, set before any migration is ever generated.
-Without one, Alembic autogenerate produces a different implicit constraint
-name every time depending on column order, and every unrelated schema change
-gets noisy renames mixed in:
+**1. A naming convention**, chosen before the first migration (changing it
+later renames every constraint):
 
 ```python
+from typing import Final
+
 from sqlmodel import SQLModel
 
-NAMING_CONVENTION = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
+NAMING_CONVENTION: Final = {
+    "ix": "ix_%(column_0_N_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
     "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_N_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
 SQLModel.metadata.naming_convention = NAMING_CONVENTION
 ```
 
-**2. A reusable non-table base** for fields that every table genuinely shares.
-It inherits `SQLModel` but omits `table=True`, so concrete table models can
-inherit its fields reliably without creating another table:
+`column_0_N_name` includes every column, so two multi-column constraints
+that share a first column don't collide. Let the convention name every
+PK/FK/UQ/IX (and CK from its short `name=`); migrations use `op.f()`.
+Hand-name only what the convention can't express.
+
+**2. A reusable non-table base** for fields every table genuinely shares. It
+inherits `SQLModel` without `table=True`:
 
 ```python
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, func
+from sqlalchemy import DateTime, func
 from sqlmodel import Field, SQLModel
 
 
@@ -44,25 +44,40 @@ class TableBase(SQLModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     created_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),
+        sa_type=DateTime(timezone=True),
+        sa_column_kwargs={"server_default": func.now()},
+        nullable=False,
     )
     updated_at: datetime | None = Field(
         default=None,
-        sa_column=Column(DateTime(timezone=True), nullable=False, server_default=func.now()),
+        sa_type=DateTime(timezone=True),
+        sa_column_kwargs={"server_default": func.now()},
+        nullable=False,
     )
 ```
 
-Use a database `server_default`, not an application-side `datetime.now()`
-default, for creation timestamps. Update `updated_at` explicitly in repository
-writes, or create and migrate a database trigger when the database must own that
-behavior. SQLAlchemy's `onupdate=` is client-side SQL generation; it is not a
-database trigger or server-side update default.
+- A shared base never uses `sa_column=Column(...)`: that one `Column` object
+  would be attached to every subclass table, and the second table fails with
+  `Column object ... already assigned to Table`. Use `sa_type` /
+  `sa_column_kwargs` so each table gets its own column.
 
-A fieldless `class Base(SQLModel): pass` adds nothing: `SQLModel.metadata`
-already provides the shared registry. Add a non-table base only when it owns
-real shared fields or behavior, and avoid a lattice of overlapping mixins.
+- `created_at` is `None` only between construction and flush; the column is
+  `NOT NULL`. Don't scatter `assert row.created_at is not None`: repositories
+  return projections typed `created_at: datetime`, built from rows read back
+  after flush, and raise the named integrity error if the value is missing.
+- Use a database `server_default` for creation timestamps, not
+  `datetime.now()` in Python.
+- `onupdate=` fires on ORM flushes and Core `update()` that don't set the
+  column. It does **not** fire for raw `text()` SQL or migration backfills;
+  set `updated_at` explicitly there, or migrate a trigger when the database
+  must own it.
+- A fieldless `class Base(SQLModel): pass` adds nothing. Add a non-table base
+  only when it owns real shared fields; avoid a lattice of mixins.
 
-## `models/`: one file per table
+## Model modules
+
+Start with one `models.py`. **Split into `models/<table>.py` when a table
+gains relationships or behaviour.**
 
 ```python
 # models/user.py
@@ -78,23 +93,90 @@ class User(TableBase, table=True):
     reports: list["Report"] = Relationship(back_populates="owner")
 ```
 
-- One domain entity per file, named after the table.
-- `models/__init__.py` re-exports every model class:
+Once split, `models/__init__.py` imports every model class. Alembic diffs
+`SQLModel.metadata`, and a model whose module was never imported never
+registered on it; a forgotten import is the most common cause of an empty
+autogenerated migration.
 
-  ```python
-  from myservice.db.models.report import Report
-  from myservice.db.models.user import User
+See `repositories-and-queries.md` for loading relationships: implicit lazy
+loading inside an async session is a runtime error.
 
-  __all__ = ["User", "Report"]
-  ```
+## Column vocabularies
 
-  This isn't cosmetic — Alembic's autogenerate diffs `SQLModel.metadata`
-  against the live database, and a model that was never imported never
-  registered itself on that metadata. A single `from db_models.models import *`
-  (or explicit imports) at the top of Alembic's `env.py` is what actually
-  makes every table visible; forgetting to re-export a new model here is the
-  most common way a migration silently comes out empty.
-- Put `Relationship()` fields on models freely, but see
-  `references/repositories-and-queries.md` for the async-specific rule about
-  how they get *loaded* — implicit lazy-loading a relationship inside an
-  async session is a runtime error, not just a slow query.
+The closed-vocabulary rule itself is owned by `python-code-conventions`
+(`../../python-code-conventions/SKILL.md`, Closed vocabularies). DB-specific
+parts:
+
+- A status column is annotated with its `StrEnum`, stored as `Text`, guarded
+  by a named CHECK generated from the enum, and read back as members. The
+  enum lives in the shared models package, in a module that doesn't import
+  SQLAlchemy, so domain code can import it.
+- CHECK constraints and partial-index predicates are built from the enum via
+  `column.in_()`, never by string concatenation.
+- A predicate reused by a partial index and by queries is defined once, next
+  to the model.
+
+```python
+from datetime import datetime
+from enum import StrEnum
+from typing import TypeVar
+
+from sqlalchemy import CheckConstraint, Column, DateTime, Dialect, Index, Text, column
+from sqlalchemy.types import TypeDecorator
+from sqlmodel import Field
+
+from myservice.db.base import TableBase
+
+E = TypeVar("E", bound=StrEnum)
+
+
+class StrEnumText(TypeDecorator[E]):
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, enum_type: type[E]) -> None:
+        super().__init__()
+        self._enum_type = enum_type
+
+    def process_bind_param(self, value: E | None, dialect: Dialect) -> str | None:
+        return None if value is None else self._enum_type(value).value
+
+    def process_result_value(self, value: str | None, dialect: Dialect) -> E | None:
+        return None if value is None else self._enum_type(value)
+
+
+class JobStatus(StrEnum):  # lives in the SQLAlchemy-free vocabulary module
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+
+
+PENDING_JOB = column("status") == JobStatus.PENDING.value
+
+
+class Job(TableBase, table=True):
+    __tablename__ = "jobs"
+    __table_args__ = (
+        CheckConstraint(column("status").in_([s.value for s in JobStatus]), name="status"),
+        Index("ix_jobs_pending_run_after", "run_after", postgresql_where=PENDING_JOB),
+    )
+
+    status: JobStatus = Field(sa_column=Column(StrEnumText(JobStatus), nullable=False))
+    run_after: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+```
+
+- A domain enum that differs from the column enum converts in exactly one
+  pair of functions per repository module; never pass a domain enum straight
+  into a column expression.
+- Each typed JSON column and each wire format gets one encode/decode pair (a
+  `TypeDecorator` or two helpers) with one fixed `model_dump(mode="json")`,
+  validated again on read. No ad-hoc `model_dump`/`model_validate` in
+  repositories. Choose `exclude_none` and key order deliberately.
+- One canonical-JSON / fingerprint function per member:
+  `json.dumps(model.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False)`,
+  with no `default=str`.
+- A multi-column state transition (revision counter, sync status, lease
+  reset) is one update-values builder next to the model. Predicates and
+  transitions are shared; repositories stay per service.
+- Pick one column-access style per repository package (`col(Model.field)` or
+  exported typed `Table` handles) and export those handles once.

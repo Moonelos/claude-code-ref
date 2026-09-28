@@ -90,13 +90,14 @@ git grep -n "record_exception\|add_event" -- '*.py'
 
 Expect zero hits in code this work added or touched.
 
-- [ ] The exception appears **once** at the owning boundary. With the always-declared `LOG_FULL_EXCEPTION_TRACE=true` default, the record contains the full chained `exception.stacktrace`; setting it to `false` masks raw trace/message detail.
+- [ ] The exception appears **once** at the owning boundary; its detail projection is verified by the `python-logging` skill.
 - [ ] When enabled, that stack trace survives the Collector and any explicit truncation is marked; deleting it on the logs path removes the only detailed copy the error contract leaves.
 - [ ] A handled failure with a successful fallback does **not** mark the span `ERROR`.
 - [ ] Terminal failure-driven HITL marks the owner `ERROR`, keeps `app.outcome=hitl`, and carries the bounded cause.
 - [ ] Expected business HITL remains non-error and is distinguishable by status.
 - [ ] An any-span `ERROR` filter finds the failure even with an unset root; its log carries the owning span's `trace_id`/`span_id`.
-- [ ] Every `error.type` value is a class name, a provider code, or one of `_NONE` / `_OTHER` / `_ABANDONED`.
+- [ ] Every `error.type` value is in the allowed set of `conventions/errors.md`; success omits it.
+- [ ] `python scripts/audit_telemetry.py <src>` reports no findings in code this work added or touched.
 
 ## 4. Propagation (multi-service, queue, or durable DB work)
 
@@ -223,15 +224,13 @@ Query the metrics backend for the canary service's `app.*`, `gen_ai.*`, and
   trace ID, not the producer trace ID stored in the span link.
 - [ ] Durable workflow boundary logs and transition spans share the documented
   `workflow_run_id` / `app.workflow.run.id` value; the ID appears on no metric.
-- [ ] The event catalogue covers terminal failures, recovered retries/fallbacks, and material business state changes; names are stable strings and variable data is in fields.
-- [ ] No prompt, completion, token, cookie, or authorization header in any line. Put a canary secret through the service and grep the log output for it.
-- [ ] One record per failed operation, not one per stack frame.
+- [ ] Event catalogue, redaction canary, and one-record-per-failure checks pass per the `python-logging` skill (`../../python-logging/references/testing-and-verification.md`).
 
 ## 9. Configuration
 
 - [ ] Every new environment variable exists in the service's config object — not read via `os.environ` at a call site.
 - [ ] Every new variable is declared in the deployment (compose file, Helm values, task definition, `.env.example`).
-- [ ] Defaults are explicit: content capture off, `LOG_FULL_EXCEPTION_TRACE=true`, no backend credentials in app containers; setting the switch to `false` is verified to mask traceback/message detail.
+- [ ] Defaults are explicit: content capture off, exception detail at the safe projection in production YAML, no backend credentials in app containers; both detail settings are verified against a canary exception.
 - [ ] `OTEL_SERVICE_NAME` and `SERVICE_NAMESPACE` are required repository-specific values. Missing either fails startup with a clear settings validation error; other new variables use their documented safe defaults.
 - [ ] Exactly one owner sets each service resource attribute. Code-based setup does not duplicate the same keys in `OTEL_RESOURCE_ATTRIBUTES`; zero-code setup does not build an in-code provider.
 - [ ] Collector enrichment cannot overwrite the application: `resource`/`attributes` processors use `action: insert`, `resourcedetection` uses `override: false`. Test it — send telemetry with `deployment.environment.name=uat` through the pipeline and confirm it arrives as `uat`, not as the Collector's value.
@@ -244,7 +243,7 @@ Query the metrics backend for the canary service's `app.*`, `gen_ai.*`, and
 - [ ] Receive and export counters both increase; `otelcol_exporter_send_failed_*` stays at zero.
 - [ ] Canary secrets — a fake API key, email, and authorization header — reach no backend.
 - [ ] `user.email` is deleted on every Collector path. No test or documentation treats the Collector's unsalted hash action as anonymization.
-- [ ] Exception detail is deleted on traces only. The logs pipeline preserves `exception.stacktrace` when enabled and never overrides the application's environment-controlled full/safe choice.
+- [ ] Exception detail is deleted on traces only. The logs pipeline preserves `exception.stacktrace` when present and never overrides the application's exception-detail setting.
 - [ ] No metrics pipeline contains a sampling processor.
 - [ ] No `# MEASURE:` placeholder value from `collector/production.md` survives in a deployed config.
 - [ ] The main trace backend receives the complete retained operation tree and contains neither canonical verbose GenAI content nor destination presentation copies.

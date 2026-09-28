@@ -41,6 +41,16 @@ def hits(p, q, box, gap=0):
     return x < p[0] < x+w and max(min(p[1], q[1]), y) < min(max(p[1], q[1]), y+h)
 
 
+def follows_boundary(p, q, box, gap=10):
+    """Detect a route lane drawn along a boundary edge, not a perpendicular crossing."""
+    x, y, w, h = box
+    if p[1] == q[1]:
+        shared = min(max(p[0], q[0]), x+w) - max(min(p[0], q[0]), x)
+        return shared >= 20 and min(abs(p[1]-y), abs(p[1]-(y+h))) < gap
+    shared = min(max(p[1], q[1]), y+h) - max(min(p[1], q[1]), y)
+    return shared >= 20 and min(abs(p[0]-x), abs(p[0]-(x+w))) < gap
+
+
 def validate(path, min_gap=20):
     issues = []
 
@@ -230,6 +240,9 @@ def validate(path, min_gap=20):
             for j, b in obstacles.items():
                 if j not in cards and any(hits(p, q, b, 10) for p, q in segments):
                     report('ANNOTATION_ROUTE', i, f'Route too close to annotation: {j}')
+            for j, b in boxes.items():
+                if roles[j] == 'boundary' and any(follows_boundary(p, q, b) for p, q in segments):
+                    report('BOUNDARY_ROUTE', i, f'Route runs within 10 px of boundary edge: {j}')
             routes[i] = segments
 
         for (i, segs), (j, other) in combinations(routes.items(), 2):

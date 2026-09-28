@@ -1,117 +1,331 @@
-# `engine.py` and `session.py`
+# Engine, sessions and transactions
 
-## `engine.py`: one async engine per process
+## `engine.py`: a builder, never a module-level engine
+
+`engine.py` exposes a builder. It holds no engine, reads no settings and has no
+pool literals:
 
 ```python
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 
-def build_engine(database_url: str) -> AsyncEngine:
+def build_engine(
+    database_url: str,
+    *,
+    pool_size: int,
+    max_overflow: int,
+    pool_timeout_seconds: float,
+    pool_recycle_seconds: int,
+) -> AsyncEngine:
+    if pool_size < 1 or max_overflow < 0 or pool_timeout_seconds <= 0:
+        raise ValueError(
+            f"invalid pool: size={pool_size} overflow={max_overflow} "
+            f"timeout={pool_timeout_seconds}"
+        )
     return create_async_engine(
         database_url,
-        pool_size=10,
-        max_overflow=5,
-        pool_timeout=30,
-        pool_recycle=1800,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=pool_timeout_seconds,
+        pool_recycle=pool_recycle_seconds,
         pool_pre_ping=True,
     )
-
-
-engine = build_engine(settings.database_url)
 ```
 
-`database_url` uses an async driver in its scheme — `postgresql+asyncpg://…`
-(the more mature, most common choice) or `postgresql+psycopg://…` (psycopg 3's
-native async support, also fully supported by SQLAlchemy 2.x as an
-alternative). Either is fine; don't mix them within one service. The URL
-itself comes from resolved settings/secrets, not hardcoded here — see the
-`python-settings-config` skill for where that string is sourced from.
-
-Declare **`greenlet` as an explicit dependency** of anything that uses the
-async engine. SQLAlchemy's own dependency marker for it only matches
-`platform_machine == "aarch64"` (Linux ARM64); on macOS ARM the machine
-reports `arm64`, the marker never fires, and the first `await` into the
-engine dies with a `MissingGreenlet`/import error — but only on developer
-Macs, not in the Linux containers where CI runs, which is what makes it
-confusing. One explicit `"greenlet>=3,<4"` line ends the asymmetry.
-
-Build `engine` **once**, at process/module import or an explicit startup hook
-— never inside a request handler or a repository method. `create_async_engine`
-allocates the connection pool; calling it repeatedly creates a new pool every
-time and defeats pooling entirely, which shows up as connection exhaustion
-under load that's very confusing to debug because it looks like a pool-sizing
-problem rather than a pool-*count* problem. Dispose it once, symmetrically, on
-process shutdown:
+Bootstrap calls it once per process and registers `dispose` on the exit stack
+in the same breath:
 
 ```python
-await engine.dispose()
+# bootstrap/runtime.py
+from contextlib import AsyncExitStack
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from myservice.config.settings import Settings
+from myservice.db.engine import build_engine
+from myservice.db.session import build_session_factory
+
+
+def build_database(
+    *, settings: Settings, stack: AsyncExitStack
+) -> async_sessionmaker[AsyncSession]:
+    engine = build_engine(
+        settings.database_url.get_secret_value(),
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout_seconds=settings.db_pool_timeout_seconds,
+        pool_recycle_seconds=settings.db_pool_recycle_seconds,
+    )
+    stack.push_async_callback(engine.dispose)
+    return build_session_factory(engine)
 ```
 
-### Pool parameters, and what to actually set them to
+Acquisition order, cleanup and failure during startup follow
+`../../python-service-architecture/references/async-and-lifecycle.md`
+(Resource acquisition). Pool sizes and the URL are settings (`python-settings-config`).
 
-An async engine automatically uses `AsyncAdaptedQueuePool` — don't pass
-`poolclass` for the app engine (that override is only for Alembic's
-one-shot migration engine, see `references/alembic-migrations.md`). The knobs
-that matter:
+- Never call `create_async_engine(...)` per request or per call: each call
+  allocates a new pool, and the result looks like a pool-*sizing* problem when
+  it is a pool-*count* problem.
+- **One-shot processes** (CLIs, probes, diagnostics, migrations) are the
+  exception: they build a `NullPool` (or pool-of-1) engine and dispose it in
+  `finally`.
+- The URL uses an async driver: `postgresql+asyncpg://…` or
+  `postgresql+psycopg://…`. Don't mix them within one service.
+- Every member that imports `sqlalchemy.ext.asyncio` depends on
+  `sqlalchemy[asyncio]`. The extra pulls `greenlet` on every platform; the
+  bare package's marker misses macOS `arm64` and fails only on developer Macs.
+- Async only, with one exception: the sync `Connection` handed to a
+  `run_sync` callback (Alembic `env.py`, `compare_metadata`).
 
-| Parameter | What it controls | Starting point |
+### Pool parameters
+
+An async engine uses `AsyncAdaptedQueuePool`; don't pass `poolclass` for the
+app engine.
+
+| Parameter | What it controls | Starting value for settings |
 |---|---|---|
-| `pool_size` | Persistent connections kept open per process | 5–10 for a typical service |
-| `max_overflow` | Extra connections allowed above `pool_size` under burst load; closed once returned | 5–10 |
-| `pool_timeout` | Seconds to wait for a free connection before raising, once `pool_size + max_overflow` are all checked out | 30 |
-| `pool_recycle` | Force-close and reopen connections older than N seconds | 1800 (30 min) — essential for managed Postgres (RDS/Aurora/Cloud SQL) that silently drops idle connections server-side |
-| `pool_pre_ping` | Cheap liveness check (`SELECT 1`-equivalent) before handing out a pooled connection | `True` — catches a connection the DB already closed before your query does, instead of surfacing as a query failure |
+| `pool_size` | Persistent connections per process | 5–10 |
+| `max_overflow` | Burst connections above `pool_size` | 5–10; **0** when capacity is an intended concurrency cap or the database is external |
+| `pool_timeout` | Seconds to wait for a free connection | 30 |
+| `pool_recycle` | Reopen connections older than N seconds | 1800 for managed Postgres that drops idle connections |
+| `pool_pre_ping` | Liveness check before handing out a connection | always `True` (fixed in the builder) |
 
-**Do the multiplication before picking `pool_size`.** Every replica of every
-service that talks to this database holds up to `pool_size + max_overflow`
-connections. If you run several independent processes against one Postgres
-instance, total possible connections is `Σ(pool_size + max_overflow)` across
-all of them — check that against the database's `max_connections` (and
-whatever headroom other consumers need) before scaling any one service's pool
-up, or a burst on one service starves every other service's ability to
-connect. At real scale, a connection pooler in front of Postgres (PgBouncer in
-transaction mode, or a managed equivalent) is the standard fix rather than
-shrinking every service's pool to fit — but that's an infra decision layered
-on top of this file, not a change to how `engine.py` itself is written.
+**Do the multiplication.** Every replica of every service holds up to
+`pool_size + max_overflow` connections. Check `Σ(pool_size + max_overflow)`
+across all processes against the database's `max_connections` before growing
+any one pool. At scale, a pooler (PgBouncer in transaction mode) is the fix;
+see "Per-transaction limits" for the connection settings it requires.
 
-## `session.py`: a session per unit of work
+## `session.py`: a session factory
 
 ```python
-from collections.abc import AsyncIterator
-
-from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from myservice.db.engine import engine
-
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 
-async def get_session() -> AsyncIterator[AsyncSession]:
-    async with AsyncSessionLocal() as session:
-        yield session
+def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False)
 ```
 
-`AsyncSession` here is `sqlmodel.ext.asyncio.session.AsyncSession` — a thin
-wrapper over SQLAlchemy's own `AsyncSession` that adds the SQLModel-aware
-`.exec()` method (see `references/repositories-and-queries.md`). Use this
-import path, not SQLAlchemy's `AsyncSession` directly, so repositories get
-`.exec()` in addition to `.execute()`.
+- `session.py` imports no engine; bootstrap passes it in.
+- Use SQLAlchemy's `AsyncSession` for the shared factory and every repository.
+  For SQLModel instances, call `session.scalars(select(Model))`; for Core
+  statements and projections, call `session.execute(...)`. Merely annotating a
+  SQLModel session as SQLAlchemy's base class does not change its overridden
+  `execute()` method, which emits a deprecation warning.
+- `expire_on_commit=False` keeps attributes readable after commit. Without it,
+  attribute access triggers an implicit refresh query, which fails in async code.
+- A session is not safe for concurrent use. Never share one across tasks, and
+  never hold one across unrelated units of work.
 
-`expire_on_commit=False` matters specifically for async: without it, accessing
-an attribute on a committed object triggers an implicit refresh, which is an
-implicit *query*, which in an async context either blocks the event loop or
-raises — you want attributes to stay usable after commit without a second
-round trip.
+## Transactions and the unit of work
 
-`get_session` is written as an async generator so it plugs directly into a
-framework's dependency-injection lifecycle (FastAPI's `Depends`, or an
-equivalent context manager elsewhere) — one session is opened per
-request/per handler invocation and closed at the end of it via the `async
-with` block, whether the work succeeded or raised. Never hold one `AsyncSession`
-open across multiple unrelated units of work, and never share one session
-across concurrent tasks — a session is not safe for concurrent use.
+The session factory never begins or commits. One owner per operation draws
+the transaction.
+
+- **Repositories never call `commit`, `begin` or `rollback`.** They may `flush()`.
+- **Exactly one owner draws the transaction**, chosen by who needs atomicity:
+  1. **One port call = one transaction.** A store holds the session factory,
+     opens a transaction per method and composes repositories inside it. A
+     thin `db/<area>_transactions.py` coordinator may import `AsyncSession`
+     for this; it implements no queries and no policy.
+  2. **The application needs several operations atomically.** A unit of work
+     (UoW) is an async context manager that opens the session on enter (not in
+     `__init__`) and exposes repositories plus an explicit `commit()`.
+     Anything not committed rolls back on exit, including an early return, and
+     the session always closes. Never commit implicitly on clean exit.
+- **One transaction helper per service** (in a shared DB library once ≥2
+  services have it). It opens `sessions.begin()` and translates driver
+  failures, so methods don't repeat `try / begin / except SQLAlchemyError`.
+  Nothing bypasses it with an ad-hoc `async with factory() as s, s.begin()`.
+
+```python
+# db/transactions.py
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from myservice.db.integrity import constraint_name
+from myservice.ports.store import StoreIntegrityError, StoreUnavailableError
+
+# SQLAlchemy wraps driver socket and timeout failures in these. Never add bare
+# OSError/TimeoutError: they would relabel non-DB failures in the body as DB outages.
+_UNAVAILABLE = (OperationalError, InterfaceError, PoolTimeoutError)
+
+
+@asynccontextmanager
+async def transaction(
+    sessions: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    try:
+        async with sessions() as session, session.begin():
+            yield session
+    except IntegrityError as exc:
+        raise StoreIntegrityError(constraint=constraint_name(exc)) from exc
+    except _UNAVAILABLE as exc:
+        raise StoreUnavailableError from exc
+
+
+@asynccontextmanager
+async def read_transaction(
+    sessions: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    async with transaction(sessions) as session:
+        # session.begin() is logical; connection() checks out the connection.
+        # Execute this before any query, flush, or transaction-local limit.
+        connection = await session.connection()
+        await connection.execute(text("SET TRANSACTION READ ONLY"))
+        yield session
+
+
+@asynccontextmanager
+async def unit_of_work_session(
+    sessions: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    """Caller commits explicitly; closing the session rolls back the rest."""
+    try:
+        async with sessions() as session:
+            yield session
+    except IntegrityError as exc:
+        raise StoreIntegrityError(constraint=constraint_name(exc)) from exc
+    except _UNAVAILABLE as exc:
+        raise StoreUnavailableError from exc
+```
+
+`constraint_name` (`db/integrity.py`) is the one helper described under "DB failure contract".
+On PostgreSQL, verify that `SET TRANSACTION READ ONLY` is the first statement
+executed by `read_transaction`, `SHOW transaction_read_only` returns `on`, and
+an attempted write is refused. Run the same check for the external connection
+path in `external-read-databases.md`; SQLite or a type check cannot establish
+these transaction semantics.
+
+A UoW (shape 2); the application calls `await uow.commit()` as its last step:
+
+```python
+# db/orders_uow.py
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from myservice.db.repositories.orders import OrderRepository
+from myservice.db.repositories.outbox import OutboxRepository
+from myservice.db.transactions import unit_of_work_session
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class OrdersTransaction:
+    orders: OrderRepository
+    outbox: OutboxRepository
+    commit: Callable[[], Awaitable[None]]
+
+
+@asynccontextmanager
+async def orders_unit_of_work(
+    *, sessions: async_sessionmaker[AsyncSession]
+) -> AsyncIterator[OrdersTransaction]:
+    async with unit_of_work_session(sessions) as session:
+        yield OrdersTransaction(
+            orders=OrderRepository(session=session),
+            outbox=OutboxRepository(session=session),
+            commit=session.commit,
+        )
+```
+
+- **Bootstrap constructs factories**, never repositories: the session factory
+  and `partial(orders_unit_of_work, sessions=sessions)`. Repositories are
+  built per transaction. Framework dependencies (FastAPI `Depends`) yield a
+  UoW from that factory, not a bare session.
+- Whether the application sees the UoW through a Protocol is decided in
+  `../../python-service-architecture/references/boundaries.md`; never add a
+  Protocol per repository class.
+- When ≥2 UoWs differ only in their repositories and error type, share a
+  private base.
+- **No forwarding stores:** a class whose methods only open a session and
+  call a same-named repository method adds nothing. Nor do callable
+  "repository factory" Protocols.
+- Durable "run started" markers get their own committed transaction before
+  the work starts. Plain reads may rely on autobegin inside `read_transaction`.
+- Repositories don't construct sibling repositories. A query several of them
+  need (a fenced ownership read) is a module-level function taking a session.
+
+## DB failure contract
+
+General translate-once and classification rules live in
+`../../python-service-architecture/references/errors.md` (Translate once;
+Classification bases). The DB-specific parts:
+
+- Every public DB-adapter method returns a port type or raises a port-owned
+  error:
+  - **Unavailable** (retryable): `OperationalError`, `InterfaceError` and the
+    pool `TimeoutError`, which wrap driver connection and timeout failures.
+    Never catch bare `OSError`/`TimeoutError` around a transaction body.
+  - **Integrity or corrupt state:** a named error carrying the constraint,
+    never `RuntimeError`.
+  - Any other `SQLAlchemyError` (`ProgrammingError`, `DataError`) is a defect;
+    it propagates unlabelled rather than being reported as Unavailable.
+- Translate at the outermost DB boundary, which is the transaction helper
+  (UoW exit, or the store method that opens its own session). Code outside
+  `db/` never needs `except Exception` to detect a DB failure.
+  `CancelledError` passes through untouched.
+- **`IntegrityError`:**
+  - For idempotent inserts, prefer `INSERT … ON CONFLICT DO NOTHING RETURNING`,
+    then select the existing row when nothing came back.
+  - When catching, match the **named constraint** and re-raise anything else,
+    so a CHECK or NOT NULL violation is never reported as a duplicate. Read
+    the name in one `constraint_name(exc)` helper (psycopg:
+    `exc.orig.diag.constraint_name`; asyncpg: `exc.orig.__cause__.constraint_name`).
+  - Catching inside a transaction that must continue requires a savepoint
+    (`session.begin_nested()`); the failed statement aborts the outer
+    transaction otherwise.
+
+## Per-transaction limits
+
+- Every query against a database the service doesn't own, and every batch or
+  maintenance statement against one it does, runs in an explicit transaction
+  that first sets a transaction-local `statement_timeout` (plus
+  `lock_timeout` for writes) through a bound parameter.
+- Implement it once per DB package, with an explicit unit, rounding up:
+
+```python
+# db/limits.py
+import math
+from datetime import timedelta
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+
+_SET_LOCAL = text("SELECT set_config(:name, :value, true)")
+
+
+def _milliseconds(value: timedelta) -> str:
+    return f"{math.ceil(value / timedelta(milliseconds=1))}ms"
+
+
+async def apply_transaction_limits(
+    conn: AsyncSession | AsyncConnection,
+    *,
+    statement_timeout: timedelta,
+    lock_timeout: timedelta | None = None,
+) -> None:
+    await conn.execute(
+        _SET_LOCAL, {"name": "statement_timeout", "value": _milliseconds(statement_timeout)}
+    )
+    if lock_timeout is not None:
+        await conn.execute(
+            _SET_LOCAL, {"name": "lock_timeout", "value": _milliseconds(lock_timeout)}
+        )
+```
+
+- Databases the service owns get a role-level or engine-level default
+  (`ALTER ROLE … SET statement_timeout`, or `connect_args` server settings),
+  so no query is unbounded.
+- Invariant session settings go in connection options or a connect event, not
+  per query: `search_path`, a read-only default, and, behind PgBouncer
+  transaction mode, disabled prepared statements (psycopg
+  `prepare_threshold=None`; asyncpg `statement_cache_size=0`).

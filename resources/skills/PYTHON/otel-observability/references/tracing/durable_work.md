@@ -43,10 +43,10 @@ transaction** as the work item or state change that becomes runnable:
 ```python
 from collections.abc import Mapping
 
-from opentelemetry import trace
 from opentelemetry.propagate import inject
 
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
+
 TRACE_CONTEXT_LIMITS = {"traceparent": 256, "tracestate": 512}
 
 
@@ -61,29 +61,20 @@ def normalize_trace_carrier(carrier: object) -> dict[str, str]:
     }
 
 
-def schedule_transition(repository, transition) -> None:
-    with tracer.start_as_current_span(
+def schedule_transition(repository: TransitionRepository, transition: Transition) -> None:
+    with start_span(
         "schedule workflow transition",
-        record_exception=False,
         attributes={
             "app.workflow.name": transition.workflow_name,
             "app.workflow.state": transition.next_state,
             "app.workflow.run.id": str(transition.workflow_run_id),
         },
-    ) as span:
+    ):
         carrier: dict[str, str] = {}
         inject(carrier)
-        persisted_carrier = normalize_trace_carrier(carrier)
-        try:
-            # This method owns one DB transaction: state/work visibility and
-            # its trace carrier commit or roll back together.
-            repository.make_runnable(
-                transition,
-                otel_context=persisted_carrier,
-            )
-        except Exception as exc:
-            span.set_attribute("error.type", type(exc).__name__)
-            raise
+        # This method owns one DB transaction: state/work visibility and its
+        # trace carrier commit or roll back together.
+        repository.make_runnable(transition, otel_context=normalize_trace_carrier(carrier))
 ```
 
 The normal SQL client instrumentation may add a child span for the `INSERT` or
@@ -101,10 +92,10 @@ from opentelemetry import context as otel_context, trace
 from opentelemetry.propagate import extract
 from opentelemetry.trace import Link
 
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
 
 
-def run_transition(row) -> None:
+def run_transition(row: TransitionRow) -> None:
     carrier = normalize_trace_carrier(row.otel_context)
     # Empty base context prevents a poll-loop or DB-claim span from becoming
     # the accidental parent when the stored carrier is missing or invalid.
@@ -112,23 +103,18 @@ def run_transition(row) -> None:
     causal_ctx = trace.get_current_span(incoming_ctx).get_span_context()
     links = [Link(causal_ctx)] if causal_ctx.is_valid else []
 
-    with tracer.start_as_current_span(
+    with start_span(
         "run workflow transition",
         context=otel_context.Context(),
         links=links,
-        record_exception=False,
         attributes={
             "app.workflow.name": row.workflow_name,
             "app.workflow.state": row.state,
             "app.workflow.attempt": row.attempt,
             "app.workflow.run.id": str(row.workflow_run_id),
         },
-    ) as span:
-        try:
-            state_machine.run(row)
-        except Exception as exc:
-            span.set_attribute("error.type", type(exc).__name__)
-            raise
+    ):
+        state_machine.run(row)
 ```
 
 The worker's `SELECT`, lease, or claim span is transport detail, not the causal
@@ -173,5 +159,6 @@ run workflow transition
 - metrics: `../metrics/service.md` — processing duration and retry counts;
   workflow names/states may be dimensions only when they come from a bounded
   registry, and run IDs never are;
-- logs: `../logging/structlog.md` — `workflow_transition_started` and
-  `workflow_transition_completed` with `workflow_run_id`.
+- logs: the `python-logging` skill — `workflow_transition_started` and
+  `workflow_transition_completed` with `workflow_run_id`; linked-trace
+  correlation: `../logging/correlation.md`.

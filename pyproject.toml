@@ -1,11 +1,9 @@
 [project]
 name = "claude-code-notes"
 version = "0.1.0"
-description = "Claude Code Notes — MkDocs Material documentation build"
+description = "Claude Code Notes — plain Markdown reference"
 requires-python = ">=3.10"
-dependencies = [
-    "mkdocs-material",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [

@@ -1,20 +1,22 @@
 ---
 name: python-service-architecture-audit
 description: >-
-  Audit or repair architectural drift inside an established Python backend
-  service. Use for hexagonal dependency violations, misplaced modules, leaking
-  framework contracts, speculative ports, centralized errors, GenAI boundary
-  problems, duplicated cross-service infrastructure, or the final verification
-  of a structural refactor. Do not use for
-  ordinary feature edits that do not change or review service boundaries.
+  Audit architectural drift inside an established Python backend service, and
+  repair it when the user asks. Use for hexagonal dependency violations,
+  misplaced modules, leaking framework contracts, speculative ports,
+  centralized errors, GenAI boundary problems, duplicated cross-service
+  infrastructure, or the final verification of a structural refactor. Do not
+  use for ordinary feature edits that do not change or review service
+  boundaries.
 ---
 
 # Python Service Architecture Audit
 
-Find architectural defects from repository evidence, distinguish enforceable
-violations from judgment calls, and route confirmed findings to planning or
-focused repair as described below. This is an operational review skill; `python-service-architecture` is
-the canonical source of structure and ownership rules.
+Find architectural defects from repository evidence, separate enforceable
+violations from judgment calls, and report them with a recommended route. This
+skill owns the audit procedure; `python-service-architecture` owns the
+structure and ownership rules. Cite its sections instead of restating them
+(fallback path: `../python-service-architecture/references/<file>.md`).
 
 ## Required context
 
@@ -23,16 +25,19 @@ service under review. Inspect the real source tree, imports, application entry
 points, ports, concrete implementations, bootstrap wiring, tests, and runtime
 configuration. Never infer architecture from filenames alone.
 
-Run the bundled deterministic audit against the import package:
+Run the bundled static checks against the import package. Pass `--workspace`
+in a multi-member repository to find byte-identical modules in other members:
 
 ```bash
-python scripts/audit_service.py path/to/src/package
+python scripts/audit_service.py path/to/src/package [--workspace path/to/repo]
 ```
 
-Treat script failures as concrete violations. Its review notices are prompts for
-semantic inspection, not proof. Report its result as **static checks**, never as
-the result of the architecture audit as a whole. A zero-finding script run does
-not reduce or replace the semantic work below.
+Every hit cites the rule that owns it. Treat hits as **candidates to confirm**
+by reading the code, not verdicts: `VIOLATION` marks import-direction and
+placement hits that are nearly always real, `REVIEW` marks prompts for semantic
+inspection. A clean run prints `static checks passed; semantic audit pending`.
+Report the result as **static checks**, never as the result of the audit as a
+whole; a clean run does not reduce the semantic work below.
 
 Before tracing individual paths, inventory every public application action and
 long-running process runner. For each one, record its input and output contract,
@@ -42,89 +47,108 @@ does not hide drift in an uninspected sibling. Then trace every action far enoug
 to assign its decisions and effects to owners, with at least one complete
 process-to-implementation trace for each distinct external capability family.
 
+## Dependency audit
+
+Search imports and verify each item against the named section of
+`boundaries.md` unless another file is named. Items marked (script) are also
+checked statically.
+
+- `domain/` and `ports/` import no adapters, bootstrap, API, DB, GenAI, config,
+  SDKs, or ORM packages (script) — The core rule.
+- `application/` imports no concrete adapters, DB, GenAI, bootstrap, or config
+  (script). It may use the service's own `observability/` helpers but never
+  `opentelemetry` types (script) — `observability/`.
+- `api/`, `adapters/`, `db/`, and `genai/` never import `bootstrap/` (script);
+  bootstrap is the composition root and nothing but entry points imports it.
+- API handlers and inbound adapters call public application entry points;
+  adapters, repositories, and GenAI implementations depend inward on ports.
+- Ports represent I/O or nondeterministic capabilities, not deterministic
+  parsers, calculators, formatters, or business rules; they are named for the
+  caller's need, not the current technology — When a port earns its cost.
+- No concrete broker implementation lives in a root `messaging/` package.
+- Every LLM, agent, prompt, AI schema, tool, or graph lives below root `genai/`;
+  bootstrap calls GenAI factories with resolved configuration, and GenAI modules
+  construct no runtime handles and read no settings at import time — `ai.md`,
+  Factories and bootstrap wiring.
+- No generic root or `core/` constants or errors module mixes unrelated owners;
+  deployment-varying values live in `config/` — Errors and constants follow
+  ownership (script flags the generic filenames).
+- Small packages stay flat across every boundary; provider identity alone does
+  not justify a folder — Flat-first growth across boundaries (script flags
+  one-module adapter subpackages).
+- No deployable imports another deployable's private package.
+- No Python file uses a relative import (script).
+- Tests can replace costly boundaries with small typed fakes without patching
+  SDK internals — `testing.md`.
+
 ## Semantic audit
 
 Trace real business actions from their process boundary through application
-code, ports, concrete implementations, and bootstrap. Check:
+code, ports, concrete implementations, and bootstrap. For each trace, check the
+owning rule:
 
-- dependencies point inward and application code never imports concrete DB,
-  adapter, API, bootstrap, or GenAI implementations;
-- every port expresses a caller-needed external capability, passes the port
-  admission test, and avoids framework operations, configuration controls,
-  vendor types, broad `Any`, and concrete telemetry lifecycle APIs;
-- concrete implementations translate their SDK failures into the port-owned
-  failure contract, without a universal adapter hierarchy or central translator;
-- errors, constants, validation, and helpers stay with their semantic owner;
-- application actions contain the business decision they claim to represent;
-  a method that only delegates an intent-named operation such as `complete`,
-  `fail`, `expire`, or `approve` is a review prompt, especially when the concrete
-  DB or adapter implementation chooses statuses, classifications, public error
-  codes, messages, or downstream transitions;
-- database and other concrete adapters execute queries and atomically realize
-  caller-owned decisions rather than inventing business transitions hidden
-  behind a broad command-shaped port;
-- long-running loops, stop events, idle sleeps, task creation, graceful
-  shutdown, and health supervision stay in bootstrap/supervisor code; keep the
-  independently invokable `*_once`, `execute`, or equivalent business action in
-  `application/`;
-- inbound API, broker, and SDK DTOs are translated at the process adapter;
-  inspect fields recursively rather than trusting a wrapper named `domain` or
-  `command`, and reject receipt handles, acknowledgements, Kafka topics,
-  partitions, offsets, provider messages, raw requests/responses, and equivalent
-  delivery metadata that cross into application, domain, or ports;
-- bootstrap injects a capability implementation rather than a raw client,
-  model, agent, graph, checkpointer, session, or telemetry handle;
-- GenAI tasks own their model binding, prompts, schemas, tools, middleware, and
-  application-facing capability adapter without leaking LangChain/LangGraph;
-- multiple tools are organized vertically, one exposed tool per module, with
-  tool-only schemas, normalization, and helpers colocated;
-- `genai/shared/` contains demonstrated identical reuse, stays flat initially,
-  and does not mix schemas, middleware, retry mechanics, invocation behavior,
-  registries, and provider policy under vague filenames;
-- package depth and abstractions are justified by current ownership, change, or
-  test pressure rather than anticipated reuse.
+| Check | Owner |
+|---|---|
+| Port contract: caller-needed capability, no framework verbs, vendor types, `Any`, or configuration controls | `boundaries.md` When a port earns its cost; Contract ownership |
+| Implementations translate SDK failures into port-owned errors once, without a central translator mapping unrelated owners. Shared transient/permanent bases are allowed | `errors.md` Translate once; Classification bases |
+| **Port failure with no handler:** every failure a port can raise reaches a named API or loop boundary | `errors.md` Handling boundaries |
+| Errors, constants, validation, and helpers stay with their semantic owner | `boundaries.md` Errors and constants follow ownership |
+| Repositories and adapters apply caller-owned decisions rather than choosing statuses, codes, messages, or transitions | `boundaries.md` Repositories apply decisions |
+| Loops, stop events, sleeps, task creation, and shutdown stay in the supervisor; the single-iteration action stays in `application/` | `api-and-workers.md` Long-running worker |
+| **Broker adapters map outcomes to ack/nak/terminate; they don't own retry policy** | `api-and-workers.md` SQS, Kafka, or another broker |
+| Inbound API, broker, and SDK payloads are translated at the process adapter | `boundaries.md` Validate external structure |
+| Application actions receive capability implementations. Raw handles go only into genai/adapter constructors | `boundaries.md` Constructor contracts |
+| GenAI tasks own model binding, prompts, schemas, tools, and the capability adapter. A few cohesive tools may share `tools.py` | `ai.md` Standard agent shape; Tools and MCP |
+| Application telemetry goes through the service's `observability/` vocabulary | `boundaries.md` `observability/` |
+| **Pass-through wrappers:** a class or function that only renames a call adds no owner | `python-code-conventions` Constructors and wrappers |
+| Package depth and abstractions are justified by current ownership, change, or test pressure | `boundaries.md` Flat-first growth across boundaries |
 
-Search for unused ports and protocols, but inspect callers before recommending
-deletion. Structural typing, a passing type checker, and test fakes do not prove
-that a port is technology-neutral or useful.
+Procedure notes the rules do not cover:
 
-For each application action, compare its focused unit tests with its concrete
-integration tests. Missing unit coverage is not automatically an architecture
-violation, but if business outcomes can only be demonstrated through a real DB,
-broker, model, or SDK, inspect whether policy has escaped into that concrete
-implementation.
+- An action method that only delegates an intent-named operation (`complete`,
+  `fail`, `expire`, `approve`) is a review prompt, especially when the concrete
+  DB or adapter chooses the outcome.
+- Inspect DTO fields recursively rather than trusting a wrapper named `domain`
+  or `command`; delivery metadata (receipt handles, acknowledgements, topics,
+  partitions, provider messages, raw requests) must not reach application,
+  domain, or ports.
+- Search for unused ports and protocols, but inspect callers before recommending
+  deletion. Structural typing, a passing type checker, and test fakes do not
+  prove that a port is technology-neutral or useful.
+- For each action, compare its focused unit tests with its integration tests.
+  Missing unit coverage is not itself a violation, but if business outcomes can
+  only be shown through a real DB, broker, model, or SDK, check whether policy
+  has escaped into that implementation.
 
 Summarize the semantic pass with a compact ownership matrix containing, as
 applicable: action, business decision, boundary input, port, concrete
-implementation, state-transition owner, and lifecycle owner. Explicitly label
+implementation, state-transition owner, and lifecycle owner. Label
 static-script findings separately from semantic findings.
 
-## Findings and repair
-
-### Shared-capability review
+## Shared-capability review
 
 In a workspace, compare the reviewed service's technical plumbing with existing
-libraries and matching code in current consumers. Explicitly search for overlapping
-modules and duplicated capabilities, including service-local copies of capabilities
-already provided by shared libraries. Keep this read-only comparison
-focused on candidate capabilities; it does not authorize repairs to siblings.
-Read `python-service-architecture/references/shared-libraries.md` when a candidate
-emerges, and `otel-observability/references/setup/shared_library.md` for repeated
-provider lifecycle, logging processors, or propagation policy.
+libraries and matching code in other members. Search explicitly for overlapping
+modules, identical function names, and service-local copies of capabilities a
+shared library already provides. This comparison is read-only; it does not
+authorize repairs to siblings. Read
+`../python-service-architecture/references/shared-libraries.md` when a
+candidate emerges, and `../otel-observability/references/setup/shared_library.md`
+for repeated provider lifecycle, logging processors, or propagation policy.
+
+A duplicate that meets the extraction trigger in `shared-libraries.md` is a
+**Violation** to resolve; other justified extractions are **Improvements**, and
+code that differs in meaning, lifecycle, or dependencies stays local.
 
 For each candidate, report the source paths and consumers, shared operational
-meaning, actual differences, proposed minimal public inputs, service-local
-policy, dependency/lifecycle costs, and smallest consumer-by-consumer migration.
-Check that library inputs would be explicit typed values: environment, YAML,
-secrets, and service settings remain service-owned and are mapped by bootstrap.
-Recommend extraction when stable reuse removes duplicated policy or lifecycle;
-explain retention when similar code has different semantics or dependency needs.
-Classify justified extraction as an **Improvement**, unless an existing ownership
-or compatibility contract is already violated. Do not recommend generic shared
-dumping grounds or wrappers that merely rename SDK calls. Static import checks
-and textual similarity cannot establish semantic reuse.
+meaning, actual differences, minimal public inputs, service-local policy,
+dependency and lifecycle costs, and the smallest consumer-by-consumer
+migration. Environment, YAML, secrets, and service settings stay service-owned
+and are mapped by bootstrap. Do not recommend generic shared dumping grounds or
+wrappers that merely rename SDK calls. Textual similarity alone cannot
+establish semantic reuse.
 
-### Classification
+## Classification
 
 Classify every finding as:
 
@@ -132,56 +156,57 @@ Classify every finding as:
 - **Improvement:** a different shape materially improves isolation or navigation.
 - **Preference:** cosmetic difference without architectural consequence.
 
-Do not present preferences as violations. Move one coherent boundary at a time
-when repairing, update all consumers, add or strengthen behavior/contract tests
-for the defect, and run focused tests before the complete relevant suite.
+Do not present preferences as violations.
 
-### Route the findings
+When the service has no persistent architecture-fitness test, recommend one as
+an Improvement: import-boundary contract tests in the service's own suite,
+built on a shared AST inspector that has its own mutation or sensitivity tests
+proving each check fails on a planted violation. The bundled script is a
+one-shot aid, not a substitute. Test placement: `testing.md`.
 
-After completing the semantic and shared-capability review, choose and explain
-one route. A normal invocation includes this follow-through; do not stop at a
-chat-only report just because the user called the task an audit. An explicit
-read-only, report-only, or no-changes instruction overrides this default: report
-the findings and recommended route without writing files or implementing repairs.
+## Report and route
 
-- **No actionable findings:** report the checks and remaining uncertainty. Do
-  not create an empty feedback file or proposal, or implement preferences.
-- **Substantial findings or planning needed:** invoke
-  [openspec-propose](../openspec-propose/SKILL.md) to create a complete change
-  proposal, delta specs, design, and implementation tasks using that workflow's
-  resolved paths and required artifacts. Choose this route for numerous findings,
-  coordinated changes across boundaries or consumers, shared-library extraction,
-  state-transition or compatibility changes, or material design uncertainty.
-  Count alone does not decide: one consequential finding can require a proposal.
-  Include evidence, classification, acceptance criteria, shared-capability
-  conclusions, migration order, and verification tasks. Stop after presenting the
-  completed planning artifacts; do not implement any of the proposed repairs in
-  the same turn. Wait for a new user request to start the apply workflow.
-- **Few, bounded findings:** when the fixes are local, understood, reversible,
-  and do not require the coordination or decisions above, create `FEEDBACK.md`
-  at the reviewed repository root before editing code, then implement the fixes
-  directly. If that file already exists, preserve it and choose an unused
-  descriptive prefix such as `worker-architecture-FEEDBACK.md`, adding a numeric
-  prefix if needed. Record each finding's classification, source evidence,
-  intended fix, and acceptance/verification steps as Markdown checkboxes. Start
-  pending work with `- [ ]`; change it to `- [x]` only after the fix and its
-  required checks succeed. Run the completion gate below and record results and
-  any remaining unchecked work in the same file. Do not ask for redundant repair
-  confirmation within this default scope.
+By default the audit is **report-only**. Report the static checks, the semantic
+findings with evidence and classification, the ownership matrix, the
+shared-capability conclusions, and one recommended route:
 
-Keep repairs scoped to the reviewed service and its necessary consumers. A
-read-only comparison with sibling services does not authorize repairing them.
-If focused repair reveals a need for coordinated design, preserve the feedback
-and completed work, route the remaining work through `openspec-propose`, and
-stop after planning. If the proposal workflow is unavailable, explain the
-blocker and report the findings; do not substitute unplanned implementation.
+- **No actionable findings:** state the checks run and the remaining
+  uncertainty.
+- **Plan first:** numerous findings, coordinated changes across boundaries or
+  consumers, shared-library extraction, state-transition or compatibility
+  changes, or material design uncertainty. Count alone does not decide; one
+  consequential finding can require a plan.
+- **Focused repair:** few findings whose fixes are local, understood, and
+  reversible.
+
+Write files or change code only when the user asks for repair:
+
+- **Plan first:** invoke `openspec-propose` (fallback
+  `../openspec-propose/SKILL.md`) to create the proposal, delta specs, design,
+  and tasks, including evidence, classification, acceptance criteria,
+  shared-capability conclusions, migration order, and verification tasks. Stop
+  after presenting the planning artifacts; implementation waits for a new
+  request. If the workflow is unavailable, explain the blocker and report the
+  findings instead of implementing unplanned changes.
+- **Focused repair:** create `FEEDBACK.md` at the reviewed repository root
+  before editing code (if it exists, preserve it and use an unused descriptive
+  name such as `worker-architecture-FEEDBACK.md`). Record each finding's
+  classification, evidence, intended fix, and verification steps as `- [ ]`
+  checkboxes; tick one only after its fix and checks pass. Move one coherent
+  boundary at a time, update all consumers, add or strengthen behavior or
+  contract tests for the defect, and run focused tests before the full suite.
+  Record the completion-gate results and any unchecked work in the same file.
+
+Keep repairs scoped to the reviewed service and its necessary consumers. If a
+focused repair reveals a need for coordinated design, keep the feedback file
+and completed work, and route the rest through planning.
 
 ## Completion gate
 
 Before declaring a structural repair complete:
 
 1. rerun `scripts/audit_service.py`;
-2. run the service's architecture contract tests;
+2. run the service's architecture-fitness tests;
 3. run formatting, lint, type checking, and the relevant test profiles;
 4. report remaining semantic risks that static checks cannot prove.
 

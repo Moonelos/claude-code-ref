@@ -39,14 +39,21 @@ A normal record should resemble:
 
 Use native JSON numbers and booleans, not strings. Avoid null-filled universal schemas; omit fields that do not apply unless downstream schema requirements say otherwise.
 
+## Call sites
+
+- Declare `logger = logging.getLogger(__name__)` (or the structlog equivalent) once, below the imports; never call `getLogger` inline per call.
+- The first positional argument is the snake_case past-tense event name, never a sentence or interpolated values.
+- One call-site API per repo: stdlib `extra=` or structlog keyword arguments, not both. Record the choice in the shared logging library's module docstring.
+
+Example: `logger.info("payment_declined", extra={"order_id": order_id, "reason": reason_code})`.
+
+## Field allowlists
+
+If the formatter applies a field allowlist, reconcile every new event against it: register each authored field with an agreed name and type, or omit it at the call site, and verify the serialized record still answers the event's question. The allowlist never silently discards an authored field: it fails in tests on unknown keys, or emits a dropped-fields marker in production. The same formatter may validate the event-name pattern. Allowlisting runs before redaction and serialization, never instead of redaction.
+
 ## Context lifecycle
 
-Bind execution context at the real boundary and clear it in `finally`:
-
-- HTTP middleware: request ID, route and permitted tenant context;
-- queue consumer: message/job ID, queue, attempt and workflow ID;
-- scheduled job: job type and run ID;
-- workflow transition: run ID, state and attempt.
+Bind execution context at the real boundary and clear it in `finally`: HTTP middleware (request ID, route, permitted tenant), queue consumer (message/job ID, queue, attempt, workflow ID), scheduled job (job type, run ID), workflow transition (run ID, state, attempt).
 
 Context-local storage must be safe for the runtime's concurrency model. Test concurrent requests or jobs to prove fields do not leak. A long-running worker must clear context between units of work.
 
@@ -54,12 +61,7 @@ Accept incoming correlation IDs only after validating length and character set. 
 
 ## Optional trace correlation
 
-If the application already has OpenTelemetry or another tracing system, add its valid active IDs in the central enricher:
-
-```text
-trace_id  32 lowercase hexadecimal characters
-span_id   16 lowercase hexadecimal characters
-```
+If the application already has OpenTelemetry or another tracing system, add its valid active IDs in the central enricher: `trace_id` as 32 and `span_id` as 16 lowercase hexadecimal characters. The tracing owner supplies that enricher; for OpenTelemetry it is `$otel-observability` (fallback `../../otel-observability/references/logging/correlation.md`), which also owns linked-trace and sampling interactions.
 
 Omit them when no valid context exists. Do not add OpenTelemetry packages, exporters, OTLP configuration, or a Collector merely to satisfy logging. Do not emit an upstream or linked trace ID as the current `trace_id`; if a demonstrated search need exists, use a distinct `causal_trace_id`.
 

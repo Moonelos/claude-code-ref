@@ -15,6 +15,11 @@ orchestrators never run standalone by definition — they call the per-stack
 scripts — so they may source one shared file for stack order. Per-stack scripts
 still source nothing.
 
+The examples below use the grouped layout for repositories with many scripts.
+For a small flat repository, remove the `platform/`, `application/`, and
+`release/` path segments consistently. The stack list stores paths relative to
+`scripts/` in either layout.
+
 ## Contents
 
 - [The Shared Stack List](#the-shared-stack-list)
@@ -44,22 +49,23 @@ meaning.
 # that would silently skip create-state.sh's own stricter destroy token) can
 # reach through this list.
 PLATFORM_STACKS=(
-  "platform-network:deploy-platform-network.sh:destroy-platform-network.sh"
-  "platform-data:deploy-platform-data.sh:destroy-platform-data.sh"
-  "platform-ecr:deploy-platform-ecr.sh:destroy-platform-ecr.sh"
+  "platform-network:platform/deploy-platform-network.sh:platform/destroy-platform-network.sh"
+  "platform-data:platform/deploy-platform-data.sh:platform/destroy-platform-data.sh"
+  "platform-ecr:platform/deploy-platform-ecr.sh:platform/destroy-platform-ecr.sh"
 )
 
 # Application tier — order is arbitrary; one entry per releasable service.
 APP_STACKS=(
-  "app-api:deploy-app-api.sh:destroy-app-api.sh"
-  "app-worker:deploy-app-worker.sh:destroy-app-worker.sh"
-  # "app-<service>:deploy-app-<service>.sh:destroy-app-<service>.sh"
+  "app-api:application/deploy-app-api.sh:application/destroy-app-api.sh"
+  "app-worker:application/deploy-app-worker.sh:application/destroy-app-worker.sh"
+  # "app-<service>:application/deploy-app-<service>.sh:application/destroy-app-<service>.sh"
 )
 
 STACKS=("${PLATFORM_STACKS[@]}" "${APP_STACKS[@]}")
 ```
 
-The `<name>:<deploy>:<destroy>` triple keeps a stack's name and both of its
+The `<name>:<deploy>:<destroy>` triple keeps a stack's name and both script paths,
+relative to `scripts/`,
 scripts on one line, so adding a stack is one edit in one place and the reverse
 order cannot fall out of sync. `STACKS` preserves the existing contract for
 `deploy.sh` and `destroy.sh`; `deploy-platform.sh` iterates `PLATFORM_STACKS`
@@ -74,9 +80,9 @@ build, the app stack after it — call it inline in `deploy.sh` rather than addi
 it to an array; it is not a stack and has no destroy counterpart:
 
 ```bash
-run_stack "platform-ecr" 1 N "deploy-platform-ecr.sh"
-"$SCRIPT_DIR/build-<service>.sh"
-run_stack "app-<service>" 2 N "deploy-app-<service>.sh"
+run_stack "platform-ecr" 1 N "platform/deploy-platform-ecr.sh"
+"$SCRIPT_DIR/release/build-<service>.sh"
+run_stack "app-<service>" 2 N "application/deploy-app-<service>.sh"
 ```
 
 In a release this sequencing does not arise: the build script and the single app

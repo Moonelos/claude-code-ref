@@ -26,8 +26,10 @@ listing, because two lines depend on it:
 - `LAMBDA_DIR` / `APP_DIR` — where the source is read from.
 - `git -C "$REPO_ROOT" rev-parse HEAD` — the commit that names the artifact.
 
-In a split repository the build script lives in the application repository, so both
-resolve correctly against `$SCRIPT_DIR/..` with no change. What changes is the
+For a script at the root of either repository, both resolve correctly against
+`$SCRIPT_DIR/..`. For `scripts/release/build-<service>.sh` in a grouped layout,
+use `$SCRIPT_DIR/../..` and point sibling calls at the same `release/` folder.
+What changes in a split repository is the
 handoff: instead of the deploy script reading the generated tfvars off the same
 runner's disk, the application repository publishes the version as a committed
 `Terraform/environments/{env}/{stack}.artifacts.tfvars` in the infrastructure

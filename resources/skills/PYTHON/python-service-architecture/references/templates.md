@@ -28,16 +28,10 @@ src/<package>/
 └── diagnostics/                    # Optional operator diagnostics
 ```
 
-This `config/` is a Python package containing configuration-loading and secret
-resolution code. It does not own committed YAML files. For a multi-service
-repository, keep YAML baselines in the repository-root `config/` by default;
-use service-local YAML directories only after an explicit user request. See the
-`python-settings-config` skill for that layout and its merge precedence.
-
-`core/` is deliberately absent. Add it only for a dependency-light primitive
-already shared across several boundaries, such as immutable application
-context. For APIs, workers, consumers, and hybrid processes, use the concrete
-trees in [api-and-workers.md](api-and-workers.md).
+This `config/` is Python settings code, not the home of YAML baselines; see
+`python-settings-config`. `core/` is deliberately absent
+([boundaries.md](boundaries.md#core)). For APIs, workers, consumers, and hybrid
+processes, use the trees in [api-and-workers.md](api-and-workers.md).
 
 ## Representative service tree
 
@@ -63,7 +57,6 @@ src/<package>/
 │       └── s3_raw_email_store.py
 └── genai/
     └── email_classification/
-        ├── llm.py
         ├── schemas.py
         ├── prompts.py
         └── classifier.py
@@ -82,9 +75,48 @@ application/
     └── send.py
 ```
 
-For the enforced GenAI variants and growth rules, use [ai.md](ai.md). For the
-criteria that justify any file-to-package promotion, use
+For GenAI variants use [ai.md](ai.md); for file-to-package promotion use
 [boundaries.md](boundaries.md#flat-first-growth-across-boundaries).
+
+## Use-case shape
+
+An application action is a class named with an imperative verb phrase, with
+keyword-only dependencies (ports, a UoW factory, typed policy objects, effect
+seams), **one** public `async def execute(*, ...) -> <FrozenResult>`, and failures
+raised as action- or port-owned exceptions. Use a plain module function when
+there are no dependencies.
+
+```python
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from my_service.domain.email import AdmissionOutcome, EmailId, admission_decision
+from my_service.ports.admission_store import AdmissionStore
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdmissionResult:
+    email_id: EmailId
+    outcome: AdmissionOutcome  # StrEnum: ADMITTED, DUPLICATE, REJECTED
+
+
+class AdmitEmail:
+    def __init__(
+        self,
+        *,
+        store: AdmissionStore,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self._store = store
+        self._clock = clock
+
+    async def execute(self, *, email_id: EmailId) -> AdmissionResult:
+        observed = await self._store.observe(email_id=email_id)
+        decision = admission_decision(observed=observed, now=self._clock())
+        await self._store.apply(decision=decision)
+        return AdmissionResult(email_id=email_id, outcome=decision.outcome)
+```
 
 ## Placement test
 

@@ -75,8 +75,8 @@ pool, lock, or other loop-bound object created by the test.
 
 Make the whole test async when it needs app-adjacent async resources.
 
-- Follow the repository's chosen plugin and marker (`pytest.mark.anyio` or
-  pytest-asyncio), not both auto modes.
+- Follow the repository's chosen plugin and module-level marker
+  (`pytest.mark.anyio` or pytest-asyncio), not both auto modes.
 - Use the compatible ASGI transport/client for the installed FastAPI and
   Starlette versions and give the client a test base URL.
 - HTTPX `ASGITransport` does not start lifespan. Wrap the app in a compatible
@@ -160,8 +160,9 @@ Test the protocol consumed by the client, not incidental chunk boundaries.
 - Use the production database family for repository, constraint, transaction,
   migration, locking, and concurrency tests. SQLite is not a PostgreSQL or MySQL
   compatibility layer.
-- Start from an explicitly disposable target and guard destructive setup against
-  ordinary service credentials or non-test database names.
+- Start from an explicitly disposable target; the guard against ordinary
+  service databases is owned by `$python-sqlmodel-alembic`
+  (`../../python-sqlmodel-alembic/SKILL.md`).
 - Apply actual Alembic migrations to an empty database in CI. Also check that
   the current database is at all configured heads and that model changes do not
   require an uncommitted migration.

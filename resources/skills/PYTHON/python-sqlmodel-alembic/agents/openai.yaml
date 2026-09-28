@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQLModel + Alembic"
+  short_description: "Async PostgreSQL data layer and migrations"
+  default_prompt: "Use $python-sqlmodel-alembic to scaffold or review the async PostgreSQL data layer, repositories, work queues, and Alembic migrations for this Python service."

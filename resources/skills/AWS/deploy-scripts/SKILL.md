@@ -102,6 +102,42 @@ stacks on a local backend.
 
 A stack that owns both an ECR repo and the service that pushes to it (ECS, Lambda) splits into two stacks: `platform-ecr` and the app stack. ECR repos are created once and almost never destroyed; the app stack churns on every deploy. Giving them separate lifecycles means a normal deploy never needs `-target` — see [ECR as a Platform Stack](#ecr-as-a-platform-stack).
 
+### Folder layout when scripts grow
+
+Inspect the existing repository before scaffolding. A small repository can keep
+its few scripts directly under `scripts/`. When the directory has roughly a dozen
+or more entrypoints across several capabilities, or it is clearly growing toward
+that size, use one level of folders by purpose:
+
+```text
+scripts/
+  deploy.sh  deploy-platform.sh  destroy-app.sh  destroy-platform.sh  _stacks.sh
+  platform/       deploy-platform-*.sh, destroy-platform-*.sh
+  application/    deploy-app-*.sh, destroy-app-*.sh
+  setup/          bootstrap/create scripts and account-wide shared stacks
+  release/        build and artifact-resolution scripts (monorepo only)
+  operations/     readiness, migrations, scheduled tasks, repair commands
+  checks/         Terraform checks and smoke scripts
+```
+
+Create only folders that have a real purpose in that repository. Keep public
+orchestrators and `_stacks.sh` at the root so bring-up remains easy to discover;
+per-stack scripts stay executable and standalone. Store paths relative to
+`scripts/` in `_stacks.sh`, for example
+`platform/deploy-platform-network.sh`, and invoke them through
+`"$SCRIPT_DIR/$deploy_script"`. A build script in a split repository stays with
+the application source, in that repository's own script layout.
+
+For a nested script, resolve the repository root with
+`REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"`; root-level scripts use
+`$SCRIPT_DIR/..`. Resolve sibling calls from `$SCRIPT_DIR` and cross-folder calls
+from `$REPO_ROOT/scripts/<folder>/...`. Never rely on the caller's working
+directory. When reorganizing an existing repository, update workflow invocations,
+test fixtures and path assertions, documentation and Terraform comments together.
+Use recursive discovery for ShellCheck and Bash syntax checks; `scripts/*.sh`
+misses nested files. Keep incident-specific scratch files outside the committed
+entrypoint layout.
+
 ---
 
 ## Script Structure
@@ -116,7 +152,7 @@ set -euo pipefail
 
 `#!/usr/bin/env bash` picks up whatever `bash` is on `PATH` — macOS ships an ancient `/bin/bash` (3.2). `set -euo pipefail` fails fast on errors, unset vars, and broken pipes.
 
-### Bash 3.2 and Empty Arrays
+### Bash 3.2 Compatibility
 
 Every script must remain compatible with the Bash 3.2 shipped by macOS. Under
 `set -u`, expanding an initialized but empty array with `"${items[@]}"` raises an
@@ -138,14 +174,73 @@ done
 The inner quotes preserve each element as a separate argument; the outer
 `${array[@]+...}` expands to nothing when the array is empty. Ordinary
 `"${array[@]}"` remains correct when the script's structure guarantees at least
-one element. Do not rely on Bash 4 features such as associative arrays or
-`mapfile`.
+one element.
+
+**Associative arrays do not exist on Bash 3.2.** `declare -A` is a *syntax*
+error there, not a runtime one, so the shell rejects the whole file and the
+script dies before its first command — no output, no partial work, and any
+`mkdir -p` earlier in the file never runs. That failure mode is easy to
+misdiagnose: a wrapper that shells out to such a script sees an empty output
+directory and looks as though the upstream work never happened, when in fact it
+completed. Key a second indexed array off the same positions instead:
+
+```bash
+IMAGES=(api worker scheduler)
+DIGESTS=()                              # parallel to IMAGES, not associative
+
+for index in "${!IMAGES[@]}"; do
+  image="${IMAGES[$index]}"
+  DIGESTS[index]="$(lookup_digest "$image")"
+done
+
+for index in "${!IMAGES[@]}"; do
+  printf '%s = %s\n' "${IMAGES[$index]}" "${DIGESTS[$index]}"
+done
+```
+
+`${!array[@]}` (index expansion) is available on Bash 3.2. Assign with the bare
+subscript `DIGESTS[index]=` — inside a subscript the name is already evaluated
+arithmetically, and `DIGESTS[$index]=` trips ShellCheck SC2004.
+
+Also absent on 3.2: `mapfile` / `readarray`, and the `${var^^}` / `${var,,}`
+case-conversion expansions. Use `tr` or `awk` for case folding, and a
+`while IFS= read -r` loop where you would reach for `mapfile`.
+
+### Multi-Line Values Through `read`
+
+`read` consumes one line. Piping records into `while IFS=$'\t' read -r key value`
+therefore truncates any value that contains newlines, and — worse — the remaining
+lines are parsed as further records, so the second line of a value silently
+becomes the next record's key. A Terraform output holding a multi-line file body
+is the common case:
+
+```bash
+# WRONG: every line after the first becomes a bogus record
+terraform output -json configs | jq -r 'to_entries[] | "\(.key)\t\(.value)"' \
+  | while IFS=$'\t' read -r name body; do printf '%b' "$body" > "$name.conf"; done
+```
+
+Escape the newlines so each record really is one line, and restore them when
+writing:
+
+```bash
+terraform output -json configs \
+  | jq -r 'to_entries[] | "\(.key)\t\(.value | gsub("\n"; "\\n"))"' \
+  | while IFS=$'\t' read -r name body; do
+      printf '%b' "$body" > "$name.conf"      # %b expands the \n escapes
+    done
+```
+
+`jq -r` with `@tsv`, or NUL-delimited records with `read -r -d ''`, are equally
+valid; what matters is that the record delimiter cannot occur inside a value.
+Verify by counting lines in a generated file, not by eyeballing the log: the
+truncated form still prints a cheerful "Wrote ..." for the first record.
 
 ### Path Resolution
 
 ```bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)" # For scripts/<folder>/<script>.sh; use /.. at the root.
 ENV="${ENV:?Set ENV to a supported environment, for example dev, staging, or prod}"
 LOGICAL_STACK="<stack>"
 ROOT_STACK="<stack>" # May differ by environment for an explicit topology variant.
@@ -234,6 +329,11 @@ if ! docker info >/dev/null 2>&1; then
 fi
 ```
 
+Perform the identity check before piping an ECR password into `docker login`. Otherwise an
+expired SSO session appears as the misleading downstream Docker error “interactive login
+from a non TTY”. When the target account is declared in tfvars, compare it with the caller
+account before publishing or applying.
+
 ### Deploy Workflow
 
 ```bash
@@ -316,9 +416,29 @@ done
 - Use `-input=false` everywhere so a missing value fails loudly instead of hanging.
   Use a bounded lock timeout. Apply the exact saved plan; never run a second
   implicit plan at apply time.
+- Render the saved plan as JSON and list every action containing `delete` before the
+  approval gate. For a known stateful or externally referenced replacement, add a
+  resource-specific preflight that verifies live consumers are gone and require a narrowly
+  named opt-in. A warning alone is insufficient when AWS is guaranteed to reject deletion.
 - `CI=true` skips the terminal prompt. It is not the approval — the workflow's
   environment protection is. See
   [`references/ci-workflows.md`](references/ci-workflows.md).
+
+### Apply failures and convergence
+
+Terraform apply is not transactional. Once apply starts, an error can leave earlier
+resource actions committed. Orchestrator failure traps may say that the previous runtime is
+untouched only for phases that precede the runtime apply. During or after runtime apply,
+report that state may be partial and direct the operator to refresh state and inspect live
+service revisions.
+
+Static validation and mocked `terraform test` cannot detect every provider/API
+normalization mismatch. For a release root that contains provider-normalized nested blocks
+or immutable resources, run a post-apply plan with the exact same inputs and
+`-detailed-exitcode`; zero is success, one is an error, and two means the applied
+configuration did not converge. Show that second plan and fail the release evidence step.
+This check is especially important after adding a new resource type or upgrading a
+provider.
 
 ### ECR as a Platform Stack
 
@@ -486,7 +606,7 @@ committed `pyproject.toml` and `uv.lock` with uv; a generated requirements file 
 an ignored build artifact, never a second dependency source of truth.
 
 **Where the build script lives follows the source, not the Terraform.** In a
-monorepo it sits in `scripts/` beside the deploy scripts, and the deploy script
+monorepo it sits in `scripts/` (under `release/` in a grouped layout), and the deploy script
 calls it inline. In a split repository it lives in the application repository, and
 the artifact version reaches Terraform through a committed
 `Terraform/environments/{env}/{stack}.artifacts.tfvars` file instead of a path on
@@ -580,13 +700,23 @@ Every script declares `set -euo pipefail`, so latent quoting and unset-variable
 bugs surface as hard failures at the worst possible time — mid-deploy. Lint
 before committing:
 
-- Run `shellcheck scripts/*.sh` and resolve findings (or annotate intentional
+- Run `find scripts -type f -name '*.sh' -not -path 'scripts/temp/*' -print0 | xargs -0 shellcheck` and resolve findings (or annotate intentional
   ones with `# shellcheck disable=SCxxxx` plus a reason). It catches unquoted
   expansions, masked exit codes in pipelines, and `read` misuse that
   `pipefail` would otherwise only reveal at runtime.
 - Add a regression contract for every legitimately empty array expanded under
   `set -u`. CI commonly runs Bash 5, so a successful CI execution and ShellCheck
   do not prove that the script is safe on macOS Bash 3.2.
+- Parse every script with the *system* shell, including nested scripts:
+  `find scripts -type f -name '*.sh' -not -path 'scripts/temp/*' -exec /bin/bash -n {} +`.
+  ShellCheck accepts `declare -A` and the other Bash 4 constructs without
+  comment, and a Bash 5 CI runner executes them happily, so this is the only
+  cheap check that reproduces what an operator on macOS actually gets. Assert it
+  in the test suite alongside a grep for `declare -A`, `local -A`, `mapfile`,
+  `readarray`, `${var^^}` and `${var,,}`.
+- Prefer testing a script's *output artifact* over its exit code. Several of
+  these failure modes (a truncated rendered file, an empty output directory)
+  leave a zero exit somewhere upstream and only surface much later.
 - Run `chmod +x` on new scripts — a non-executable script invoked by an
   orchestrator fails with a confusing permission error.
 - Optionally wire both into a pre-commit hook so they run automatically.
@@ -610,6 +740,7 @@ that is always an app stack.
 ### Adding a platform stack
 
 1. Name it `deploy-platform-<name>.sh` / `destroy-platform-<name>.sh`.
+   In a grouped layout place both in `scripts/platform/`.
 2. Place it in the **ordered** section of `_stacks.sh`, ahead of every app stack,
    and add it to `deploy-platform.sh`'s run.
 3. If an environment selects a different root implementation, add an explicit
@@ -625,9 +756,11 @@ that is always an app stack.
 0. Resolve the [repository topology](#repository-topology) first — it decides
    whether steps 2 and 4 happen in this repository or another one.
 1. Name it `deploy-app-<service>.sh` / `destroy-app-<service>.sh`.
+   In a grouped layout place both in `scripts/application/`.
 2. Add `build-<service>.sh` for its artifact — **read
    [`references/build-scripts.md`](references/build-scripts.md)**, or
    [`references/ami-builds.md`](references/ami-builds.md) for an EC2/ASG service.
+   In a grouped monorepo layout place it in `scripts/release/`.
    The app stack reads its ECR repository URL from the platform tier rather than
    owning it; create `platform-ecr` once if the project has no ECR stack yet. In a
    split repository the build script belongs to the application repository, and

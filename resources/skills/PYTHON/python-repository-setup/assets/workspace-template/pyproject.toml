@@ -21,7 +21,38 @@ line-length = 100
 target-version = "py313"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "B", "TID252"]
+select = [
+    "E4", "E7", "E9", "F",  # pyflakes/pycodestyle errors: real bugs
+    "I",                    # isort: deterministic import order
+    "UP",                   # pyupgrade: syntax for the pinned Python
+    "B",                    # bugbear: mutable defaults, loop closures, other traps
+    "TID252",               # mandatory: absolute imports only
+    "C90",                  # mccabe: cyclomatic complexity <= max-complexity
+    "PLR0912", "PLR0915",   # too many branches / statements
+    "S101",                 # no assert in production code
+    "BLE",                  # blind except; `# noqa: BLE001 <reason>` at a real boundary
+    "ASYNC",                # blocking calls and misuse inside async code
+    "DTZ",                  # naive datetimes
+    "T20",                  # print/pprint left in code
+    "TRY400",               # log.exception, not log.error, inside except
+    "N818",                 # exception names end in Error
+    "FBT003",               # positional boolean literal in a call
+    "INP",                  # every package directory has __init__.py
+    "PIE", "RET", "SIM", "C4", "PERF", "FURB",  # simplifications and cheap performance wins
+    "PGH",                  # specific codes on noqa / type: ignore
+    "ERA",                  # commented-out code
+    "RUF",                  # Ruff-specific, incl. RUF022 sorted __all__
+]
+# Deliberately not enabled: PLR0913 (keyword-only DI constructors legitimately
+# exceed it) and EM/TRY003 (high volume, little value).
+# Consider: ANN401 (per-file ignore for true adapters), FBT001, PLR2004 (not in tests).
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "INP"]
+"**/bootstrap/runtime.py" = ["PLR0915"]  # wiring-only composition root
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -48,3 +79,11 @@ skip_covered = true
 [tool.mypy]
 python_version = "3.13"
 strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "possibly-undefined"]
+plugins = ["pydantic.mypy"]  # keep while any member uses pydantic
+# Stubs: add boto3-stubs / types-* to the dev group. For a package with no stubs,
+# use one override block listing every such module, never per-import ignores:
+# [[tool.mypy.overrides]]
+# module = ["untyped_vendor.*"]
+# ignore_missing_imports = true

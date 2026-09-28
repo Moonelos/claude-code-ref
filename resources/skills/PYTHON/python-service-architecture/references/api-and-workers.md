@@ -9,51 +9,57 @@ src/<package>/
 │   ├── app.py                      # create_app(), lifespan, ASGI app
 │   └── runtime.py                  # Dependency graph and disposal
 ├── api/
-│   ├── dependencies.py             # Request-scoped dependency adapters
-│   ├── exception_handlers.py       # Business error -> HTTP response
-│   ├── middleware/
-│   │   ├── authentication.py
-│   │   ├── context.py
-│   │   └── request_logging.py
-│   ├── routers/
-│   │   ├── health.py
-│   │   └── tickets.py
-│   └── schemas/
-│       └── tickets.py              # HTTP-only request/response contracts
+│   ├── dependencies.py             # ApiRuntime Protocol, get_runtime, providers
+│   ├── problems.py                 # Exception -> public error table and handlers
+│   ├── middleware.py               # Cross-request transport mechanics, when used
+│   ├── routes.py                   # Until a second router exists, then routers/
+│   └── schemas.py                  # Only when the HTTP shape differs
 ├── application/
-├── domain/                         # When shared business concepts exist
+├── domain/
 ├── ports/
-├── adapters/
-├── genai/                          # Mandatory when any GenAI exists
-├── config/
-├── db/
-└── observability/
+└── ...                             # adapters/, genai/, config/, db/, observability/
 ```
 
-`bootstrap/app.py` owns the FastAPI instance, lifespan, router registration,
-and framework instrumentation. Keep `api/` focused on the HTTP transport.
+The tree lists roles, not required filenames. `bootstrap/app.py` owns the
+FastAPI instance, lifespan, router registration, and framework instrumentation.
 
-Routers should:
+Routers validate and translate HTTP input, resolve request context, call one
+public application action, and translate the result. They never execute SQL,
+initialize clients, invoke LLM SDKs, or branch on business state.
 
-1. validate and translate HTTP input;
-2. resolve request/application context;
-3. call one public application action;
-4. translate the result to an HTTP response.
+**Typed dependencies.** Store the typed runtime on `app.state` once and expose
+one accessor, `get_runtime(request) -> ApiRuntime`, where `ApiRuntime` is a
+Protocol declared in `api/` and satisfied by bootstrap. Routes receive services
+through `Annotated[X, Depends(provider)]` from `api/dependencies.py`; they never
+touch `request.app.state`, `cast` it, look attributes up by string, or
+re-validate what bootstrap validated. Group transport policy scalars into a typed
+object (`SsePolicy`). Tests use `app.dependency_overrides`.
 
-Routers must not execute SQL, initialize clients, invoke LLM SDKs directly, or
-contain business branching. Keep transport-specific Pydantic models in
-`api/schemas/`; keep reusable application contracts in `ports/` and business
-types in `domain/`.
+**Thin routes.**
 
-Use `api/routers/` whenever the service exposes application routes, even if it
-starts with one module; this is a deliberate stable location. Create
-`api/middleware/`, `api/schemas/`, and other branches when those responsibilities
-exist—do not commit empty packages merely to complete the drawing.
+- Every route declares a typed `response_model`; no `dict[str, Any]` and no
+  `extra="allow"`.
+- Status codes use `fastapi.status` names.
+- Query and path parameters are constrained with `Annotated[int, Query(gt=0,
+  le=...)]`, not `if` statements. Configured limits, cursor decoding, and
+  continuation checks are application policy.
+- Request bodies use `extra="forbid"`; response models keep the default.
+- Per-route authorization uses route dependencies
+  (`Security(require_scope(...))`), not method/path tables in middleware.
+  Authorization that depends on domain state belongs to the application action.
+- Reuse an application model as the response when it is deliberately the public
+  contract (frozen, `extra="forbid"`); create `api/schemas.py` only when the HTTP
+  shape differs. Never re-export domain types there.
 
-Middleware is for cross-request transport mechanics such as authentication
-extraction, correlation context, CORS, request logging, and size limits. It is
-not a hidden application layer. Authorization decisions that depend on domain
-state belong to the relevant application action.
+**Errors.** One exhaustive exception-to-public-error table and envelope helper;
+see [errors.md](errors.md#public-error-mapping).
+
+**Streaming.** The application runs the whole execution and returns a typed
+stream of business events, including the terminal outcome. `api/sse.py` only
+encodes, sends heartbeats, and turns disconnects into cancellation.
+
+Middleware handles cross-request transport mechanics only: authentication
+extraction, correlation context, CORS, request logging, size limits.
 
 ## Long-running worker
 
@@ -67,37 +73,56 @@ src/<package>/
 │   ├── process_due_work.py         # Business action
 │   └── submit_batch.py             # Independent business action
 ├── adapters/
-│   └── scheduler/
-│       └── trigger.py              # Translate an external tick, when needed
 ├── ports/
 ├── config/
 ├── db/
 └── observability/
 ```
 
-The supervisor owns `asyncio` tasks, stop events, graceful shutdown, and task
-health. An adapter owns external trigger translation. Business stage order and
-decisions remain in an application action.
+The supervisor is the one owner that creates all loop tasks, holds the stop
+event, and runs shutdown. Async mechanics are in
+[async-and-lifecycle.md](async-and-lifecycle.md).
 
-For a scheduled batch that runs once and exits, omit the supervisor. `main.py`
-enters the runtime context, invokes the application action once, maps the outcome
-to an exit code, and exits.
+- Each loop is an object with `async def run(self, stop: asyncio.Event)` that
+  calls a **public** single-iteration method (`tick()` or `poll_once()`). That
+  method calls one application action and records the returned result.
+- Every loop declares exactly one failure policy:
+  - **contain:** catch around the iteration, log once with `exc_info`, back off
+    (backoff from settings), continue; or
+  - **fail fast:** log once and re-raise, letting liveness fail.
+
+  A loop that must survive infrastructure failures catches the service's
+  unavailable base ([errors.md](errors.md#classification-bases)) inside the loop.
+- Use one shared stop-aware sleep:
+
+  ```python
+  async def wait_or_stop(stop: asyncio.Event, seconds: float) -> bool:
+      """Return True when stop was requested before the timeout."""
+      try:
+          async with asyncio.timeout(seconds):
+              await stop.wait()
+      except TimeoutError:
+          return False
+      return True
+  ```
+
+- When more than two cycles share the same span, metric, log, and failure shape,
+  route them through one `run_cycle(name, operation)` helper. Each cycle receives
+  its one action, not the whole runtime.
+- Shutdown: set the stop event, wait under `asyncio.timeout(grace)`, cancel what
+  remains, then `gather(..., return_exceptions=True)`.
+- Pause, admission, and batch-until-done decisions belong in domain or
+  application objects, not in the loop body.
+
+A scheduled batch or CLI that runs once has no supervisor: `main.py` enters the
+runtime, invokes the action once, maps the outcome to an exit code, and exits
+non-zero on failure.
 
 ## SQS, Kafka, or another broker
 
-Broker code is a concrete inbound or outbound adapter. Keep it below root
-`adapters/`; do not create root `messaging/`. Start flat when the broker is a
-single integration module:
-
-```text
-src/<package>/
-├── adapters/
-│   └── nats_publisher.py          # Single outbound NATS integration
-└── ports/
-    └── message_publisher.py       # Application-facing capability
-```
-
-Promote a provider or technology only after it owns multiple cohesive modules:
+Broker code is a concrete adapter under root `adapters/`; there is no root
+`messaging/`. Start with one flat module (`adapters/nats_publisher.py`) and
+promote per [boundaries.md](boundaries.md#centralized-ports-and-adapters):
 
 ```text
 src/<package>/
@@ -106,72 +131,39 @@ src/<package>/
 │       ├── sqs_consumer.py          # Poll/receive/ack/nack boundary
 │       ├── sqs_serialization.py     # AWS wire-envelope translation
 │       └── sqs_publisher.py         # Only when publishing is used
-├── bootstrap/
-│   └── supervisor.py
 ├── application/
 │   └── email_admission.py
 └── ports/
     └── message_publisher.py         # Only if an application action publishes
 ```
 
-Use `adapters/kafka/` or `adapters/rabbitmq/` only after the integration has
-earned a subpackage under the flat-first criteria. Until then prefer names such
-as `kafka_consumer.py` or `rabbitmq_publisher.py`. Delivery types and heartbeat
-contracts used only inside the adapter remain private there; promote only
-application-facing contracts to root `ports/`.
+The transport boundary owns polling and delivery batches, wire-envelope parsing
+and validation, trace-context extraction and injection, visibility heartbeat,
+offset commit, acknowledgement and redelivery, and transport-policy DLQ
+decisions.
 
-Keep `adapters/aws/` flat while the selected SQS/S3 integration is only a few
-modules. If SQS later grows separate consumer, publisher, serialization,
-heartbeat, and DLQ policies, promote that slice to `adapters/aws/sqs/`; do the
-same independently for S3. Do not introduce provider subpackages before their
-contents have a distinct reason to change.
+The application action owns business authentication or authorization,
+idempotency and durable admission, classification and correlation, and state
+transitions and handoff.
 
-The transport boundary owns:
-
-- polling and delivery batches;
-- wire-envelope parsing and validation;
-- trace-context extraction/injection;
-- visibility heartbeat, offset commit, acknowledgement, and redelivery mapping;
-- poison-message/DLQ decisions that are transport policy.
-
-The application action owns:
-
-- authentication or authorization rules based on business evidence;
-- idempotency semantics and durable admission decisions;
-- classification and correlation;
-- state transitions and downstream business handoff.
-
-Translate application outcomes into ack/retry/dead-letter behavior at the consumer
-adapter boundary. Do not let SQS receipt handles or Kafka partition offsets
-enter application, domain, or ports.
+Broker adapters map outcomes; they do not own retry policy. The adapter maps a
+typed application outcome to ack, nak (with a delay), or terminate, and the delay
+policy is a domain function. Receipt handles and partition offsets never enter
+application, domain, or ports.
 
 ## Hybrid API plus worker
 
-A single deployable may expose health/admin HTTP endpoints and run background
-consumers. Keep one shared composition root:
-
-```text
-main.py
-bootstrap/
-├── app.py
-├── runtime.py
-└── supervisor.py
-api/
-application/
-ports/
-adapters/
-genai/                              # When any GenAI exists
-```
-
-FastAPI lifespan may enter `runtime()` and start `supervisor`, but application and
-domain remain framework-independent. If API and worker become independently
-scaled or deployed processes, split them into separate service packages and
-extract only stable shared contracts/logic to an internal library.
+A deployable may expose health/admin HTTP endpoints and run background
+consumers from one composition root (`bootstrap/app.py`, `runtime.py`,
+`supervisor.py`). FastAPI lifespan may enter `runtime()` and start the
+supervisor. If API and worker become independently scaled or deployed, split
+them into separate services and extract only stable shared contracts to a
+library.
 
 ## Health and readiness
 
-Health state may be shared by API routes and the supervisor, but its ownership
-must be explicit. Liveness reports process life. Readiness reflects whether the
-process can accept useful work: initialized dependencies, compatible schema,
-healthy progress, and required external availability according to service
-policy. Health probes must not perform business work.
+Health state shared by API routes and the supervisor has one explicit owner.
+Liveness reports process life. Readiness reflects whether the process can accept
+useful work: initialized dependencies, compatible schema, healthy progress, and
+required external availability. Probe mechanics are in
+[async-and-lifecycle.md](async-and-lifecycle.md#health-probes).

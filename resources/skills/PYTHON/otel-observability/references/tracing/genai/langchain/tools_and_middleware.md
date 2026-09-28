@@ -11,15 +11,15 @@ Tool arguments and results are opt-in content on the same switch as prompts — 
 ```python
 # observability/genai.py
 import time
+from collections.abc import Awaitable, Callable
 
 from langchain.agents.middleware import wrap_tool_call
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
+from langchain.tools.tool_node import ToolCallRequest
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 
-from core.config import get_settings
 from observability.agent_counters import current_counters
 from observability.genai_attributes import (
-    ERROR_TYPE,
     GENAI_OPERATION_NAME,
     GENAI_TOOL_CALL_ARGUMENTS,
     GENAI_TOOL_CALL_ID,
@@ -28,10 +28,11 @@ from observability.genai_attributes import (
     GENAI_TOOL_TYPE,
 )
 from observability.genai_content import serialize_tool_input, serialize_tool_output
-from observability.genai_metrics import record_tool_execution
+from observability.metrics import record_tool_execution
+from observability.spans import error_type_of, start_span
 
-tracer = trace.get_tracer(__name__)
-settings = get_settings()
+# Set once by bootstrap from settings; never read at import time.
+CAPTURE_AI_CONTENT = False
 
 # Tool names come from the model and are therefore untrusted input.
 # Anything outside this set is bucketed before it reaches a span name or a
@@ -44,7 +45,10 @@ def normalize_tool_name(name: str) -> str:
 
 
 @wrap_tool_call
-async def trace_tool_call(request, handler):
+async def trace_tool_call(
+    request: ToolCallRequest,
+    handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
+) -> ToolMessage | Command:
     raw_name = request.tool_call["name"]
     tool_name = normalize_tool_name(raw_name)
     started_at = time.perf_counter()
@@ -57,9 +61,8 @@ async def trace_tool_call(request, handler):
         counters.tool_calls += 1
 
     try:
-        with tracer.start_as_current_span(
+        with start_span(
             f"execute_tool {tool_name}",
-            record_exception=False,
             attributes={
                 GENAI_OPERATION_NAME: "execute_tool",
                 GENAI_TOOL_NAME: tool_name,
@@ -73,21 +76,15 @@ async def trace_tool_call(request, handler):
                 # span name.
                 span.set_attribute("app.gen_ai.tool.requested_name", raw_name[:128])
 
-            if settings.capture_ai_content:
+            if CAPTURE_AI_CONTENT:
                 span.set_attribute(
                     GENAI_TOOL_CALL_ARGUMENTS,
                     serialize_tool_input(request.tool_call.get("args", {})),
                 )
 
-            try:
-                response = await handler(request)
-            except Exception as exc:
-                error_type = type(exc).__name__
-                span.set_status(Status(StatusCode.ERROR))
-                span.set_attribute(ERROR_TYPE, error_type)
-                raise
+            response = await handler(request)
 
-            if settings.capture_ai_content:
+            if CAPTURE_AI_CONTENT:
                 span.set_attribute(
                     GENAI_TOOL_CALL_RESULT, serialize_tool_output(response)
                 )
@@ -99,6 +96,10 @@ async def trace_tool_call(request, handler):
                 )
 
             return response
+    except BaseException as exc:
+        # start_span marked the span; this only labels the metric.
+        error_type = error_type_of(exc)
+        raise
     finally:
         # Outside the span, and on both paths: recording only on success gives
         # a tool error rate whose denominator excludes errors.

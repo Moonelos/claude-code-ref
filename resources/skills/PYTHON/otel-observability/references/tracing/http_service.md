@@ -96,36 +96,29 @@ Follow `../conventions/errors.md`. For an API specifically:
 - a 5xx is;
 - decide once, in writing, whether client cancellations and timeouts count as failures, because the SLO and the alert both depend on it.
 
-The exception handler is the owning logging boundary. Emit one structured record there with `exc_info=True`, and let the inner spans carry only `error.type`.
+The exception handler is the owning logging boundary. Emit one structured record there with `exc_info=exc`, and let the inner spans carry only `error.type`. Public error mapping is owned by `../../../python-service-architecture/references/errors.md` (Public error mapping).
 
 ```python
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
+from starlette.routing import Route
 
-import structlog
-
-log = structlog.get_logger(__name__)
+from observability.spans import error_type_of, mark_error
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    span = trace.get_current_span()
-    if span.is_recording():
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute("error.type", type(exc).__name__)
-
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # The server span is owned by FastAPI instrumentation, so mark it here.
+    mark_error(trace.get_current_span(), exc)
+    route = request.scope.get("route")
     log.error(
         "request_failed",
-        otel_event_name="app.http.request.failed",
-        exc_info=True,
+        exc_info=exc,
         **{
-            "http.route": request.scope.get("route").path
-            if request.scope.get("route")
-            else "unmatched",
+            "http.route": route.path if isinstance(route, Route) else "unmatched",
             "http.request.method": request.method,
-            "error.type": type(exc).__name__,
+            "error.type": error_type_of(exc),
         },
     )
     return JSONResponse(status_code=500, content={"detail": "internal error"})
@@ -164,7 +157,7 @@ request. At creation, set its stable business operation/workflow and bounded
 strategy, policy, or dependency identity. Before it ends, add the outcome and
 the few result facts operators need — item/result counts, decision category,
 fallback used, or retry attempt. On failure, add only bounded `error.type` and
-status; the owning log carries the message and `exception.stacktrace`.
+status; the owning log carries the exception (python-logging skill).
 
 Do not attach every available request field. IDs and user/session values belong
 only where they materially help find one trace and privacy policy allows them;
@@ -190,7 +183,8 @@ Make sure the span ends when the stream ends, including on client disconnect. A 
 ## Then
 
 - metrics: `../metrics/service.md` — request duration, active requests, dependency latency, business counters;
-- logs: `../logging/structlog.md` — `request_received` / `request_completed` with trace correlation;
+- logs: the `python-logging` skill — `request_failed` from the owner; routine completion stays in
+  access logs. Trace IDs: `../logging/correlation.md`;
 - if the endpoint publishes to a queue: `async_handoffs.md` and
   `queue_messaging.md` for the producer side;
 - if the endpoint calls a model: `genai/attributes.md` for the span vocabulary.

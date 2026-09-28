@@ -117,4 +117,4 @@ already write (`langchain/streaming_and_agent_span.md`) — add
 
 - token counts: `token_usage.md`
 - metrics: `../../metrics/genai.md`
-- logging: `../../logging/genai.md`
+- logging: the `python-logging` skill (`../../../../python-logging/references/genai.md`)

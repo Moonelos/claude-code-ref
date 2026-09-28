@@ -4,6 +4,11 @@ GitHub Actions workflows for the two-tier stack model, and the IAM roles they
 assume. The tier boundary itself is defined in the sibling `terraform-aws` skill
 (`references/platform-application-split.md`).
 
+When this repository uses the grouped script layout in `SKILL.md`, point
+workflow commands at `scripts/platform/`, `scripts/application/`, or
+`scripts/release/` as appropriate. The examples below show flat paths for small
+repositories; do not copy those paths unchanged into a grouped repository.
+
 Five workflows, five role shapes. The approval gate is **plan on pull request,
 apply on merge behind an environment protection rule** — not `CI=true` skipping
 a terminal prompt. `CI=true` still controls how a script behaves when nobody is

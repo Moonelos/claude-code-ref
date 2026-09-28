@@ -1,9 +1,9 @@
 # Repo Layout: Monorepo vs. Single-Service
 
-The internal architecture is identical in both cases — `base.py` → `models/`
-→ `alembic/` → `engine.py` → `session.py` → `repositories/` → `queries/`. What
-differs is purely **which pieces are shared and which are per-service**. This
-is a structural difference, not an architectural one.
+The internal architecture is identical in both cases: `base.py` → models →
+`alembic/` → `engine.py` → `session.py` → `transactions.py` → repositories
+and named `db/` modules. What differs is **which pieces are shared and which
+are per-service**.
 
 ## Single-service repo
 
@@ -18,24 +18,22 @@ repo/
         └── db/
             ├── base.py               # shared metadata + reusable table base
             ├── engine.py             # async engine, pool config
-            ├── session.py            # session factory / DI
-            ├── models/
-            │   ├── __init__.py       # re-exports every model
-            │   ├── user.py
-            │   └── report.py
+            ├── session.py            # build_session_factory(engine)
+            ├── transactions.py       # transaction helper, UoWs
+            ├── models.py             # split into models/ when a table gains
+            │                         # relationships or behaviour
             ├── alembic/
             │   ├── env.py
             │   └── versions/
             ├── repositories/
             │   ├── user_repository.py
             │   └── report_repository.py
-            └── queries/
+            └── queries/              # optional: long static SQL only
                 └── monthly_report.sql
 ```
 
-One process, one schema, one everything. There's no split to reason about
-beyond the five concerns themselves — see the other reference files for what
-goes in each file.
+The engine itself is built in `bootstrap/`, not in `db/`
+(`engine-and-session.md`).
 
 ## Monorepo (uv workspace)
 
@@ -47,9 +45,17 @@ executes — so it gets its **own** service, depending on the shared models
 package rather than living inside it. Nothing downstream should have to
 install `alembic` and a DB driver just because it depends on the table
 definitions. Everything from `engine.py` down is *how a given process talks
-to the database*, and that legitimately varies per service (a read-heavy API
-wants a bigger pool than a low-traffic batch worker; each service only has
-repositories for the tables it actually touches), so those stay per-service:
+to the database*: pool sizes come from each service's settings, and each
+service has repositories only for the tables it touches, so those stay
+per-service by default.
+
+Per-service is not a licence to copy. Transaction helpers, clock helpers,
+limit setters and shared predicates follow the duplication and extraction
+triggers in `../../python-service-architecture/references/shared-libraries.md`:
+a module identical in ≥3 deployables, or two copies that have diverged
+semantically, is extracted (to `db_models` or a shared DB library) or
+commented with why the semantics differ. Code that differs in meaning,
+lifecycle or dependencies stays local.
 
 ```text
 repo/
@@ -62,6 +68,7 @@ repo/
 │           └── db_models/
 │               ├── __init__.py
 │               ├── base.py               # shared metadata + reusable table base
+│               ├── vocabulary.py         # StrEnums; no SQLAlchemy import
 │               └── models/
 │                   ├── __init__.py
 │                   ├── user.py
@@ -86,9 +93,9 @@ repo/
     │           └── db/
     │               ├── engine.py
     │               ├── session.py
-    │               ├── repositories/
-    │               │   └── user_repository.py
-    │               └── queries/
+    │               ├── transactions.py
+    │               └── repositories/
+    │                   └── user_repository.py
     └── worker/
         ├── pyproject.toml
         └── src/
@@ -96,9 +103,10 @@ repo/
                 └── db/
                     ├── engine.py
                     ├── session.py
+                    ├── transactions.py
                     ├── repositories/
                     │   └── report_repository.py
-                    └── queries/
+                    └── queries/          # optional
                         └── monthly_report.sql
 ```
 
@@ -106,9 +114,11 @@ repo/
 `python-repository-setup` skill: its own `pyproject.toml`, no
 `Dockerfile` of its own, consumed via `{ workspace = true }`. `db-models` is
 just a placeholder name — call it whatever fits the domain (`db-schema`,
-`core-db`, …); what matters is that it holds *only* `base.py` and `models/`,
-nothing that turns it into a heavier dependency than a service actually
-needs. `db-migrate` is a placeholder too — the point is that it's a
+`core-db`, …); what matters is that it holds *only* schema and vocabulary
+(`base.py`, models, SQLAlchemy-free enums, shared predicates and transition
+builders), never runs queries or reads session state, and pulls in nothing
+heavier than a service needs. `db-migrate` is a placeholder too — the point
+is that it's a
 `services/` member (it ships as its own image, per the deployable-unit rule
 in `python-repository-setup`), not a `libs/` member.
 
@@ -147,3 +157,18 @@ installed and the model metadata to diff against. See
 `references/alembic-migrations.md` for how that one history runs in
 practice — still just `alembic upgrade head`, run as this service's
 container command.
+
+## Schema ownership and prototype mode
+
+- Every schema object has one owning deployable and one versioned history.
+  Disjoint owners in one database get separate version tables (Alembic
+  `version_table_schema`, or the library's own for a library that migrates
+  its tables, such as a LangGraph checkpointer). Cross-owner dependencies (a view over another
+  owner's tables) are declared, and the deploy graph enforces their order.
+- `create_all()` and hand-rolled initializers are allowed only in a declared
+  **rebuild-only prototype mode**, stated in the module docstring. It ends at
+  the first persistent environment or the second DDL owner, whichever comes
+  first. One-shot initializers take an advisory lock.
+- A consumer's column contract over a shared schema is derived from the
+  shared metadata, not re-typed. Contract tests compare column **types**, not
+  only names.

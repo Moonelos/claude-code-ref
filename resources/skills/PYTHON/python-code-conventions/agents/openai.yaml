@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Code Conventions"
+  short_description: "Write and review Python below module placement"
+  default_prompt: "Use $python-code-conventions to write or review this Python code's containers, types, vocabularies, constructors, imports, error idioms, and size."

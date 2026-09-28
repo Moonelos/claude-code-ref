@@ -5,6 +5,10 @@ covers building the image, handing its ID to Terraform, and driving the instance
 refresh to completion. The Terraform side is in the sibling `terraform-aws`
 skill's `references/workload-deploy-patterns.md`.
 
+In a grouped monorepo layout place the build script under `scripts/release/`.
+Adapt the listing's repository root to `$SCRIPT_DIR/../..` and resolve sibling
+build scripts from that folder.
+
 ## Contents
 
 - [Why Not Copy Files to Running Instances](#why-not-copy-files-to-running-instances)

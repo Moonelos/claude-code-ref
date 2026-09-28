@@ -32,8 +32,11 @@ dumping an autogenerate op list:
 ```python
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+from sqlalchemy import Connection
+from sqlmodel import SQLModel
 
-def test_no_model_to_database_drift(sync_connection) -> None:
+
+def test_no_model_to_database_drift(sync_connection: Connection) -> None:
     diffs = compare_metadata(
         MigrationContext.configure(
             sync_connection,
@@ -48,7 +51,8 @@ plus reflection-based assertions (via `sqlalchemy.inspect`) that the
 database contains **only** the expected tables (`alembic_version` included),
 and that names of PKs/FKs/uniques/checks/indexes — and the `postgresql_where`
 predicates of partial indexes — match the metadata. Reflection catches what
-`compare_metadata` is configured to ignore.
+`compare_metadata` is configured to ignore. A consumer whose column contract
+spans a shared schema compares reflected column **types**, not only names.
 
 ## Schema objects that live outside the metadata
 
@@ -70,35 +74,58 @@ tools would happily bless a baseline that silently dropped every trigger.
 
 ## Runtime schema-version guard
 
-A service can assert at startup (or in its health check) that the database it
-connected to is at the revision its code was built against:
+A service can assert at startup (or in its readiness check) that the database
+it connected to is at the revision its code was built against:
 
 ```python
-EXPECTED_SCHEMA_VERSION = "a1b2c3d4e5f6"  # the Alembic revision this code expects
+# db/schema.py
+from typing import Final
 
-async def schema_compatible(session) -> bool:
-    current = await session.scalar(text("SELECT version_num FROM alembic_version"))
-    return current == EXPECTED_SCHEMA_VERSION
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+EXPECTED_SCHEMA_REVISION: Final = "20260927_0001"
+
+
+class SchemaRevisionMismatchError(Exception):
+    def __init__(self, *, expected: str, actual: str | None) -> None:
+        super().__init__(f"database schema is at {actual!r}, code expects {expected!r}")
+        self.expected = expected
+        self.actual = actual
+
+
+async def verify_schema_revision(conn: AsyncConnection) -> None:
+    actual = await conn.scalar(text("SELECT version_num FROM alembic_version"))
+    if actual != EXPECTED_SCHEMA_REVISION:
+        raise SchemaRevisionMismatchError(expected=EXPECTED_SCHEMA_REVISION, actual=actual)
 ```
 
 It fails fast and legibly on deployment skew — an old image against a
 migrated database, or a new image racing the migration task — instead of
 failing later on a missing column. The cost is real and must be owned: every
-new revision means bumping the constant in **every** service that pins it, in
-the same change as the migration. Grep for the old revision id before
-merging; a stale pin turns a healthy deploy into a refusing one. (This is the
-same "pinned revision ids outside `alembic/`" sweep the squash procedure
-requires — the guard is simply the most common pin.)
+new revision bumps the constant in **every** service that pins it, in the
+same change as the migration. The DB-free head test in
+`alembic-migrations.md` ("Migration tests") catches a stale pin before merge.
+(This is the same "pinned revision ids outside `alembic/`" sweep the squash
+procedure requires.)
 
-## The disposable-database convention for tests
+## Disposable test databases
 
-DB-touching tests that rebuild the schema (`DROP SCHEMA public CASCADE` →
-`upgrade head`) must be structurally unable to aim that at a real database.
-The convention: they read their target from a **separate** variable —
-`INTEGRATION_DATABASE_URL` — and skip when it is unset. Setting that variable
-*is* the authorization to destroy the target; the services' own
-`DATABASE_URL` is never consulted by these fixtures, so no CI misconfiguration
-or local shell leftover can point the wrecking ball at a database anyone
-cares about. CI sets both to the same throwaway service container; a
-developer sets `INTEGRATION_DATABASE_URL` to a local scratch database and
-nothing else.
+Fixture mechanics and placement are owned by
+`../../python-service-architecture/references/testing.md` (Profiles and
+markers; Test support packages). The DB-specific guard:
+
+- DB-touching tests that rebuild the schema read their target from a
+  **separate** variable, `INTEGRATION_<DB>_DATABASE_URL` (e.g.
+  `INTEGRATION_ORDERS_DATABASE_URL`), never the service's `DATABASE_URL`.
+  Setting it *is* the authorization to destroy the target.
+- The fixture **refuses non-disposable targets**: a non-loopback host, or a
+  database name without the `test_` prefix, fails the session before any
+  statement runs. CI's throwaway service container uses a name that passes
+  (`postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/test_orders`).
+- When the variable is unset, the tests **fail** in CI profiles (mark them
+  with the repo's `requires_env` marker) and skip only in local profiles, so
+  a CI misconfiguration can't turn the whole DB tier green by skipping it.
+- Each service's fixtures drop and rebuild only the schemas that service owns
+  (`repo-layout.md`, "Schema ownership and prototype mode"), never
+  `DROP SCHEMA public CASCADE` on a schema another owner migrates.

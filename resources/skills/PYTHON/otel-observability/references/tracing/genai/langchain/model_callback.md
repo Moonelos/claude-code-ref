@@ -144,7 +144,6 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from core.config import get_settings
 from observability.agent_counters import current_counters
 from observability.genai_attributes import (
     APP_OBSERVATION_INPUT,
@@ -172,14 +171,14 @@ from observability.genai_content import (
     serialize_observation_text_output,
     serialize_text_output,
 )
-from observability.genai_metrics import (
+from observability.metrics import (
     record_model_operation,
     record_time_to_first_chunk,
 )
 from observability.genai_usage import set_usage_attributes
+from observability.spans import error_type_of, mark_error
 
 tracer = trace.get_tracer(__name__)
-settings = get_settings()
 MAX_CAPTURED_OUTPUT_CHARS = 32_768
 
 
@@ -195,9 +194,12 @@ class OTelModelCallback(AsyncCallbackHandler):
     def __init__(
         self,
         *,
+        capture_content: bool,
         streaming: bool = False,
         separate_system_instructions: bool = False,
     ) -> None:
+        # Bootstrap passes the settings value; never read settings at import.
+        self._capture_content = capture_content
         self._streaming = streaming
         # Set from the concrete provider adapter's wire contract. For example,
         # Bedrock Converse sends system instructions separately from messages.
@@ -258,7 +260,7 @@ class OTelModelCallback(AsyncCallbackHandler):
             if invocation_params.get(key) is not None:
                 span.set_attribute(attribute, invocation_params[key])
 
-        if settings.capture_ai_content:
+        if self._capture_content:
             captured_system, captured_input, batch_size = serialize_chat_model_input(
                 messages,
                 separate_system_instructions=self._separate_system_instructions,
@@ -280,7 +282,7 @@ class OTelModelCallback(AsyncCallbackHandler):
             # Operational count is unconditional. Content is separate, bounded,
             # and absent when capture is disabled.
             "chunk_count": 0,
-            "captured_chunks": [] if settings.capture_ai_content else None,
+            "captured_chunks": [] if self._capture_content else None,
             "captured_chars": 0,
             "capture_truncated": False,
             "output_type": output_type,
@@ -339,7 +341,7 @@ class OTelModelCallback(AsyncCallbackHandler):
                 "app.gen_ai.stream.chunk_count", run["chunk_count"]
             )
 
-        if settings.capture_ai_content:
+        if self._capture_content:
             # Observed, not configured: if chunks actually arrived, the joined
             # buffer is the response. Otherwise the LLMResult is.
             if run["chunk_count"]:
@@ -390,17 +392,16 @@ class OTelModelCallback(AsyncCallbackHandler):
                 "app.gen_ai.stream.chunk_count", run["chunk_count"]
             )
 
-        # No record_exception: see ../../../conventions/errors.md. The exception
-        # detail is logged once at the boundary that handles it.
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, type(error).__name__)
+        # A framework callback cannot use start_span, so it marks the span
+        # itself (../../../conventions/errors.md). The boundary logs the detail.
+        mark_error(span, error)
 
         record_model_operation(
             duration_s=time.perf_counter() - run["started_at"],
             operation="chat",
             provider=run["provider"],
             request_model=run["model"],
-            error_type=type(error).__name__,
+            error_type=error_type_of(error),
         )
         span.end()
 ```
@@ -489,7 +490,7 @@ streaming_model = init_chat_model(
     streaming=True,
     # Without this, on_llm_end receives no usage_metadata for streamed calls.
     stream_usage=True,
-).with_config(callbacks=[OTelModelCallback(streaming=True)])
+).with_config(callbacks=[OTelModelCallback(capture_content=capture_ai_content, streaming=True)])
 ```
 
 Miss it and the spans look correct but usage attributes and observations are absent. Why, and the equivalent for other providers: `../token_usage.md`.

@@ -31,15 +31,14 @@ Why: response shapes differ per provider and change between SDK versions. If for
 ```python
 # llm/openai_client.py
 import time
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Iterator, Sequence
 
+from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from opentelemetry import trace
-from opentelemetry.trace import SpanKind, Status, StatusCode
+from opentelemetry.trace import SpanKind
 
-from core.config import get_settings
 from observability.genai_attributes import (
-    ERROR_TYPE,
     GENAI_FINISH_REASONS,
     GENAI_INPUT_MESSAGES,
     GENAI_OPERATION_NAME,
@@ -55,29 +54,29 @@ from observability.genai_attributes import (
     GENAI_TIME_TO_FIRST_CHUNK,
 )
 from observability.genai_content import serialize_messages, serialize_text_output
-from observability.genai_metrics import (
+from observability.metrics import (
     record_model_operation,
     record_time_to_first_chunk,
 )
 from observability.genai_usage import set_usage_attributes
+from observability.spans import error_type_of, mark_error, start_span
 
 tracer = trace.get_tracer(__name__)
-settings = get_settings()
 
 
 def complete_chat(
-    client: Any,
-    messages: Sequence[dict[str, Any]],
+    client: OpenAI,
+    messages: Sequence[ChatCompletionMessageParam],
     *,
     model: str,
+    capture_ai_content: bool,  # from settings, passed down by bootstrap
     temperature: float = 0.2,
     max_tokens: int = 800,
 ) -> str:
-    with tracer.start_as_current_span(
+    with start_span(
         # Low-cardinality: operation plus model, never the prompt.
         f"chat {model}",
         kind=SpanKind.CLIENT,
-        record_exception=False,
         # Set at creation time so a sampler can act on them.
         attributes={
             GENAI_OPERATION_NAME: "chat",
@@ -91,10 +90,10 @@ def complete_chat(
     ) as span:
         started = time.perf_counter()
         error_type: str | None = None
-        usage: dict | None = None
+        usage: dict[str, object] | None = None
         response_model: str | None = None
 
-        if settings.capture_ai_content:
+        if capture_ai_content:
             span.set_attribute(GENAI_INPUT_MESSAGES, serialize_messages(messages))
 
         try:
@@ -109,9 +108,9 @@ def complete_chat(
             # only the duration observation is recorded.
             usage = extract_usage(response)
             response_model = getattr(response, "model", None)
-        except Exception as exc:
-            error_type = type(exc).__name__
-            span.set_attribute(ERROR_TYPE, error_type)
+        except BaseException as exc:
+            # start_span marks the span; this only labels the metric.
+            error_type = error_type_of(exc)
             raise
         finally:
             # Duration must be recorded on both paths, or the error rate is
@@ -138,7 +137,7 @@ def complete_chat(
         # Same dict the metric got, so span and histogram cannot disagree.
         set_usage_attributes(span, usage)
 
-        if settings.capture_ai_content:
+        if capture_ai_content:
             span.set_attribute(
                 GENAI_OUTPUT_MESSAGES,
                 serialize_text_output(answer, finish_reason),
@@ -171,7 +170,13 @@ not get its own `contextvars` context: `start_as_current_span` calls
 effect *in the consumer*. Use `start_span` and end the span in `finally`.
 
 ```python
-def stream_chat(client, messages: list[dict], *, model: str):
+def stream_chat(
+    client: OpenAI,
+    messages: Sequence[ChatCompletionMessageParam],
+    *,
+    model: str,
+    capture_ai_content: bool,
+) -> Iterator[str]:
     # start_span, not start_as_current_span — see the note below the fence.
     # The parent is whatever span is current at the FIRST iteration, because a
     # generator body does not run until then.
@@ -189,12 +194,12 @@ def stream_chat(client, messages: list[dict], *, model: str):
     first_chunk_at: float | None = None
     chunk_count = 0
     captured_chunks: list[str] | None = (
-        [] if settings.capture_ai_content else None
+        [] if capture_ai_content else None
     )
     captured_chars = 0
     capture_truncated = False
     error_type: str | None = None
-    usage: dict | None = None
+    usage: dict[str, object] | None = None
     response_model: str | None = None
     response_id: str | None = None
     finish_reason: str | None = None
@@ -205,7 +210,7 @@ def stream_chat(client, messages: list[dict], *, model: str):
         with trace.use_span(span, end_on_exit=False, record_exception=False):
             stream = client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=list(messages),
                 stream=True,
                 # Without this, the final usage chunk is never sent and token
                 # counts are silently missing for every streamed call.
@@ -254,16 +259,11 @@ def stream_chat(client, messages: list[dict], *, model: str):
                     if len(text) > max(remaining, 0):
                         capture_truncated = True
                 yield text
-    except GeneratorExit:
-        # A real class name, bounded — see ../../conventions/errors.md.
-        error_type = "GeneratorExit"
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, error_type)
-        raise
-    except Exception as exc:
-        error_type = type(exc).__name__
-        span.set_status(Status(StatusCode.ERROR))
-        span.set_attribute(ERROR_TYPE, error_type)
+    except BaseException as exc:
+        # A manual span: a context manager cannot be held across `yield`.
+        # GeneratorExit (an abandoned stream) is a real, bounded class name.
+        error_type = error_type_of(exc)
+        mark_error(span, exc)
         raise
     finally:
         # `usage` is None if the stream errored before the final chunk, or
@@ -388,4 +388,4 @@ direct-SDK file to get them.
 
 - RAG spans: `retrieval.md`
 - metrics: `../../metrics/genai.md`
-- logging: `../../logging/genai.md`
+- logging: the `python-logging` skill (`../../../../python-logging/references/genai.md`)

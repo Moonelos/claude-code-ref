@@ -88,7 +88,7 @@ Either way, start at `tracing/genai/attributes.md` — it holds the span vocabul
 | `langchain`, `langgraph`, `create_agent`, `ChatOpenAI`, callbacks | LangChain path — `tracing/genai/langchain/architecture.md` |
 | `openai`, `anthropic`, `boto3` `bedrock-runtime`, `google.genai`, `azure.ai` | Direct SDK path — `tracing/genai/provider_sdk.md` |
 | Both | Instrument each call site with the path that matches it. Do not double-instrument one model call. |
-| Neither | Skip `tracing/genai/` entirely, and `metrics/genai.md` and `logging/genai.md` with it |
+| Neither | Skip `tracing/genai/` entirely, and `metrics/genai.md` with it |
 
 If a model call is already traced by a framework integration or gateway, do not add a second span around it. Duplicate generations inflate token and cost analytics.
 
@@ -253,9 +253,8 @@ Split them by signal:
 | Log field | A high-cardinality identifier needed to find one record later: `exception_id`, `order_id` |
 
 If the user explicitly requested particular business attributes, include them as well.
-Do not ask about exception-trace capture. Always add
-`LOG_FULL_EXCEPTION_TRACE=true`; document that deployments can set it to
-`false` to mask raw traceback and exception-message detail, including PII.
+Exception detail follows the `python-logging` skill; ask only
+when the service handles personal or financial data and no policy is stated.
 
 ---
 
@@ -274,7 +273,7 @@ Baggage:        none
 Backends:       traces -> Tempo, metrics -> Mimir, logs -> Loki
 Export topology: shared gateway Collector, new services/otel-collector component
 Business:       app.pricing.product_count, app.pricing.updates, supplier_id log field
-Error trace:    LOG_FULL_EXCEPTION_TRACE=true (set false for safe projection)
+Error detail:   safe projection in prod YAML; full in dev YAML (policy: <source>)
 Production:     <not measured — PROVISIONAL; see §8 for the required inputs>
 Noise:          successful /live and /ready are leaf spans; failed probes retained
 Rollout:        release burn-in for one Git SHA; owner=platform; expires=<date>

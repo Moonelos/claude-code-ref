@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Settings & Secrets"
+  short_description: "Typed settings, YAML baselines, env contracts, secrets"
+  default_prompt: "Use $python-settings-config to create or review typed settings, YAML baselines, the .env.example contract, and secret handling for this Python service."

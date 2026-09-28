@@ -1,8 +1,10 @@
 # Workers, task queues, and consumers
 
-Use this reference for Celery, RQ, broker consumers, scheduled jobs, and other
-background processes. Preserve the installed worker/broker versions and the
-production execution pool when selecting tools and smoke tests.
+Use this reference for asyncio worker loops, database-backed work queues, task
+queues such as Celery or RQ, broker consumers, and scheduled jobs. Preserve the
+installed worker/broker versions and the production execution pool when
+selecting tools and smoke tests. Framework-specific detail is at the end under
+"Celery and RQ specifics".
 
 ## Separate application behavior from delivery mechanics
 
@@ -26,50 +28,57 @@ double can prove.
 | --- | --- |
 | Application unit | Business invariants, durable-effect decisions, idempotency policy, error classification |
 | Task/consumer adapter unit | Argument conversion, envelope validation, context, selected retry/reject call, task options |
-| Repository integration | Queries, constraints, transactions, locking, deduplication, outbox behavior |
+| Repository integration | Queries, constraints, transactions, locking, deduplication, outbox, claim/lease behavior |
 | Embedded worker integration | Registration, representative serialization/routing, basic retry execution |
 | Production-like process smoke | Actual broker/backend, worker pool, fork/startup, acknowledgements, crash/redelivery |
 
 Do not reproduce the entire business decision table through a worker. Do not
 claim delivery confidence after directly calling the task function.
 
-## Do not treat eager or synchronous mode as a worker
+## Asyncio worker loops
 
-Celery explicitly states that `task_always_eager` is an emulation with
-discrepancies from worker execution and is not suitable evidence for worker
-correctness. It can bypass or alter serialization, routing, process isolation,
-acknowledgements, retry scheduling, and result-backend behavior.
+For a framework-free loop (poll a source, process, commit, acknowledge):
 
-The same distinction applies to other queues. RQ's synchronous queue bypasses a
-worker, and its `SimpleWorker` omits production mechanics such as `fork()` and
-heartbeats. Such modes can be useful for a narrow application or wiring test,
-but name what they prove.
+- **Test `tick()`, not `run()`.** A public `tick()` performs one
+  claim-process-commit-acknowledge step and returns what it did. Unit tests
+  drive it directly with fakes and a manual clock; no background task, no
+  sleeping loop.
+- **Prove ordering with one effect log.** Give the unit-of-work fake and the
+  source fake one shared, ordered log and assert the whole sequence, for
+  example `["commit:m-1", "ack:m-1"]`. That is the oracle for "commit before
+  acknowledge", and for "no acknowledge after rollback" on the failure path.
+  Separate call counters cannot prove order.
+- **Bounded drain.** Keep one test of `run()`: start it as a task, request
+  shutdown through the loop's public stop signal, and await completion inside
+  `asyncio.timeout(...)`. Assert that in-flight work finished or was released
+  per the contract and that no task is left running.
+- A poll interval or backoff comes from an injected sleep or clock, so tests
+  never wait for it.
 
-## Celery test environments
+## Database-backed work queues
 
-- `celery.contrib.pytest` provides mock-based and embedded-worker fixtures for
-  unit/integration feedback.
-- `pytest-celery` provides Docker-based, production-like smoke infrastructure.
-- Celery documents these APIs as incompatible. Do not enable both in one suite
-  and assume their fixtures or configuration compose.
-- Use the actual production worker pool in at least a release or smoke test when
-  pool behavior matters. Alternative pools can disable features such as soft
-  timeouts or `max_tasks_per_child`.
-- Bound every `AsyncResult.get()` and worker wait. The official examples use a
-  timeout; an unbounded result wait can hang CI indefinitely.
+When a table is the queue, the claim query and lease rules are the delivery
+guarantee. Test them against the production database dialect with separate
+sessions per claimer; an in-memory fake cannot prove row locking. Cover the
+cases the queue promises:
 
-Do not add either plugin merely because an example uses it. First inspect the
-repository's existing worker harness, Docker topology, and supported broker.
+- two concurrent claimers never receive the same row;
+- a stale lease owner's completion or heartbeat is rejected (fencing);
+- an expired lease becomes claimable again;
+- retry exhaustion reaches the terminal state;
+- claim order matches the documented priority or age order.
+
+Set lease timestamps through typed row builders or an injected database clock
+rather than sleeping until a lease expires. Run concurrent claimers with
+`asyncio.gather` or threads inside a bounded timeout and assert on the rows
+re-read through a fresh session.
 
 ## Retry and acknowledgement are different contracts
 
 Treat these mechanisms separately:
 
-- A task retry handles an expected catchable failure by publishing another
-  attempt, normally with the same task ID and routing destination. Celery's
-  `Task.retry()` raises its `Retry` sentinel by default, so code after it is not
-  reached. `throw=False` changes that control flow; inspect and test the behavior
-  the task actually configures.
+- A task retry handles an expected catchable failure by publishing or
+  scheduling another attempt.
 - Late acknowledgement addresses loss before acknowledgement, such as a worker
   or connection failure. It is not an automatic retry policy for ordinary task
   exceptions.
@@ -84,9 +93,8 @@ Test retry policy without wall-clock waits:
 - validation or permanent failures do not retry;
 - retry exhaustion reaches the promised failed, compensated, alerted, or
   dead-letter outcome;
-- with the default `throw=True`, effects after `retry()` are unreachable; if the
-  task deliberately uses `throw=False`, test the resulting state and control
-  flow explicitly;
+- effects after a retry request are unreachable, or deliberately reached and
+  tested, according to the framework's control flow;
 - production jitter and delay policy are configured as intended, while test
   configuration may shorten or remove delay only inside the worker test.
 
@@ -113,17 +121,23 @@ or `(consumer, event_id)`. Assert the final ledger/object/outbox state through a
 fresh session and, when relevant, the stable key sent to the irreversible
 provider.
 
+For an uncertain external write (timeout or lost response after the request may
+have landed), the oracle is that the uncertain path never replays the side
+effect: the recording provider fake shows exactly one request, and the durable
+record is in the reconciliation state the policy names. The policy itself is
+owned by `$python-service-architecture`:
+`../../python-service-architecture/references/errors.md` ("Uncertain external
+writes").
+
 If late acknowledgement or reject-on-worker-loss is relied on, include a
 production-like destructive smoke that kills the correct worker child at a
 controlled point and proves redelivery is harmless. Isolate it behind an
-explicit destructive marker and bounded teardown. Celery warns that careless
-requeue/worker-loss settings can create infinite message loops.
-
-Name the fault being reproduced: task child exit, worker parent exit, broker
-connection loss, host/container loss, and timeout-driven visibility redelivery
-can have different acknowledgement behavior across pools, transports, and
-settings. Reproduce the incident's failure mode first; do not infer one from a
-different kill test or from `task_reject_on_worker_lost` configuration alone.
+explicit destructive marker and bounded teardown. Name the fault being
+reproduced: task child exit, worker parent exit, broker connection loss,
+host/container loss, and timeout-driven visibility redelivery can have
+different acknowledgement behavior across pools, transports, and settings.
+Reproduce the incident's failure mode first; do not infer one from a different
+kill test or from configuration alone.
 
 ## Minimum delivery matrix
 
@@ -167,14 +181,8 @@ Test message publication relative to the database transaction:
 - the atomic database change plus outbox insert survives failure together;
 - a duplicate relay is safe for the consumer.
 
-With Celery 5.4+ Django integration, `DjangoTask.delay_on_commit()` can prevent a
-worker from racing an uncommitted row. It returns no task ID immediately, and a
-custom task base must preserve the relevant `DjangoTask` behavior. In other
-versions or stacks, use the repository's after-commit mechanism or transactional
-outbox and test that behavior directly.
-
-For prefork workers, a production-pool smoke should ensure parent-process pools
-are disposed or recreated in children. This is different from a task unit test.
+Use the repository's after-commit mechanism or transactional outbox and test
+that behavior directly.
 
 ## Broker-specific semantics
 
@@ -207,9 +215,9 @@ the guarantees the application relies on:
 - drain or cancel in-flight work safely on shutdown;
 - exercise backpressure, prefetch, lease/heartbeat, or maximum-poll settings
   when they can cause duplication or eviction;
-- use the configured serializer against trusted input. RQ's default pickle-based
-  payloads and any other executable serializer must never be treated as safe for
-  untrusted producers;
+- use the configured serializer against trusted input; an executable
+  serializer such as pickle must never be treated as safe for untrusted
+  producers;
 - redact sensitive payloads from failure artifacts, dead-letter records, and
   logs while retaining correlation data needed to debug the test.
 
@@ -228,16 +236,14 @@ than as independent mock call counts.
 - Test lease expiry with an injected clock or short bounded integration setup,
   not an arbitrary long sleep.
 
-## Concurrency and time
+## Distributed time
 
-Coordinate workers, threads, and tasks with events, barriers, database locks, or
-observable state. Every wait gets a timeout. Do not make precise millisecond
-assertions about a distributed scheduler; express "not before" and "eventually
-before a deadline" with justified tolerance.
-
-Freezing time in pytest does not advance a broker or worker container. Test
-broker ETA/countdown behavior with short real durations in a marked worker job,
-and keep pure backoff calculations under an injected clock/random source.
+Do not make precise millisecond assertions about a distributed scheduler;
+express "not before" and "eventually before a deadline" with justified
+tolerance. Freezing time in pytest does not advance a broker or worker
+container. Test broker ETA/countdown behavior with short real durations in a
+marked worker job, and keep pure backoff calculations under an injected
+clock/random source.
 
 ## Suggested CI shape
 
@@ -245,7 +251,8 @@ Use this to review or propose profile placement. Change CI files only when that
 configuration work is part of the requested scope.
 
 - **PR:** pure/application tests, task-adapter tests, real database repository
-  tests, contract tests, and a bounded embedded-worker path if reliable.
+  and work-queue tests, contract tests, and a bounded embedded-worker path if
+  reliable.
 - **Main or release:** production broker/backend, migrations, actual worker pool,
   registration, serialization, retry, and startup smoke.
 - **Nightly or explicit destructive:** concurrent duplicates, child kill and
@@ -254,6 +261,53 @@ configuration work is part of the requested scope.
 Run only versions and brokers the product supports. Never hide a flaky worker
 test behind automatic reruns; preserve diagnostics and repair its isolation or
 synchronization.
+
+## Celery and RQ specifics
+
+Do not add a worker test plugin merely because an example uses it. First
+inspect the repository's existing worker harness, Docker topology, and
+supported broker.
+
+### Eager and synchronous modes are not workers
+
+Celery states that `task_always_eager` is an emulation with discrepancies from
+worker execution and is not suitable evidence for worker correctness. It can
+bypass or alter serialization, routing, process isolation, acknowledgements,
+retry scheduling, and result-backend behavior.
+
+RQ's synchronous queue likewise bypasses a worker, and its `SimpleWorker` omits
+production mechanics such as `fork()` and heartbeats. Such modes can be useful
+for a narrow application or wiring test, but name what they prove. RQ's default
+payload serializer is pickle-based.
+
+### Celery test environments
+
+- `celery.contrib.pytest` provides mock-based and embedded-worker fixtures for
+  unit/integration feedback.
+- `pytest-celery` provides Docker-based, production-like smoke infrastructure.
+- Celery documents these APIs as incompatible. Do not enable both in one suite
+  and assume their fixtures or configuration compose.
+- Use the actual production worker pool in at least a release or smoke test when
+  pool behavior matters. Alternative pools can disable features such as soft
+  timeouts or `max_tasks_per_child`.
+- Bound every `AsyncResult.get()` and worker wait. An unbounded result wait can
+  hang CI indefinitely.
+
+### Celery retry, acknowledgement, and publication
+
+- `Task.retry()` publishes another attempt, normally with the same task ID and
+  routing destination, and raises its `Retry` sentinel by default, so code after
+  it is not reached. `throw=False` changes that control flow; test the behavior
+  the task actually configures.
+- Careless requeue and `task_reject_on_worker_lost` settings can create
+  infinite message loops; the destructive smoke above must prove they do not.
+- With Celery 5.4+ Django integration, `DjangoTask.delay_on_commit()` can
+  prevent a worker from racing an uncommitted row. It returns no task ID
+  immediately, and a custom task base must preserve the relevant `DjangoTask`
+  behavior.
+- For prefork workers, a production-pool smoke should ensure parent-process
+  pools are disposed or recreated in children. This is different from a task
+  unit test.
 
 ## Primary references
 

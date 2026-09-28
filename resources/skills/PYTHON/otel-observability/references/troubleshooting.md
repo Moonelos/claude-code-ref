@@ -59,7 +59,7 @@ Two things first, because they explain a surprising share of reports:
 | Token attributes absent on streamed calls only | Usage not requested: `stream_usage=True` on the model, or `stream_options={"include_usage": True}` on the SDK call | `tracing/genai/token_usage.md` |
 | `gen_ai.request.model` is `chat` or `llm` | `ls_model_type` used as a model-name fallback; omit the attribute instead | `tracing/genai/langchain/model_callback.md` |
 | Every call reports the same model | Hardcoded model name; the summarization model exposes it | `tracing/genai/langchain/model_callback.md` |
-| No model spans at all from a LangChain agent | Handler/invocation style mismatch (`AsyncCallbackHandler` with `invoke`), or the callback was attached at invoke time only | `tracing/genai/langchain/model_callback.md`, "Sync versus async invocation" |
+| No model spans at all from a LangChain agent | Handler/invocation style mismatch (`AsyncCallbackHandler` with `invoke`), or the callback was attached at invoke time only | `tracing/genai/langchain/provider_compatibility.md`, "Sync versus async invocation" |
 | `gen_ai.invoke_agent.inference_calls` never appears | One of the three counter wiring edits is missing; the failure is silent | `metrics/genai.md`, "Counting fan-out per invocation" |
 | Agent TTFC equals model TTFC | Agent TTFC was computed from `"updates"`, which is step-granular | `tracing/genai/langchain/streaming_and_agent_span.md` |
 | Prompts present with `CAPTURE_AI_CONTENT` unset | A capture path is not gated on the setting | `tracing/genai/content_capture.md` |
@@ -81,12 +81,12 @@ Two things first, because they explain a surprising share of reports:
 
 | Symptom | Likely cause | File |
 | --- | --- | --- |
-| Log records have no `trace_id` | Emitted outside any span, or the trace-context processor runs after the renderer | `logging/structlog.md` |
+| Log records have no `trace_id` | Emitted outside any span, or the trace-context processor runs after the renderer | `logging/correlation.md` |
 | `trace_id` present but all zeros | The span context is invalid — context was lost in a background task | `tracing/worker_runtime.md` |
-| Worker logs carry the producer's trace ID | The linked producer context was copied into the log's `trace_id` | `logging/structlog.md` |
-| Logs reference a trace the backend does not have | Normal: tail sampling drops traces, not logs | `logging/structlog.md`, "Trace sampling does not sample logs" |
+| Worker logs carry the producer's trace ID | The linked producer context was copied into the log's `trace_id` | `logging/correlation.md` |
+| Logs reference a trace the backend does not have | Normal: tail sampling drops traces, not logs | `logging/correlation.md`, "Trace sampling does not sample logs" |
 | Exception has no stack trace in the log backend | The Collector's logs pipeline deletes `exception.stacktrace` | `collector/production.md` |
-| The exception log record is missing entirely, not just its stack trace | Backend structured-metadata size limit rejected the whole record; the traceback attribute exceeded it | `logging/structlog.md`, "Backend size limits on the traceback attribute" |
+| The exception log record is missing entirely, not just its stack trace | Backend structured-metadata size limit rejected the whole record; the traceback attribute exceeded it | `python-logging` skill (`../../python-logging/references/errors-and-security.md`, "Record-size limits") |
 | One incident, six stack traces | Logging at every call depth instead of at the owning boundary | `conventions/errors.md` |
 | Every histogram value in `+Inf` | Default buckets are sub-second; long operations need explicit `View` boundaries | `setup/sdk_bootstrap.md` |
 | Error rate falls as the service degrades | The metric is recorded only on the success path | `metrics/service.md` |

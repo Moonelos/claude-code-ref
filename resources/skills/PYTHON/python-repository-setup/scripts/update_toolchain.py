@@ -18,8 +18,9 @@ PYTHON_FILES = {
     "assets/workspace-template/services/api/Dockerfile": 1,
 }
 UV_FILES = {
-    "SKILL.md": 3,
+    "SKILL.md": 2,
     "references/docker-builds.md": 2,
+    "references/pyproject-files.md": 1,
     "references/pre-commit.md": 1,
     "assets/workspace-template/.pre-commit-config.yaml": 1,
     "assets/workspace-template/pyproject.toml": 1,

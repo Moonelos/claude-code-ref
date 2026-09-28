@@ -50,6 +50,22 @@ protocol/client/schema boundary with a concrete compatibility reason, but do
 not split for hypothetical future reuse. Similar syntax with different business
 meaning is not reuse.
 
+## Extraction triggers
+
+- A module identical (apart from package name) in **three or more deployables**,
+  or **two copies that have diverged semantically**, is a finding that must be
+  resolved: extract it, or comment in each copy why the semantics differ.
+- An identical non-business helper in two services whose natural library is
+  already a dependency of both moves there now; no new library is needed.
+- Until extraction, a new copy matches the existing public signatures exactly.
+  Before finishing, grep the other members for identical function names.
+- An implicit shared storage layout (a prefix one service writes and another
+  purges) is a contract with one named owner.
+- Code that differs in meaning, lifecycle, or dependencies stays local.
+- A YAML settings loader is extracted only when two or more services copy it
+  verbatim and the copies have drifted, or a natural shared config library
+  already exists. Each service always owns its `Settings` schema.
+
 Prefer a precise capability name such as `edm_client`, `db_models`,
 `workflow_contracts`, or `company_observability`. Avoid library distributions
 or import packages named only `common`, `shared`, `utils`, `helpers`, `core`, or
@@ -130,8 +146,9 @@ An internal library:
 
 - never imports a deployable's source package, settings class, bootstrap,
   application action, domain implementation, or tests;
-- accepts configuration as explicit typed values, a library-owned dataclass, or
-  a narrow protocol rather than reading service environment variables;
+- accepts configuration as explicit typed values or a concrete frozen dataclass
+  it owns (not a Protocol of properties), never by reading environment variables
+  or importing `os` or `pydantic_settings` for configuration;
 - does not choose deployment policy or construct resources it cannot dispose;
 - keeps optional/framework-specific integrations separate from its dependency-
   light core when only some consumers need them;
@@ -140,13 +157,17 @@ An internal library:
 - declares every runtime dependency it imports, even if the shared developer
   environment happens to provide it through another member.
 
-Prefer a small stable data or protocol boundary over passing a service's large
-settings/domain object into the library. Translate at the consumer boundary.
-Library-owned configuration means typed input values, not environment loading:
-the service resolves environment variables, secrets, and YAML through its settings
-and maps them at bootstrap. A small frozen input dataclass can live beside its
-consumer function; neither a separate `config.py` nor a library `BaseSettings`
-model is required. Deployment settings and loaders remain service-owned.
+The service resolves environment variables, secrets, and YAML through its
+settings and maps them to the library's input at bootstrap. A small frozen input
+dataclass can live beside its consumer function; neither a separate `config.py`
+nor a library `BaseSettings` model is required. Guard independence with an
+import-boundary contract test (no `os` configuration reads, no
+`pydantic_settings`, no service imports).
+
+Shared vocabulary (enums, JSON document contracts, value types) lives in a module
+importable without SQLAlchemy or SQLModel; domain and ports never import the ORM
+package root. A schema library may own these contracts but never runs queries or
+reads session state.
 
 ## Public API and compatibility
 
@@ -158,8 +179,12 @@ private modules whose layout may change.
 Use leading-underscore modules or documented internal packages when useful, but
 do not rely on naming alone: tests and import searches must show that consumers
 do not reach into implementation details. Avoid mutable module-global state and
-import-time side effects. When process state is necessary, expose explicit
-construction/configuration and deterministic disposal.
+import-time side effects. The exception is process-singleton SDK state behind
+idempotent configure/shutdown functions with a test reset hook.
+
+A service extends a library type only through documented public hooks. A
+subclass that needs `self._private` state means the library lacks an extension
+point; a callback override never swallows exceptions from `super()`.
 
 Do not add configuration flags to preserve every difference discovered during
 extraction. If consumers require materially different semantics, keep thin
@@ -172,18 +197,11 @@ The library owns tests under `libs/<library>/tests/`. A small deterministic
 suite may stay flat. Once it has distinct execution profiles, apply the profile-
 first structure in `testing.md`.
 
-Test at three levels only when each proves a real boundary:
-
-- library unit tests prove deterministic public behavior, failures, and state
-  lifecycle;
-- library integration tests prove concrete external protocols owned by the
-  library against disposable infrastructure;
-- consumer contract tests prove that each service's adapter/configuration still
-  matches the shared public API.
-
-Do not copy every library test into every consumer. Conversely, library tests
-cannot prove service startup, dependency closure, configuration mapping, or
-shutdown order; keep those focused tests with the consumer.
+Library unit tests prove public behavior and failures, library integration
+tests prove external protocols the library owns, and consumer contract tests
+prove each service's adapter still matches the public API. Do not copy library
+tests into consumers; consumers keep their own startup, configuration-mapping,
+and shutdown tests.
 
 ## Extraction and modularization sequence
 
@@ -193,8 +211,9 @@ shutdown order; keep those focused tests with the consumer.
    service-local.
 3. Create or reshape the library around that contract, initially flat, with
    focused tests.
-4. Keep compatibility re-exports or thin service-local facades when consumers
-   cannot migrate atomically.
+4. Keep compatibility re-exports only when consumers cannot migrate atomically,
+   with a removal trigger (see
+   [modularization.md](modularization.md#migration-sequence)).
 5. Migrate one consumer at a time; run the library tests plus that consumer's
    contract, startup/lifecycle, import, and type checks.
 6. Introduce narrower subpackages only where the extracted responsibilities now
@@ -207,16 +226,9 @@ business semantics merely because the implementations now sit nearby.
 
 ## Review questions
 
-- Does the package have current reuse or a concrete independent compatibility
-  boundary?
-- Can its responsibility be described without “and” joining unrelated areas?
+- Does the package have current reuse or a concrete compatibility boundary, and
+  can its responsibility be described without "and"?
 - Does it avoid service-private imports, environment reads, and deployment
-  ownership?
-- Is the dependency footprint appropriate for every consumer?
-- Are the modules flat while cohesive and nested only where ownership justifies
-  the navigation cost?
-- Is the public API intentional, with consumers kept away from private layout?
-- Are service-specific policies and business decisions still service-local?
-- Can the package and every consumer be installed and tested independently?
-- Is migration additive and consumer-by-consumer rather than a repository-wide
-  rewrite for symmetry?
+  ownership, with a dependency footprint right for every consumer?
+- Is the public API intentional, with service policy kept service-local?
+- Is migration additive and consumer-by-consumer?
