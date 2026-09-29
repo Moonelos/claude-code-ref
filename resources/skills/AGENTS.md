@@ -30,3 +30,12 @@ State each normative rule once, in the skill and file that owns the topic.
 Other skills link to it with one line (``See `../<skill>/<file>#<section>` ``)
 instead of restating or paraphrasing it. When a rule moves, leave a pointer
 behind, not a copy.
+
+**Exception — tested mirrors.** Two skills that must work when installed
+alone may keep byte-identical copies of shared reference files. This is
+allowed only when one skill is named canonical, the other copy is never edited
+directly, and a test fails if the copies drift. Current mirrors: `note-maker`
+(canonical) → `note-reviewer` for `how-we-write-notes.md`,
+`example-selection.md`, `curriculum-research.md`, `lesson-design.md`, and
+`delegation.md`, enforced by
+`note-maker/tests/test_contract_regressions.py`.

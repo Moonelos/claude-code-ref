@@ -1,137 +1,132 @@
 ---
 name: note-reviewer
-description: "Independently audit technical learning notes for whole-lesson development, editorial structure, curriculum completeness, explanations from explicit prerequisites, progressive depth, transfer of understanding, reproducible examples, production readiness, and missing or outdated material researched from primary sources. Produces evidence-backed reports without editing notes."
+description: "Review, audit, or fact-check technical study notes, a course, or a knowledge base. Checks whether a reader can fully understand each concept and run it in production: explanations from explicit prerequisites, whole-lesson development, missing or unexplained diagrams, retention practice, worked and runnable examples, production depth, and curriculum gaps. Searches the web for new, preview, deprecated, and emerging features the notes lack and reports them. Writes evidence-backed reports without editing notes. Use whenever the user asks to review, audit, grade, check, or find gaps in notes or learning material."
 ---
 
 # Audit whether the collection teaches its subject
 
-Evaluate both the learning promise and whether that promise covers the user's requested subject.
-Correct facts, attractive formatting, runnable examples, and a complete table of contents are each
-insufficient on their own. Judge the reader's ability to explain, predict, build, and operate.
+Judge whether the reader can explain, predict, build, and operate what the notes promise, and
+whether the notes are current. Correct facts, attractive formatting, runnable examples, and a
+complete table of contents are each insufficient on their own.
 
-## Resolve scope and read the contract
+## Choose the mode
 
-Use the collection root supplied by the user. For MkDocs, use `docs_dir` and learner-facing `nav`.
-Include root teaching notes; exclude `_audit/`, `_meta/`, generated sites, dependencies, vendored
-content, hidden agent directories, build output, and fixtures unless explicitly in scope. Read
-`_meta/` evidence when present without treating it as learner-facing teaching or proof.
+- **Full audit** (default for a collection, or when asked for a thorough review): every pass below
+  and every report.
+- **Quick review** (1–3 notes, or when the user asks for a quick look): passes 1, 2, and 6 only.
+  Write `_audit/<folder>.audit.md` (with VISUAL and PRACTICE), `_audit/landscape.audit.md`, and
+  `_audit/metrics.audit.md` with `Mode: quick`. Validate with `--quick`. Say in the summary that
+  path, transfer, coverage, and execution passes were not run.
 
-Read these references before their corresponding passes:
+## Resolve scope and read the references
 
-- `references/lesson-design.md`: whole-lesson development, visual reasoning, and structural repair,
-  before grading a chapter or learning sequence.
-- `references/how-we-write-notes.md`: shared audience and teaching contract, before judging prose.
-- `references/curriculum-research.md`: independent scope, primary-source research, and transfer tests,
-  before inspecting author coverage claims.
-- `references/learning-curve-and-explanation-audit.md`: ordering, explanation, and safety checks.
+Use the collection root the user supplies. Include root teaching notes. Exclude `_audit/`, `_meta/`,
+generated sites, dependencies, vendored content, hidden agent directories, build output, and fixtures
+unless they are explicitly in scope. Read `_meta/` evidence when present, but it is neither teaching
+nor proof.
+
+Read each reference before its pass:
+
+- `references/audit-examples.md`: filled report blocks; read first so your output matches them.
+- `references/lesson-design.md`: whole-lesson development, required diagrams, structural repair.
+- `references/how-we-write-notes.md`: the teaching contract, including retention practice.
+- `references/curriculum-research.md`: independent scope, web research, landscape, transfer tests.
+- `references/learning-curve-and-explanation-audit.md`: ordering, explanation, diagram, practice,
+  and safety checks.
 - `references/example-selection.md`: concrete artifacts and interaction examples.
-- `references/coverage-and-execution-audit.md`: coverage maturity, teach-back, execution, and currency.
-- `references/audit-reports.md`: report ownership and output formats, before writing findings.
+- `references/coverage-and-execution-audit.md`: coverage levels, teach-back, execution.
+- `references/audit-reports.md`: report formats and which report owns which defect.
 
-Use the user's actual audience and scope ahead of author declarations. “From zero” includes needed
-subject-specific prerequisites unless the user explicitly supplies them as prior knowledge. A label
-such as “for engineers” does not establish distributed-systems or other specialist expertise.
-Record ambiguous assumptions and evaluate their reader impact; do not silently invent knowledge.
+Use the user's actual audience and scope ahead of the author's declarations. "From zero" includes the
+needed subject-specific prerequisites. A label such as "for engineers" does not establish specialist
+expertise. Record ambiguous assumptions and their impact on the reader.
 
-Before dispatching a large audit, read `references/delegation.md` when a topic reaches 6
-teaching files or the collection reaches 8 files. Assign local batches and whole-collection owners.
+For a large audit, read `references/delegation.md` once a topic reaches 6 teaching files or the
+collection reaches 8.
 
-## Required audit passes
+## Audit passes
 
-### 1. Independent curriculum and research
+### 1. Web research: curriculum and landscape
 
-Build the expected curriculum from the user's goal and primary sources before accepting the author's
-chosen mechanisms. Research established essentials even for stable topics. Separately inspect current
-versions, release/migration guidance, deprecations, and relevant production changes for evolving
-subjects. Read sources, not just search snippets; cite URLs and checked dates. An accepted proposal
-is not evidence that a feature shipped. Respect an explicit historical/version scope and distinguish
-migration advice from errors in that scope.
+Use WebSearch and WebFetch. This pass is mandatory, and a search snippet is not a source. Build the
+expected curriculum from the user's goal and primary sources before looking at the author's chosen
+topics. Then run the landscape searches in `curriculum-research.md`: releases, deprecations and
+changed defaults, preview features, and emerging practice. Community sources count for `EMERGING`
+items when you cite two independent ones.
 
-Write `_audit/curriculum.audit.md`, including research status even when no gap was found. Compare
-each expected capability with the actual teaching, required depth, and justified exclusions. Include
-missing essentials even if no existing note mentions them. Do not cap externally substantiated gaps
-at an arbitrary number. Avoid unrelated ecosystem wishlists by explaining how each item is needed
-for an in-scope outcome. If browsing is unavailable, mark research `INCOMPLETE`; continue the local
-audit but do not assert current or comprehensive coverage.
+Write `_audit/curriculum.audit.md` (expected capabilities versus actual teaching) and
+`_audit/landscape.audit.md` (every new, preview, deprecated, or emerging item a practitioner would
+want to know about, with relevance and placement). Cite URLs and checked dates. Mark research
+`INCOMPLETE` only when the tools are unavailable or fail, and then put that at the top of the user
+summary. Respect an explicit historical or version scope by reporting newer items as migration
+context.
 
-### 2. Per-note explanation and correctness
+### 2. Per-note explanation, diagrams, and practice
 
-Read the full teaching prose, not only headings or code. Check audience assumptions, problem and
-causal explanation, local vocabulary, concrete carriers, correctness, misconceptions, and examples.
-Require relevant success signals, failure symptoms, limitations, and production boundaries for
-material the reader will act on. Pure definitions and reference indexes need role-appropriate checks,
-not invented operating procedures.
+Read the full prose, not only headings and code. Check audience assumptions, the problem and causal
+explanation, local vocabulary, concrete carriers, correctness, misconceptions, examples, success
+signals, failure symptoms, and production boundaries for anything the reader will act on.
 
-Apply the two independent ORDERING and EXPLANATION verdicts from the learning-audit reference.
-Run evidence-backed teach-back using only the note, declared earlier learning, and permitted prior
-knowledge. Cite the missing premise when it fails. Verify time-sensitive claims against primary
-sources and record the source and checked date. Grade production tactics by the actual integration
-and failure they address, not the presence of a generic “best practices” section.
+Issue ORDERING, EXPLANATION, LESSON, VISUAL, and PRACTICE verdicts per note:
 
-### 3. Whole-lesson quality, reader journey, and transfer
+- **Teach-back:** reconstruct the six elements from the note and earlier material only. Cite the
+  missing premise when it fails.
+- **VISUAL:** find every explanation shape that requires a diagram (`lesson-design.md`). FAIL when
+  one lacks an interpreted diagram, and put a Mermaid sketch with the note's own names in the
+  finding.
+- **PRACTICE:** foundation, tutorial, and implementation notes need a recap, check-yourself
+  questions with reasoned answers, and (for tutorials) a faded exercise. Put a replacement question
+  in the finding.
 
-Apply `references/lesson-design.md` to each complete teaching unit and the assembled sequence.
-Issue LESSON independently from teach-back and execution: facts can be extractable while the lesson
-leaves a novice to invent their connections. Inspect recurring inferential gaps, unearned concept
-load, disconnected examples, fragmented sections/files, and visuals that are absent or uninterpreted
-where needed. Do not infer lesson quality from labels, technical accuracy, a small trace, or brevity.
+Verify time-sensitive claims against sources, with dates. Grade production material by the
+integration and failure it actually addresses, not by the presence of a "best practices" heading.
 
-Map development across all substantive promises, including later recommendations; do not grade
-only the strongest opening mechanism. Write `_audit/lesson_quality.audit.md` with concrete evidence
-and the appropriate scale of repair.
-When the organizing structure is the problem, propose a target sequence, keep/merge/move/rewrite
-mapping, staged example, useful visual, representative replacement passage, and acceptance task.
-Do not limit the audit to local sentence patches or proposals for additional files. Preserve useful
-advanced material at a named destination. Judge scope from the user's learning promise, not an
-unearned “deep dive” label that hides first-time teaching.
+### 3. Whole lessons, reader paths, and transfer
 
-Read each named learning path in order and in full, including production continuations. Use only
-knowledge available at each step. Record what the reader can now explain, predict, choose, build,
-or verify. Check the earliest unexplained dependency, overload, missing bridge, and premature depth.
+Apply `references/lesson-design.md` to each complete teaching unit and to the sequence. LESSON is
+independent of teach-back and execution. Map development across every substantive promise, including
+later recommendations. Write `_audit/lesson_quality.audit.md`. When the structure itself is the
+problem, give the full repair: target sequence, keep/merge/move mapping, staged example, diagram,
+rewrite sample, and acceptance task.
 
-Record execution and understanding payoffs separately. Two entries is a useful diagnostic target;
-fail for an avoidable learning barrier or missed promised milestone, not a file count. A concrete
-trace can be an appropriate first result without running code.
-
-At meaningful milestones, evaluate a changed-condition scenario using the transfer protocol. The
-answer must follow from already taught principles; model expertise cannot repair missing teaching.
-Distinguish an absent exercise from a failure to supply the knowledge needed to solve it. Report
-prompt, expected reasoning, supporting passages, and verdict in `_audit/reader_paths.audit.md`.
+Read each named path in order and in full, using only knowledge available at each step. Record
+execution and understanding payoffs separately. At milestones, run a changed-condition transfer
+probe. The answer must follow from what was taught; your own expertise cannot repair missing
+teaching. Write `_audit/reader_paths.audit.md`.
 
 ### 4. Mechanism depth and production continuation
 
-Classify actual coverage as absent, mentioned, defined, explained, demonstrated, or operationalized.
-Use the author's learning contract when present, but challenge missing essentials and insufficient
-required levels against the independent curriculum. Inspect canonical owners in full. Foundational
-mechanisms must be taught before a deep dive relies on them. Production promises require relevant
-verification, failure diagnosis, recovery, limits, and trade-offs, not just configuration snippets.
-Write `_audit/coverage.audit.md`; this report owns substantive coverage findings, including essentials
-never mentioned in the collection. The curriculum report maps expectations and cross-references them.
+Classify each mechanism as absent, mentioned, defined, explained, demonstrated, or operationalized,
+against the independent curriculum and the author's contract. Foundational mechanisms must be taught
+before a deep dive relies on them. Production promises require verification, observability, failure
+diagnosis with real symptoms, recovery, limits, security, cost, and safe upgrade or rollback. Write
+`_audit/coverage.audit.md`.
 
 ### 5. Reproduce executable claims
 
-Inventory runnable, copyable, integration, test, smoke-test, and end-to-end claims across the whole
-collection. Reproduce safe, authorized examples exactly as shown, including local files, dependencies,
-services, and setup. An author manifest is an inventory, not proof. Record `VERIFIED`, `BROKEN`,
-`PARTIAL`, or `NOT-RUN`; explicitly non-runnable material is `EXCERPT`. Do not perform destructive,
-costly, credentialed, or externally mutating procedures without authority. Record the limitation
-rather than inventing output. Write `_audit/examples.audit.md`.
+Inventory runnable, copyable, integration, test, smoke-test, and end-to-end claims. Reproduce safe,
+authorized ones exactly as shown and record `VERIFIED`, `BROKEN`, `PARTIAL`, `NOT-RUN`, or `EXCERPT`.
+Never run destructive, costly, credentialed, or externally mutating procedures without authority.
+Write `_audit/examples.audit.md`.
 
-### 6. Missing notes and synthesis
+### 6. Gaps, metrics, and the user summary
 
-Inspect the whole tree for missing learning bridges and absent topics. Repair within an existing
-owner when that preserves a coherent role; propose a new note only when a real teaching boundary
-warrants one. Write `_audit/gaps.audit.md` as placement proposals, cross-referencing canonical coverage
-findings without double-counting. Missing fundamentals are findings even when a new file is optional.
+Write `_audit/gaps.audit.md` with placement proposals for missing bridges and topics (full mode).
+Aggregate `_audit/metrics.audit.md` last, then run:
 
-After all passes, aggregate `_audit/metrics.audit.md` and run:
-`python3 <skill-directory>/scripts/validate_audit_outputs.py <collection>/_audit`.
-Lead the user-facing result with the overall learning verdict and needed editorial repair; link the
-lesson-quality report prominently when the collection needs restructuring. Do not let a long list
-of technical fixes bury a failed beginner lesson.
+`python3 <skill-directory>/scripts/validate_audit_outputs.py <collection>/_audit [--quick]`
 
-This checks report structure, not judgment quality. Record research and transfer status alongside
-coverage and execution; a clean file audit cannot compensate for an incomplete curriculum audit or a failed whole lesson.
+The validator checks structure, not judgment.
+
+Reply to the user in this order:
+
+1. **Verdict:** can the declared reader learn this subject from these notes? (one or two sentences)
+2. **New and missing from the landscape:** a table of the `landscape.audit.md` items with status,
+   relevance, and placement, `CHANGES-BASELINE` items first. If research was incomplete, say so here.
+3. **Biggest teaching repairs:** failed lessons and structural rewrites, with a link to
+   `lesson_quality.audit.md`.
+4. **Diagrams and practice:** the notes failing VISUAL or PRACTICE, and what each needs.
+5. **Other findings by severity**, then a link to each report.
 
 ## Severity and evidence
 
@@ -142,30 +137,29 @@ coverage and execution; a clean file audit cannot compensate for an incomplete c
 | `FIX-MED` | Must infer, detour, reread, or work with avoidable uncertainty. |
 | `FIX-LOW` | Presentation or navigation issue without material outcome impact. |
 
-Use corresponding `COVERAGE-HIGH`/`COVERAGE-MED` for depth findings. Every finding names concrete
-evidence, reader impact, and an actionable correction. Formatting, line counts, payoff ratios,
-list length, and callout counts are diagnostics; none independently determines severity. A correct
-long explanation can pass; a concise, polished but causally empty note must fail.
+Use `COVERAGE-HIGH`/`COVERAGE-MED` for depth findings. Every finding names concrete evidence, the
+reader impact, and a correction specific enough to apply. Line counts and ratios are diagnostics, not
+severities. A long, correct explanation can pass; a concise, polished, causally empty note fails.
 
-Assign one owner per defect: unsafe/broken executable behavior to examples; stale existing claims
-to per-note reports; absent or underdeveloped mechanisms to coverage; sequence-only defects to reader
-paths; systemic teaching/organization defects to lesson quality. Other reports cross-reference without repeating severity. Preserve useful depth when fixing
-ordering. Do not manufacture findings, force runnable code on conceptual lessons, or demand duplicate
-implementations. Distinguish unverified claims from disproven claims.
+Each defect has one owner: unsafe or broken executables → examples; stale claims in a note, missing
+diagrams, and missing practice → per-note; absent or shallow mechanisms → coverage; new, preview,
+deprecated, and emerging items → landscape; sequence-only defects → reader paths; systemic teaching
+and organization problems → lesson quality. Other reports cross-reference without repeating the
+severity. Don't manufacture findings, force runnable code on conceptual lessons, or confuse unverified
+with disproven.
 
-## Execution boundaries and maintenance
+## Boundaries and maintenance
 
-Audit only: write reports, not notes or fixes. This boundary does not require a new approval pause
-when the user already authorized a separate remediation workflow; the author/fix phase owns edits.
+This skill audits only: it writes reports, not notes or fixes. When the user has already authorized
+a separate remediation workflow, the author/fix phase owns the edits and needs no new approval pause.
 
-When available and permitted, proactively delegate local topic reviews at 6+ teaching files per
-topic or 8+ files across multiple topics, following `references/delegation.md`. Prefer coherent
-3–6-file batches. Reviewers may read prerequisite owners across folder boundaries. Keep curriculum,
-whole-lesson quality, reader journey, coverage/gaps, and execution accountable across the complete collection. Use unique
-fragments when several workers contribute to one report; a single report owner merges and verifies
-them. Aggregate metrics last. If delegation is unavailable, perform the same passes sequentially.
+When available, delegate local topic reviews at 6+ teaching files per topic or 8+ files across topics
+(`references/delegation.md`), in coherent 3–6-file batches. Keep curriculum, landscape, lesson
+quality, reader journey, coverage and gaps, and execution owned at the collection level. When several
+workers contribute to one report, a single owner merges and verifies it. Aggregate metrics last.
+Without delegation, run the same passes sequentially.
 
-The shared prose, example-selection, curriculum-research, lesson-design, and delegation references mirror the canonical copies
-in `note-maker`; keep them synchronized so each skill remains independently usable. When changing
-this skill, calibrate against `tests/fixtures/expected_behavior.md` and run a blind forward test on a
-different collection. Passing report-format validation does not establish calibrated judgments.
+`how-we-write-notes.md`, `example-selection.md`, `curriculum-research.md`, `lesson-design.md`, and
+`delegation.md` mirror the canonical copies in `note-maker` so each skill works when installed alone.
+Edit them in `note-maker`, then copy them here. When changing this skill, calibrate against
+`tests/fixtures/expected_behavior.md` and run a blind forward test on a different collection.

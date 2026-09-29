@@ -47,25 +47,57 @@ Watch for these failures even when every sentence is technically correct:
   cases interrupt construction of the first working model. Keep necessary correctness boundaries;
   move specialist depth to a later identified destination.
 
-Do not turn these into quotas for paragraphs, terms, headings, diagrams, or length. A simple idea
-may be fully taught in a short paragraph. An advanced reference can be intentionally dense.
+These are not quotas for paragraphs, headings, or length. A simple idea can be fully taught in a
+short paragraph, and an advanced reference can be deliberately dense. Diagrams are different: the
+required shapes below are obligations.
 
 ## Make visuals do explanatory work
 
-Use a visual when reasoning requires the reader to track multiple actors, independently changing
-positions, containment, or a temporal handoff that prose leaves difficult to simulate. Choose a
-representation for that question: a labeled topology, before/after state table, annotated timeline,
-or sequence. Markdown tables, text diagrams, or Mermaid are sufficient; no image-generation or
-external diagram service is required. Match the repository's supported rendering.
+### When a diagram is required
 
-Introduce what to inspect, explain the arrows/positions and their causal meaning, and interpret
-what changed after the action. Keep labels and example values consistent with surrounding prose.
-A diagram that simply repeats three nouns and arrows is not proof that the relationship was taught.
-One evolving diagram may be more useful than several unrelated sketches. When prose already makes
-the mechanism easy to follow, do not demand a visual just to satisfy a style preference.
+A teaching unit **must** include a diagram when its central explanation contains any of these
+shapes. Prose alone makes the reader simulate them in their head, and that is where novices get lost:
 
-In review, identify the specific reasoning burden a visual would relieve and what it must show.
-“Add diagrams/examples” is not an actionable finding. Neither is “make this more engaging.”
+| Shape in the explanation | Default diagram (Mermaid) |
+|---|---|
+| Three or more actors exchanging messages or calls | `sequenceDiagram` |
+| A handoff, race, timeout, or ordering over time | `sequenceDiagram` or an annotated timeline |
+| A lifecycle with named states and transitions | `stateDiagram-v2` |
+| Components, network boundaries, or a deployment layout | `flowchart` with `subgraph` boundaries |
+| A request or data path through several stages | `flowchart LR` |
+| Containment or hierarchy (accounts → projects → resources) | `flowchart TD` |
+| The same state before and after an action | before/after Markdown table |
+| A decision with several branching criteria | `flowchart` decision tree |
+
+Use Mermaid in a ```` ```mermaid ```` fence by default: it renders on GitHub, GitLab, and most
+Markdown viewers and stays diffable. Use a Markdown table for before/after state. Use an ASCII
+diagram only when the repository cannot render Mermaid. Do not use image-generation or external
+diagram services.
+
+Every foundation note and every architecture or production-topology section needs at least one
+diagram unless none of the shapes above occurs. When you skip a diagram, you should be able to say
+which shape is absent.
+
+### How to make the diagram teach
+
+1. **Before it:** one sentence saying what question the diagram answers and what to look at.
+2. **The diagram:** use the same names and values as the running example. Label arrows with the
+   actual message, field, or condition (`POST /orders {id: 42}`, `lease expires t=30`), not
+   generic words like "calls" or "uses."
+3. **After it:** interpret it. Say what changed, why the next arrow follows, and what would differ
+   under the changed condition you are about to teach.
+
+Prefer one diagram that evolves across the lesson (the same actors, with a crash or a new
+component added) over several unrelated sketches. A diagram that repeats three nouns and arrows
+without interpretation does not count as teaching. Keep each diagram small enough to read without
+scrolling: about 12 nodes or 15 messages. Split larger ones by stage.
+
+### Reviewing visuals
+
+Give each teaching note `VISUAL: PASS|FAIL|n/a`. FAIL when a required shape above has no diagram, or
+when a diagram is present but uninterpreted, mislabeled, or inconsistent with the prose. In the
+finding, name the shape and the actors or states the diagram must show, and include a Mermaid sketch
+of it. "Add a diagram" with no content is not an actionable finding.
 
 ## Two independent checks: extractability and learning experience
 

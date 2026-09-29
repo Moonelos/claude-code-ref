@@ -68,8 +68,10 @@ Alongside local reviews, assign these collection-wide responsibilities explicitl
 worker or be run by the coordinator when slots are limited; do not create a separate agent for every
 label automatically:
 
-- **Curriculum research:** derive the expected scope independently from the user goal and primary
-  sources; return evidence for omissions and relevant changes. Do not inherit the author's verdict.
+- **Curriculum research and landscape:** derive the expected scope independently from the user goal
+  and primary sources, and run the landscape searches (releases, deprecations, previews, emerging
+  practice) with WebSearch and WebFetch. Return evidence for omissions and relevant changes. Do not
+  inherit the author's verdict.
 - **Whole-lesson quality, reader journey, and transfer:** follow each selected complete path in order
   and full prose,
   including the transitions between packages. Apply `lesson-design.md`; one accountable whole-unit

@@ -49,12 +49,88 @@ def has_repair_content(block: str, field: str, fields: tuple[str, ...]) -> bool:
     return False
 
 
+CORE_REPORTS = {
+    "curriculum.audit.md", "lesson_quality.audit.md", "reader_paths.audit.md",
+    "coverage.audit.md", "examples.audit.md", "metrics.audit.md", "gaps.audit.md",
+    "landscape.audit.md",
+}
+METRICS_ALWAYS = [
+    "Current-landscape items absent or stale",
+    "Landscape by relevance",
+    "Notes with required diagrams present",
+    "Notes with retention practice",
+]
+LANDSCAPE_ITEM_FIELDS = ["Status:", "Relevance:", "In collection:", "Why it matters:",
+                         "Suggested placement:", "Sources:"]
+
+
+def validate_landscape(path: Path, errors: list[str]) -> None:
+    require(path, ["Research:", "Baseline:", "Searched:"], errors)
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8")
+    research = re.search(r"(?m)^Research: (COMPLETE|INCOMPLETE)$", text)
+    if not research:
+        errors.append("landscape.audit.md: explicit COMPLETE or INCOMPLETE research status required")
+    items = [block for block in re.split(r"(?m)(?=^## )", text) if block.startswith("## ")]
+    if not items and "NO-LANDSCAPE-CHANGES:" not in text and not (research and research.group(1) == "INCOMPLETE"):
+        errors.append("landscape.audit.md: needs item blocks or NO-LANDSCAPE-CHANGES after complete research")
+    for index, item in enumerate(items, start=1):
+        label = f"landscape.audit.md item {index}"
+        for field in LANDSCAPE_ITEM_FIELDS:
+            if not re.search(r"(?m)^" + re.escape(field) + r" *\S", item):
+                errors.append(f"{label}: missing {field!r}")
+        status = re.search(r"(?m)^Status: (\S+)", item)
+        if status and status.group(1) not in {"GA", "PREVIEW", "DEPRECATED", "EMERGING"}:
+            errors.append(f"{label}: invalid status {status.group(1)}")
+        relevance = re.search(r"(?m)^Relevance: (\S+)", item)
+        if relevance and relevance.group(1) not in {"CHANGES-BASELINE", "ADD-TO-NOTES", "MENTION"}:
+            errors.append(f"{label}: invalid relevance {relevance.group(1)}")
+        sources = re.search(r"(?m)^Sources: (.*)$", item)
+        if sources and "http" not in sources.group(1):
+            errors.append(f"{label}: sources need URLs")
+        if status and status.group(1) == "EMERGING" and sources and sources.group(1).count("http") < 2:
+            errors.append(f"{label}: EMERGING items need two independent sources")
+
+
+def validate_folder_reports(root: Path, errors: list[str]) -> None:
+    folder_reports = [path for path in root.glob("*.audit.md") if path.name not in CORE_REPORTS]
+    if not folder_reports:
+        errors.append("no per-folder audit reports found")
+    for path in folder_reports:
+        require(path, ["ORDERING:", "EXPLANATION:", "teach-back"], errors)
+        require_per_block(path, ["ORDERING:", "EXPLANATION:", "LESSON:", "VISUAL:", "PRACTICE:", "Summary:"], errors)
+        for index, block in enumerate(blocks(path.read_text(encoding="utf-8")), start=1):
+            lesson = re.search(r"(?m)^LESSON: (PASS|FAIL|NOT-CHECKED|n/a)(?:;|$)", block)
+            if not lesson:
+                errors.append(f"{path.name} block {index}: invalid or missing lesson verdict")
+            elif lesson.group(1) == "FAIL" and re.search(r"(?m)^EXPLANATION: PASS\b", block):
+                errors.append(f"{path.name} block {index}: explanation cannot pass a failed lesson")
+            for field in ("VISUAL", "PRACTICE"):
+                verdict = re.search(r"(?m)^" + field + r": (PASS|FAIL|n/a)(?:;|$)", block)
+                if not verdict:
+                    errors.append(f"{path.name} block {index}: invalid or missing {field} verdict")
+                elif verdict.group(1) == "FAIL" and not re.search(r"(?m)^FIX-(?:HIGH|MED):", block):
+                    errors.append(f"{path.name} block {index}: {field} FAIL needs a FIX-HIGH or FIX-MED finding")
+            if (re.search(r"(?m)^VISUAL: FAIL", block)
+                    and not re.search(r"(?m)^\s*(?:```mermaid|(?:sequenceDiagram|flowchart|graph|stateDiagram(?:-v2)?)\b)", block)):
+                errors.append(f"{path.name} block {index}: VISUAL FAIL needs a Mermaid sketch in the finding")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("audit_directory", type=Path)
+    parser.add_argument("--quick", action="store_true",
+                        help="quick review: per-note, landscape, and metrics reports only")
     args = parser.parse_args()
     root = args.audit_directory.resolve()
     errors: list[str] = []
+
+    validate_landscape(root / "landscape.audit.md", errors)
+    validate_folder_reports(root, errors)
+    if args.quick:
+        require(root / "metrics.audit.md", ["Mode: quick", "Research:", *METRICS_ALWAYS], errors)
+        return report(errors)
 
     curriculum = root / "curriculum.audit.md"
     require(curriculum, ["Research:", "Audience:", "Scope:", "Sources:", "Limitations:"], errors)
@@ -127,6 +203,7 @@ def main() -> int:
             "Essential curriculum items accounted for",
             "Transfer checkpoints passed",
             "Lesson quality passed",
+            *METRICS_ALWAYS,
         ],
         errors,
     )
@@ -135,32 +212,10 @@ def main() -> int:
     if gaps_path.is_file() and re.search(r"(?m)^FIX-(?:CRITICAL|HIGH|MED|LOW):", gaps_path.read_text(encoding="utf-8")):
         errors.append("gaps.audit.md: FIX severities are forbidden")
 
-    folder_reports = [
-        path
-        for path in root.glob("*.audit.md")
-        if path.name
-        not in {
-            "curriculum.audit.md",
-            "lesson_quality.audit.md",
-            "reader_paths.audit.md",
-            "coverage.audit.md",
-            "examples.audit.md",
-            "metrics.audit.md",
-            "gaps.audit.md",
-        }
-    ]
-    if not folder_reports:
-        errors.append("no per-folder audit reports found")
-    for path in folder_reports:
-        require(path, ["ORDERING:", "EXPLANATION:", "teach-back"], errors)
-        require_per_block(path, ["ORDERING:", "EXPLANATION:", "LESSON:", "Summary:"], errors)
-        for index, block in enumerate(blocks(path.read_text(encoding="utf-8")), start=1):
-            lesson = re.search(r"(?m)^LESSON: (PASS|FAIL|NOT-CHECKED|n/a)(?:;|$)", block)
-            if not lesson:
-                errors.append(f"{path.name} block {index}: invalid or missing lesson verdict")
-            elif lesson.group(1) == "FAIL" and re.search(r"(?m)^EXPLANATION: PASS\b", block):
-                errors.append(f"{path.name} block {index}: explanation cannot pass a failed lesson")
+    return report(errors)
 
+
+def report(errors: list[str]) -> int:
     if errors:
         print("AUDIT OUTPUT FAIL")
         for error in errors:

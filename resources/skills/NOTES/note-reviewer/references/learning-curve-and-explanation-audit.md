@@ -10,6 +10,7 @@ Read this file completely for every audit. Apply its two axes independently to e
 - [Safety check](#safety-check-toy-not-correct)
 - [Explanation checks](#explanation-checks)
 - [Concrete-carrier checks](#mechanism-left-without-a-concrete-carrier--fix-high-or-fix-med)
+- [Diagram and practice checks](#missing-or-uninterpreted-diagram--fix-high-or-fix-med)
 - [Reading-path checks](#reading-path-checks)
 - [Repo metrics](#repo-metrics)
 
@@ -190,6 +191,32 @@ same semantics, or a non-canonical note that provides a sufficient labeled excer
 Prescribe the carrier, not “more examples”: name whether the correction is a policy/config excerpt,
 request/response, input/output rows, state trace, command/output, or changed-input decision table,
 and state the behavior it must make predictable.
+
+### Missing or uninterpreted diagram — FIX-HIGH or FIX-MED
+
+Scan each teaching note for the explanation shapes listed in `lesson-design.md` under "When a
+diagram is required": three or more actors, ordering over time, a state lifecycle, a topology or
+deployment layout, a multi-stage data path, containment, before/after state, or a branching decision.
+For each shape, check for a diagram that is introduced, labeled with the running example's values,
+and interpreted afterward.
+
+- `FIX-HIGH`: a foundation note, or a production architecture or topology section, whose central
+  explanation has a required shape and no diagram.
+- `FIX-MED`: a supporting section missing its diagram, or a diagram that is uninterpreted,
+  mislabeled, inconsistent with the prose, or too large to read (about 12+ nodes or 15+ messages
+  without staging).
+
+Put a Mermaid sketch in the finding, using the note's own actor names and values, and state what
+the prose around it must explain. Record the result as the note's `VISUAL:` verdict.
+
+### Missing retention practice — FIX-MED
+
+Foundation, tutorial, and implementation notes end with a recap of the causal chain, 2–4
+check-yourself questions with collapsed reasoned answers (at least one with a changed condition at
+milestones), and for tutorials a faded exercise (see "Close the lesson so it sticks" in
+`how-we-write-notes.md`). Flag an absent block, questions that only ask for definitions, or answers
+without reasoning. Include one replacement question with its reasoned answer in the finding. Record
+the result as the note's `PRACTICE:` verdict. References and indexes are `n/a`.
 
 ### Register imbalance — FIX-MED
 

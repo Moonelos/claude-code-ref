@@ -101,6 +101,73 @@ class AuditRegressionTests(unittest.TestCase):
         path.write_text(path.read_text().replace("TRANSFER: PASS", "TRANSFER: PROBABLY"))
         self.assertNotEqual(self.run_validator().returncode, 0)
 
+    def landscape_item(self, **overrides):
+        fields = {
+            "Status": "GA", "Relevance": "ADD-TO-NOTES", "In collection": "absent",
+            "Why it matters": "changes the recommended baseline",
+            "Suggested placement": "02_explain.md",
+            "Sources": "https://example.org/release-notes (primary, 2026-09-29)",
+        }
+        fields.update(overrides)
+        return "\n## New feature\n" + "".join(f"{key}: {value}\n" for key, value in fields.items())
+
+    def test_missing_landscape_report_fails(self):
+        (self.root / "landscape.audit.md").unlink()
+        self.assertNotEqual(self.run_validator().returncode, 0)
+
+    def test_complete_research_needs_items_or_explicit_no_changes(self):
+        path = self.root / "landscape.audit.md"
+        path.write_text(path.read_text().replace("Research: INCOMPLETE", "Research: COMPLETE"))
+        self.assertNotEqual(self.run_validator().returncode, 0)
+        path.write_text(path.read_text() + self.landscape_item())
+        self.assertEqual(self.run_validator().returncode, 0, self.run_validator().stdout)
+
+    def test_landscape_items_need_valid_status_and_sourced_urls(self):
+        path = self.root / "landscape.audit.md"
+        base = path.read_text()
+        for overrides in ({"Status": "HOT"}, {"Relevance": "MAYBE"}, {"Sources": "memory"},
+                          {"Status": "EMERGING"}):
+            with self.subTest(overrides=overrides):
+                path.write_text(base + self.landscape_item(**overrides))
+                self.assertNotEqual(self.run_validator().returncode, 0)
+        path.write_text(base + self.landscape_item(
+            Status="EMERGING", Sources="https://a.example/talk; https://b.example/blog"))
+        self.assertEqual(self.run_validator().returncode, 0)
+
+    def test_per_note_blocks_require_visual_and_practice_verdicts(self):
+        path = self.root / "root.audit.md"
+        text = path.read_text()
+        for field in ("VISUAL:", "PRACTICE:"):
+            with self.subTest(field=field):
+                path.write_text("\n".join(line for line in text.splitlines()
+                                          if not line.startswith(field)) + "\n")
+                self.assertNotEqual(self.run_validator().returncode, 0)
+
+    def test_visual_fail_needs_a_finding_with_a_mermaid_sketch(self):
+        path = self.root / "root.audit.md"
+        text = path.read_text().replace("VISUAL: n/a; one actor and one transition; no required diagram shape.",
+                                        "VISUAL: FAIL; three actors hand off a lease with no diagram.")
+        path.write_text(text)
+        self.assertNotEqual(self.run_validator().returncode, 0)
+        path.write_text(text.replace("NO-ACTION: the fixture teaches its transition.",
+                                     "FIX-HIGH: lease handoff lacks a diagram — add after line 5."))
+        result = self.run_validator()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Mermaid sketch", result.stdout)
+        path.write_text(path.read_text() + "    sequenceDiagram\n      A->>L: renew (t=20)\n")
+        self.assertEqual(self.run_validator().returncode, 0, self.run_validator().stdout)
+
+    def test_quick_mode_needs_only_note_landscape_and_metrics(self):
+        for name in ("curriculum", "lesson_quality", "reader_paths", "coverage", "examples", "gaps"):
+            (self.root / f"{name}.audit.md").unlink()
+        command = [sys.executable, str(SKILL / "scripts/validate_audit_outputs.py"), str(self.root), "--quick"]
+        self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+        metrics = self.root / "metrics.audit.md"
+        metrics.write_text("Mode: quick\n" + metrics.read_text())
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotEqual(self.run_validator().returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

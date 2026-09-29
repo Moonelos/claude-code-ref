@@ -126,27 +126,17 @@ If the scoped collection contains no executable claims, write exactly
 
 Exclude `EXCERPT` blocks from executable-claim denominators. Unsafe executable defects are owned by
 `examples.audit.md`; the per-file report may point to that block but must not repeat or recount the
-same severity. A stale claim present in a note is owned by its per-file report. A significant current
-mechanism missing from the collection is owned by `coverage.audit.md` with
-`SIGNAL: current-landscape`.
+same severity. A stale claim present in a note is owned by its per-file report. A current item missing
+from the collection is owned by `landscape.audit.md`.
 
 ## Current-landscape comparison
 
-Always research foundational completeness using `curriculum-research.md`. For evolving subjects,
-also build a dated landscape from primary sources before declaring coverage complete:
-
-- supported/current versions;
-- removed or deprecated mechanisms;
-- recently generally available capabilities;
-- preview or early-access capabilities that materially change advice;
-- upgrade, downgrade, security, or operational changes with reader impact.
-
-Compare that landscape with the collection. Add externally evidenced missing current mechanisms to
-`coverage.audit.md` with `SIGNAL: current-landscape`; use `researched-essential` for missing established
-fundamentals. Cite source URLs and checked dates. Stale claims already present belong to the per-file
-report; cross-reference them here without duplicating severity.
-Do not turn release notes into a wishlist: include only changes that alter the collection's declared
-scope, recommended design, runnable examples, or production operation.
+Research the current landscape with WebSearch and WebFetch, following the currency section of
+`curriculum-research.md`, and write the results to `_audit/landscape.audit.md` using the format in
+`audit-reports.md`. That report owns absent current features, deprecations, preview items, and
+emerging practice. When a current mechanism is also an essential the collection must teach, add a
+coverage block with `SIGNAL: current-landscape` that cross-references the landscape item. Stale
+claims already in a note belong to that note's per-note report.
 
 Record transfer evidence separately in reader-path reports; successful restatement does not prove
 reasoning under a changed condition.
@@ -162,6 +152,8 @@ Before accepting changes to this skill, test it against at least these behavior 
 5. a correct reproduced example;
 6. a path whose dependency appears later;
 7. a deep dive incorrectly owning the beginner model;
-8. a stale claim and a significant current feature absent from a fast-moving collection.
+8. a stale claim and a significant current feature absent from a fast-moving collection;
+9. a multi-actor foundation note with no diagram (must get `VISUAL: FAIL`) and a simple one-step
+   note without one (must get `VISUAL: n/a` or `PASS`).
 
 Judge verdicts and reader outcomes, not exact wording.

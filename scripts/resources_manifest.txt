@@ -816,6 +816,7 @@ skills/NOTES/note-maker/tests/fixtures/good_collection/_meta/example_verificatio
 skills/NOTES/note-maker/tests/fixtures/good_collection/_meta/learning_contract.json
 skills/NOTES/note-maker/tests/test_contract_regressions.py
 skills/NOTES/note-reviewer/SKILL.md
+skills/NOTES/note-reviewer/references/audit-examples.md
 skills/NOTES/note-reviewer/references/audit-reports.md
 skills/NOTES/note-reviewer/references/coverage-and-execution-audit.md
 skills/NOTES/note-reviewer/references/curriculum-research.md
@@ -829,6 +830,7 @@ skills/NOTES/note-reviewer/tests/audit_outputs_good/coverage.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/curriculum.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/examples.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/gaps.audit.md
+skills/NOTES/note-reviewer/tests/audit_outputs_good/landscape.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/lesson_quality.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/metrics.audit.md
 skills/NOTES/note-reviewer/tests/audit_outputs_good/reader_paths.audit.md

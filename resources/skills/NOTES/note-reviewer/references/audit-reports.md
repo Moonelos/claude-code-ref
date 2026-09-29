@@ -1,5 +1,8 @@
 # Audit reports and evidence ownership
 
+`audit-examples.md` shows each block below filled in for a realistic note. Read it before writing
+your first report of a given type.
+
 Write one block per relevant unit, including clean units. Cite actual file sections/lines for local
 findings and primary URLs plus checked dates for external claims. Every finding explains reader
 impact and the smallest sufficient correction. A source link supports a claim; it does not supply
@@ -37,6 +40,8 @@ notes. Each learner-facing Markdown file gets a block. Pure indexes/references u
 ORDERING: role <role>; PASS|FAIL|n/a; payoff <line/total or n/a>; <sequence evidence and reader impact>.
 EXPLANATION: PASS|FAIL|n/a; teach-back PASS|FAIL|n/a (missing: <elements or none>); <evidence and optional diagnostic counts>.
 LESSON: PASS|FAIL|NOT-CHECKED|n/a; <whole-unit evidence or link to its canonical lesson-quality block>.
+VISUAL: PASS|FAIL|n/a; <required diagram shapes found (actors, time order, lifecycle, topology, data path, decision) and whether each has an interpreted diagram>.
+PRACTICE: PASS|FAIL|n/a; <recap, check-yourself questions with reasoned answers, faded exercise for tutorials; n/a for references>.
 Summary: N critical, N high, N med, N low
 
 FIX-CRITICAL: <actively misleading or harmful behavior> — <specific correction>.
@@ -45,6 +50,12 @@ FIX-MED: <avoidable inference, detour, or uncertainty> — <specific correction>
 FIX-LOW: <presentation or navigation issue> — <specific correction>.
 NO-ACTION: <evidence supporting a clean result>.
 ```
+
+`VISUAL: FAIL` needs a finding that names the shape, the actors or states to draw, and a Mermaid
+sketch (see `lesson-design.md`). Missing a required diagram in a foundation or production-topology
+section is usually `FIX-HIGH`, because the reader has to simulate the interaction unaided. An
+uninterpreted or mislabeled diagram is `FIX-MED`. `PRACTICE: FAIL` is `FIX-MED` for foundation,
+tutorial, and implementation notes; include one example question with its reasoned answer.
 
 Use only applicable finding lines. `RELATED: <canonical report and finding>` may cross-reference
 a coverage- or execution-owned defect without a duplicate severity. A FAIL verdict can therefore
@@ -143,6 +154,36 @@ Use the formats in `coverage-and-execution-audit.md` for `_audit/coverage.audit.
 Coverage classifications describe achieved depth, not headings, word counts, or example counts.
 The absence of runnable claims is recorded explicitly as `NO-EXECUTABLE-CLAIMS: <scope checked>`.
 
+## Current landscape — `_audit/landscape.audit.md`
+
+This report answers "what new or changing things is the collection missing?" Build it with WebSearch
+and WebFetch following the currency section of `curriculum-research.md`. Write it even when nothing
+is missing: the header records what was searched.
+
+```text
+# Current landscape — <checked date>
+Research: COMPLETE|INCOMPLETE
+Baseline: <version or era the collection teaches>
+Searched: <queries or source areas covered: release notes, deprecations, previews, emerging practice>
+
+## <item name>
+Status: GA|PREVIEW|DEPRECATED|EMERGING
+Relevance: CHANGES-BASELINE|ADD-TO-NOTES|MENTION
+In collection: absent|mentioned|stale|covered — <note path or none>
+Why it matters: <the decision, example, or production outcome it changes for this reader>
+Suggested placement: <existing note/section, new note, or "What's changing" section>
+Sources: <URL (tier primary|community, checked date)>; EMERGING needs two independent sources
+```
+
+Use `NO-LANDSCAPE-CHANGES: <what was searched and why nothing qualifies>` in place of item blocks
+only after a completed search. When research is `INCOMPLETE`, write the header and say what could
+not be searched. Do not fill items from memory.
+
+This report owns absent current items and deprecations the notes never mention. A stale claim that
+appears in a note is owned by that note's per-note report, and the landscape item cross-references
+it with `In collection: stale`. Coverage findings for current mechanisms cross-reference the
+landscape item rather than repeating it.
+
 ## New-note proposals — `_audit/gaps.audit.md`
 
 Inspect the whole tree before deciding a topic is absent. Prefer repairing an existing canonical
@@ -189,6 +230,9 @@ Paths with an understanding payoff within two entries: <N/N; diagnostic only>
 Core mechanisms at required coverage level: <N/N>
 Executable claims reproduced: <N/N; broken/partial/not-run counts>
 Current-landscape items absent or stale: <N, or unverified if research incomplete>
+Landscape by relevance: <N CHANGES-BASELINE, N ADD-TO-NOTES, N MENTION>
+Notes with required diagrams present: <N/N teaching notes with a required shape; n/a excluded>
+Notes with retention practice: <N/N foundation/tutorial/implementation notes>
 ```
 
 Additional useful metrics include unexplained prerequisite uses, unsupported prescriptions, missing
@@ -204,6 +248,8 @@ collection; never import measurements from another repository.
 - Whole-unit explanatory development and editorial structure: `lesson_quality.audit.md`.
 - Sequence-only dependency problems: `reader_paths.audit.md`.
 - Expected curriculum inventory and reconciliation: `curriculum.audit.md`.
+- New, preview, deprecated, and emerging items the notes lack: `landscape.audit.md`.
+- A missing or uninterpreted diagram and missing retention practice: per-note report.
 - Optional new-file placement: `gaps.audit.md`.
 
 One correction may improve several dimensions. Other reports may cross-reference its canonical owner
