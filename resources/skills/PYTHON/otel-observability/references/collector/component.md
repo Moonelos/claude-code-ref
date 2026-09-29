@@ -13,7 +13,7 @@ application
     │ OTLP
     ▼
 OpenTelemetry Collector
-    ├── traces  → trace backend (and/or Langfuse)
+    ├── traces  → trace backend (and/or a GenAI backend)
     ├── metrics → metrics backend
     └── logs    → log backend
 ```
@@ -114,7 +114,7 @@ APM / general trace backend   trace shape, durations, error types, models,
                               token counts — no prompts or outputs
 Metrics backend               aggregates only; no IDs or content
 Log backend                   application logs, correlated, masked
-GenAI backend / Langfuse      rooted GenAI view, prompts, outputs, sessions, scores
+GenAI backend (e.g. Langfuse) rooted GenAI view, prompts, outputs, sessions, scores
                               — when policy allows
 ```
 
@@ -128,65 +128,29 @@ service:
       processors: [memory_limiter, redact_payloads, batch]
       exporters: [otlphttp/apm]
 
-    traces/langfuse:
+    traces/genai:
       receivers: [otlp]
-      processors: [memory_limiter, filter/genai_projection, transform/langfuse, batch]
-      exporters: [otlphttp/langfuse]
+      # filter/genai_projection keeps only the rooted GenAI view (genai_projection.md);
+      # a destination-specific mapping processor, if any, follows it.
+      processors: [memory_limiter, filter/genai_projection, batch]
+      exporters: [otlphttp/genai]
 ```
 
-### If Langfuse is one of the destinations
+### If a GenAI backend is one of the destinations
 
-- Langfuse ingests over **OTLP/HTTP** only. An OTLP/gRPC exporter pointed at it fails.
 - Name pipeline exporters `otlphttp/...` or `otlp_grpc/...` explicitly. A bare `otlp` exporter (as opposed to the `otlp` receiver, which is still the correct name) is a deprecated alias for `otlp_grpc` on 0.159.0 and logs a startup warning: `"otlp" alias is deprecated; use "otlp_grpc" instead`.
-- Authentication is HTTP Basic with base64 of `public_key:secret_key`. Build it without a trailing newline and inject it from a secret store.
 - Send either a complete trace or the rooted, ancestor-closed GenAI projection defined below.
-  Never send only model leaves: Langfuse needs the entry root and every retained span's parent
-  chain to build a readable trace.
-- Langfuse is a trace backend. Operational metrics go to the metrics backend.
-- `langfuse.*` attributes are added in the Langfuse pipeline by a destination-specific
-  `attributes` or `transform` processor, never in application code.
+  Never send only model leaves: the backend needs the entry root and every retained span's
+  parent chain to build a readable trace.
+- A GenAI backend is a trace backend. Operational metrics go to the metrics backend.
+- Vendor attributes (`langfuse.*`, and the like) are added in that backend's pipeline by a
+  destination-specific `attributes` or `transform` processor, never in application code. The
+  same branch maps the neutral `app.gen_ai.observation.input` / `output` presentation copies to
+  the vendor's keys and deletes the neutral sources; every other trace branch deletes both.
 
-When the portable `{role, parts}` GenAI envelope is valid but Langfuse needs its native
-display shape, let the application emit content-gated
-`app.gen_ai.observation.input` / `output` alongside the canonical `gen_ai.*` values.
-Project and consume those neutral attributes only on this branch:
-
-```yaml
-processors:
-  attributes/langfuse_observation_io:
-    actions:
-      - key: langfuse.observation.input
-        from_attribute: app.gen_ai.observation.input
-        action: upsert
-      - key: langfuse.observation.output
-        from_attribute: app.gen_ai.observation.output
-        action: upsert
-      - key: app.gen_ai.observation.input
-        action: delete
-      - key: app.gen_ai.observation.output
-        action: delete
-```
-
-Put this processor before `batch`. General trace-backend branches must delete both
-neutral presentation keys together with the standard prompt/output attributes. The
-Langfuse branch retains the canonical `gen_ai.*` values for protocol fidelity but
-deletes the neutral sources after projection so they do not also appear as metadata.
-Do not simply rename or flatten `gen_ai.input.messages` / `gen_ai.output.messages`:
-those remain the portable source of truth.
-
-```yaml
-exporters:
-  otlphttp/langfuse:
-    # The otlphttp exporter appends /v1/traces for the traces pipeline.
-    endpoint: https://cloud.langfuse.com/api/public/otel
-    headers:
-      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
-      x-langfuse-ingestion-version: "4"
-```
-
-Use the correct regional or self-hosted base URL. The v4 header selects
-real-time ingestion; omitting it can delay visibility. Re-check the requirement
-when upgrading the compatibility contract in `../compatibility.md`.
+Destination specifics — ingestion protocol, authentication, required headers, and the concrete
+mapping processors — live in one file per backend under `../backends/`. Langfuse:
+`../backends/langfuse.md`.
 
 ---
 

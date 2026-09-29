@@ -98,11 +98,18 @@ Things that are easy to get wrong here, in order of how often they bite:
 ## `alembic.ini`
 
 Leave `sqlalchemy.url` blank or pointing at a placeholder — never commit a
-real connection string. Set it at runtime from the same resolved settings the
-app uses, either via an environment variable Alembic reads
-(`sqlalchemy.url = ${DATABASE_URL}` with `os.path.expandvars` wired into
-`env.py`, or simplest: `config.set_main_option("sqlalchemy.url", settings.database_url)`
-near the top of `env.py`, before the online/offline branch runs.
+real connection string. `env.py` is a process entry point: near the top, before
+the online/offline branch, it loads the migration process's own secrets model
+(`MigrationSecrets`, only `database_dsn`; `python-settings-config`, fallback
+`../../python-settings-config/references/secrets-py.md`) and never the
+service's `Settings`, so migrating needs no other service variables:
+
+```python
+secrets = MigrationSecrets()
+config.set_main_option(
+    "sqlalchemy.url", secrets.database_dsn.get_secret_value().replace("%", "%%")
+)
+```
 
 `script_location` points at wherever `alembic/` actually lives per
 `references/repo-layout.md` — colocated under `db/alembic/`
@@ -110,14 +117,13 @@ in a single-service repo, or inside the dedicated migration-runner service
 (`services/db-migrate/alembic/`) in a monorepo — never inside the shared
 models package itself, which stays free of an `alembic` dependency.
 
-When the URL comes in through `config.set_main_option`, escape literal `%`
-first — `sqlalchemy.url` passes through ConfigParser interpolation, and a
-generated password containing `%` breaks it with a baffling
-`InterpolationSyntaxError` long after everything worked in dev:
+The `.replace("%", "%%")` matters: `sqlalchemy.url` passes through
+ConfigParser interpolation, and a generated password containing `%` breaks it
+with a baffling `InterpolationSyntaxError` long after everything worked in dev.
 
-```python
-config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
-```
+An `alembic/` directory inside the import package (`db/alembic/`) needs
+`__init__.py` in `alembic/` and `versions/` to satisfy Ruff `INP001`, or a
+per-file ignore for that directory.
 
 ## Day-to-day workflow
 
@@ -128,6 +134,21 @@ alembic downgrade -1
 ```
 
 Always open the generated revision file and read it before committing.
+Two autogenerate artifacts to fix by hand every time:
+
+- **Application column types leak into revisions.** Autogenerate renders a
+  custom type such as `StrEnumText(ClaimStatus)` as an import of application
+  code, so the migration changes whenever the model does. Render it as the
+  storage type: `sa.Text()` plus the named CHECK with its values frozen as
+  literals in the revision. Do it once with a `render_item` hook in `env.py`
+  that returns `"sa.Text()"` for the custom type, instead of editing each file.
+- **Expression and functional indexes show false drift.** PostgreSQL stores
+  the expression in its normalized form, so `alembic check` reports a change
+  that is not one. Write the index expression in the form PostgreSQL returns
+  (`pg_get_indexdef`) so they compare equal, or exclude that one named index
+  from comparison with an `include_object` hook and pin it with a
+  schema-verification test (`schema-verification.md`) instead.
+
 Autogenerate is a diff against structure, not intent — it will not write a
 data backfill for you, and even with `compare_type`/`compare_server_default`
 on, some changes (renaming a column vs. drop+add, some enum/check-constraint

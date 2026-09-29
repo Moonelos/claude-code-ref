@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import structlog
 from structlog.typing import EventDict, Processor, WrappedLogger
 
-from app.redaction import mask
+from app.observability.redaction import mask
 
 
 @dataclass(frozen=True)

@@ -61,7 +61,7 @@ These are compatibility bounds for the templates, not a demand to downgrade a se
   keep `gen_ai.system_instructions` / `gen_ai.input.messages` / `gen_ai.output.messages`
   canonical, emit content-gated `app.gen_ai.observation.input` / `output` only when a
   lossless presentation is available, and map those to `langfuse.observation.input` /
-  `output` in the Langfuse Collector branch.
+  `output` in the Langfuse Collector branch (`backends/langfuse.md`).
 
 ## Upgrade checklist
 

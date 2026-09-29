@@ -23,16 +23,18 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import Field
+from pydantic import Field, SkipValidation
 
 
 class ScriptedToolChatModel(BaseChatModel):
     """Replays scripted replies in order and records what it was given.
 
+    A scripted exception is raised at that step (a provider timeout, a refusal).
     Tool-call IDs in the script are ignored; each call mints fresh IDs.
     """
 
-    script: list[AIMessage]
+    # SkipValidation: pydantic cannot build a schema for arbitrary exceptions.
+    script: SkipValidation[list[AIMessage | Exception]]
     seen: list[list[BaseMessage]] = Field(default_factory=list)
     bound_tool_names: list[list[str]] = Field(default_factory=list)
     tool_choices: list[str | None] = Field(default_factory=list)
@@ -66,6 +68,8 @@ class ScriptedToolChatModel(BaseChatModel):
         if call_number > len(self.script):
             raise AssertionError(f"unscripted call {call_number} to {self._llm_type}")
         template = self.script[call_number - 1]
+        if isinstance(template, Exception):
+            raise template
         reply = AIMessage(
             content=template.content,
             id=f"scripted-{call_number}",
@@ -80,6 +84,13 @@ class ScriptedToolChatModel(BaseChatModel):
         )
         return ChatResult(generations=[ChatGeneration(message=reply)])
 ```
+
+To script a provider failure, put the provider's own exception in the script
+(for example `openai.APITimeoutError(request=...)`); the capability under test
+must translate it into its port error. The OpenAI SDK builds its errors on its
+HTTP client's `Request` and `Response` types; with openai 3.x that client is
+`httpx2`, so constructing those errors in tests needs `httpx2` in the dev
+dependency group even when production code never imports it.
 
 It raises `AssertionError` rather than a `BaseException` subclass because
 LangChain's async generation path does not propagate non-`Exception` errors

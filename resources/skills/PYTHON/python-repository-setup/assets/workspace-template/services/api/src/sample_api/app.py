@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from sample_shared import greeting
 
 app = FastAPI(title="Sample API")

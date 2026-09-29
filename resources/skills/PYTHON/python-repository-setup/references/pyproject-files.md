@@ -35,9 +35,9 @@ requires = ["hatchling>=1.32.0,<2"]
 build-backend = "hatchling.build"
 ```
 
-Apply the same Ruff, pytest, coverage, and mypy configuration as the template
-root, but set paths to the actual single-service roots (`src`, `tests`) instead
-of `services` and `libs`.
+The complete file, with the shared Ruff, pytest, coverage, mypy, and
+import-linter tables already set to the single-service roots (`src`, `tests`),
+is [../assets/single-service-template/pyproject.toml](../assets/single-service-template/pyproject.toml).
 
 ### Workspace virtual root and shared tooling
 

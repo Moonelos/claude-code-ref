@@ -1,9 +1,8 @@
 # Repo Layout: Monorepo vs. Single-Service
 
-The internal architecture is identical in both cases: `base.py` → models →
-`alembic/` → `engine.py` → `session.py` → `transactions.py` → repositories
-and named `db/` modules. What differs is **which pieces are shared and which
-are per-service**.
+The internal architecture is identical in both cases: models → `alembic/` →
+`engine.py` → `transactions.py` → stores and named `db/` modules. What differs
+is **which pieces are shared and which are per-service**.
 
 ## Single-service repo
 
@@ -16,18 +15,19 @@ repo/
 └── src/
     └── myservice/
         └── db/
-            ├── base.py               # shared metadata + reusable table base
-            ├── engine.py             # async engine, pool config
-            ├── session.py            # build_session_factory(engine)
-            ├── transactions.py       # transaction helper, UoWs
-            ├── models.py             # split into models/ when a table gains
+            ├── models.py             # naming convention, table base, tables;
+            │                         # models/ (with base.py) when a table gains
             │                         # relationships or behaviour
+            ├── engine.py             # build_engine, build_session_factory
+            ├── transactions.py       # transaction helper, UoWs, constraint_name,
+            │                         # transaction limits, database clock
+            ├── users.py              # a store: implements one port
+            ├── reports.py
             ├── alembic/
-            │   ├── env.py
+            │   ├── __init__.py       # package markers satisfy Ruff INP001;
+            │   ├── env.py            # or add a per-file INP001 ignore
             │   └── versions/
-            ├── repositories/
-            │   ├── user_repository.py
-            │   └── report_repository.py
+            │       └── __init__.py
             └── queries/              # optional: long static SQL only
                 └── monthly_report.sql
 ```
@@ -92,20 +92,16 @@ repo/
     │       └── api/
     │           └── db/
     │               ├── engine.py
-    │               ├── session.py
     │               ├── transactions.py
-    │               └── repositories/
-    │                   └── user_repository.py
+    │               └── users.py
     └── worker/
         ├── pyproject.toml
         └── src/
             └── worker/
                 └── db/
                     ├── engine.py
-                    ├── session.py
                     ├── transactions.py
-                    ├── repositories/
-                    │   └── report_repository.py
+                    ├── reports.py
                     └── queries/          # optional
                         └── monthly_report.sql
 ```

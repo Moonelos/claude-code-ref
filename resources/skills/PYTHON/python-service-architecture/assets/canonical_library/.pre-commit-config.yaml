@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: architecture contracts
+        entry: uv run --locked lint-imports
+        language: system
+        pass_filenames: false
+        always_run: true

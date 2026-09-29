@@ -1,0 +1,53 @@
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.7
+    hooks:
+      - id: uv-lock
+
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: architecture contracts
+        entry: uv run --locked lint-imports
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: mypy
+        name: mypy
+        entry: uv run --locked mypy src tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: pytest
+        name: pytest (non-live)
+        entry: uv run --locked pytest -m "not live and not integration and not e2e"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

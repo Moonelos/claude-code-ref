@@ -9,11 +9,9 @@ repository's environment names, grouping and existing env variable names.
 ```python
 """Typed, non-secret service settings. Secrets live in config/secrets.py."""
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -97,7 +95,6 @@ class Settings(BaseSettings):
 
     # YAML application policy: no Python default.
     log_level: LogLevel
-    secret_provider: Literal["env", "remote"]
     request_timeout_seconds: PositiveSeconds
     batch_size: PositiveInt
     log_full_exception_trace: bool
@@ -118,15 +115,39 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        environment = _environment_name(env_settings, dotenv_settings)
-        yaml_source = YamlConfigSettingsSource(
+        environment = _environment_name(init_settings, env_settings, dotenv_settings)
+        yaml_source = PolicyYamlSource(
             settings_cls, yaml_file=yaml_layers(environment), deep_merge=True
         )
         return (init_settings, env_settings, dotenv_settings, yaml_source, file_secret_settings)
 
 
+ENV_ONLY_FIELDS = frozenset(
+    {"environment_name", "downstream_base_url", "cache_url", "primary_model_id"}
+)
+
+
+class PolicyYamlSource(YamlConfigSettingsSource):
+    """Merged YAML layers; a key that is not a policy field fails startup.
+
+    The root model ignores unknown input because `.env` is shared, so without
+    this check a mistyped key would be dropped silently and the tweak ignored.
+    """
+
+    def __call__(self) -> dict[str, Any]:
+        document = super().__call__()
+        policy_fields = {
+            name for name, field in self.settings_cls.model_fields.items() if field.is_required()
+        } - ENV_ONLY_FIELDS
+        unknown = sorted(set(document) - policy_fields)
+        if unknown:
+            raise ConfigurationError(f"YAML keys are not policy fields: {', '.join(unknown)}")
+        return document
+
+
 def _environment_name(*sources: PydanticBaseSettingsSource) -> str:
-    """Read the selector from the env sources, before YAML is chosen."""
+    """Read the selector before YAML is chosen, in the same precedence as fields:
+    init kwargs (tests, `Settings(environment_name="local")`), then env, then .env."""
     for source in sources:
         value = source().get("environment_name")
         if isinstance(value, str) and value:
@@ -190,10 +211,12 @@ Notes on the scaffold:
 - `from None` matters: `errors(include_input=False)` only cleans your message; a
   chained `ValidationError` would still print `input_value=...`.
 - `_environment_name` raises explicitly; don't hide the raise inside an `or` chain.
-- The root keeps `extra="ignore"`, so a top-level YAML typo is silent. Catch it
-  with the contract test below, or with a YAML source that rejects keys outside
-  an allowlist derived from `Settings.model_fields`. Don't keep a hand-written
-  allowlist that nothing consumes.
+  It reads `init_settings` first, so a test may pass `environment_name=` as a
+  keyword instead of setting `ENVIRONMENT_NAME`.
+- The root keeps `extra="ignore"` for `.env`; `PolicyYamlSource` restores
+  strictness for YAML. Top-level YAML keys must be required, non-env-only
+  fields; nested typos fail through `SettingsSection`'s `extra="forbid"`. Add
+  every new env-only field to `ENV_ONLY_FIELDS` so YAML cannot set it.
 - Keep each model validator small (about ten checks). Validate a policy object once. If bootstrap builds a frozen policy dataclass
   that checks itself in `__post_init__`, don't repeat the check on `Settings`.
 - When variables were renamed, reject the old names with a migration message
@@ -213,11 +236,12 @@ def reject_renamed_variables() -> None:
 ## Variants
 
 - **Env-only (explicit YAML opt-out):** return
-  `(init_settings, env_settings, dotenv_settings)` and drop the YAML helpers.
+  `(init_settings, env_settings, dotenv_settings)` and drop the YAML helpers,
+  `PolicyYamlSource`, and `ENV_ONLY_FIELDS`.
   Policy fields then carry their safe Python defaults, the only case where they do.
 - **Process env only** (the launcher already loads `.env`): set `env_file=None`,
   then `del dotenv_settings, file_secret_settings` and return
-  `(init_settings, env_settings, yaml_source)`. `SecretSources` must match.
+  `(init_settings, env_settings, yaml_source)`. `Secrets` must match.
 - **Credentials on `Settings`:** a single-process job with one or two secrets may
   keep `RequiredSecret` fields here. Otherwise use `secrets.py`.
 
@@ -243,23 +267,30 @@ def test_backoff_order_is_enforced() -> None:
         )
 
 
-# contract/: committed YAML holds only policy fields, and none has a Python default.
-ENV_ONLY_FIELDS = frozenset(
-    {"environment_name", "downstream_base_url", "cache_url", "primary_model_id"}
-)
+def test_environment_name_can_be_passed_directly(runtime_env: Path) -> None:
+    (runtime_env / "base.yaml").write_text("", encoding="utf-8")
+    (runtime_env / "local.yaml").write_text("", encoding="utf-8")
+    with pytest.raises(ValidationError) as caught:  # policy fields are still missing
+        Settings(environment_name="local")
+    assert "environment_name" not in str(caught.value)
 
 
+def test_mistyped_yaml_key_fails(runtime_env: Path) -> None:
+    (runtime_env / "base.yaml").write_text("batch_szie: 10\n", encoding="utf-8")
+    (runtime_env / "local.yaml").write_text("", encoding="utf-8")
+    source = PolicyYamlSource(Settings, yaml_file=yaml_layers("local"))
+    with pytest.raises(ConfigurationError, match="batch_szie"):
+        source()
+
+
+# contract/: every committed environment's layers pass the startup check in CI,
+# not only the environment a developer happens to run.
 @pytest.mark.parametrize("environment", ["local", "staging", "production"])
-def test_yaml_keys_are_policy_fields(
+def test_committed_yaml_is_policy_only(
     environment: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(CONFIG_DIR_VARIABLE)
-    for path in yaml_layers(environment):
-        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        assert isinstance(document, dict), path.name
-        keys = set(document)
-        assert keys <= set(Settings.model_fields) - ENV_ONLY_FIELDS, path.name
-        assert all(Settings.model_fields[k].is_required() for k in keys)
+    PolicyYamlSource(Settings, yaml_file=yaml_layers(environment), deep_merge=True)()
 ```
 
 Test each meaningful invalid combination and its valid boundary; don't assert

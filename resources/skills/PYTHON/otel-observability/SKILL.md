@@ -1,13 +1,21 @@
 ---
 name: otel-observability
-description: "Add, audit, repair, upgrade, or troubleshoot OpenTelemetry tracing, metrics, and log–trace correlation in a Python service or shared observability library — FastAPI/HTTP APIs, workers, queue consumers, DB-backed state machines, scheduled jobs, AWS Lambda, LangChain/LangGraph agents, and direct LLM SDK calls. Covers GenAI semantic conventions, token and TTFC capture, trace propagation across queues and durable DB handoffs, baggage, the OpenTelemetry Collector, and OTLP backend routing. Use to instrument a service, fix or review spans and metrics, or investigate missing or duplicate signals. Application logging itself belongs to python-logging."
+description: "Add, audit, repair, upgrade, or troubleshoot OpenTelemetry tracing, metrics, and log–trace correlation in a Python service or shared observability library: FastAPI APIs, workers, queue consumers, DB-backed state machines, scheduled jobs, AWS Lambda, LangChain/LangGraph agents, and direct LLM SDK calls. Covers GenAI semantic conventions, trace propagation across queues and durable handoffs, and Collector routing. Use to instrument a service, review spans and metrics, or investigate missing or duplicate signals. Application logging itself belongs to python-logging."
 ---
 
-# Observability Implementation
+# OTel Observability
 
 You are making working software's behaviour visible without changing what it
 does. This file is a router plus a rule index; each rule is stated once, in the
 file the index names. **Load only the files the routing sends you to.**
+
+## Companion skills
+
+Rules 6, 9, 16, and 18 and the Scope section defer to sibling skills:
+`python-logging` (logs, exception detail), `python-settings-config` (settings),
+and `python-service-architecture` (helper boundaries, shared-library extraction).
+If a sibling is not installed, follow the rule text in the index below as the
+whole contract and say in your report which sibling guidance was unavailable.
 
 ## Scope
 
@@ -29,8 +37,8 @@ file the index names. **Load only the files the routing sends you to.**
 
 | Mode | Load |
 | --- | --- |
-| **Add** instrumentation | Step 1, then Step 3 routing |
-| **Audit or review** | `references/conventions/naming.md`, `references/conventions/errors.md`, `references/metrics/service.md`, `references/logging/correlation.md`, `references/verification.md`, the matching boundary file; run `scripts/audit_telemetry.py <src>` |
+| **Add** instrumentation | Steps 1–4 in order |
+| **Audit or review** | Run `scripts/audit_telemetry.py <src>` first; load the rule-index owner of each finding, the Step 3 file for the service's boundary, then `references/verification.md` |
 | **Troubleshoot** a symptom (missing, duplicated, orphaned, zero-valued signals) | `references/troubleshooting.md`, then the one file it names |
 | **Upgrade** a package, convention revision, or Collector image | `references/compatibility.md`, then the files its checklist names |
 | **Collector-only** change | `references/collector/*`; `references/tracing/production_policy.md` for retention |
@@ -76,7 +84,7 @@ expected volume.
 | 9 | Exception detail: call sites pass `exc_info=exc` only; one setting, set per environment. Spans never carry it. | `python-logging` (`../python-logging/references/errors-and-security.md`, Exception detail) |
 | 10 | Metrics are independent of trace sampling, with bounded attributes; one measurement, one instrument, one producer. | `references/metrics/service.md` |
 | 11 | Instrument boundaries, not functions. DB/ORM spans must earn their volume. | `references/setup/high_volume_database_tracing.md` |
-| 12 | Durable handoffs carry an allowlisted W3C carrier. Synchronous in-process call → parent; outbox publish → link; queue redelivery → link plus `app.message.attempt`. | `references/tracing/async_handoffs.md` |
+| 12 | Durable handoffs carry an allowlisted W3C carrier. Synchronous in-process call → parent. Queued or durable work: default to a new trace plus link when delayed, batched, or retried (redelivery also records `app.message.attempt`); continue the trace only for prompt, causally owned work. State the choice in the report. | `references/tracing/async_handoffs.md` |
 | 13 | OTLP push to the Collector is the default; no Prometheus pull readers or scrape endpoints. | `references/collector/component.md` |
 | 14 | A GenAI backend is a rooted projection of the same trace, not a second provider or trace. | `references/collector/genai_projection.md` |
 | 15 | Telemetry never chooses or mutates an outcome; no `try/except` around OTel API calls. | `references/conventions/errors.md#telemetry-failure-isolation` |
@@ -113,12 +121,14 @@ reach its part.
 | — RAG embedding and retrieval | `references/tracing/genai/retrieval.md` |
 | Metrics | `references/metrics/service.md`; GenAI adds `references/metrics/genai.md` |
 | Logging | the `python-logging` skill for the logs themselves, plus `references/logging/correlation.md` for trace IDs |
-| Deploying a Collector | `references/collector/component.md`, `dev_staging.md`, `production.md`; `genai_projection.md` for a GenAI backend view |
+| Deploying a Collector | `references/collector/component.md`, `dev_staging.md`, `production.md`; `genai_projection.md` for a GenAI-only backend view |
+| A specific GenAI backend (Langfuse) | `references/backends/langfuse.md` |
 | Before reporting done | `references/testing.md` (when applicable), then `references/verification.md` |
 
 Handoff tables compose: an HTTP endpoint that publishes to a queue loads both.
 `references/local/` holds repository-specific mappings; load only on a match.
 `scripts/estimate_trace_budget.py` gives production volume lower bounds.
+`assets/` holds copyable templates (the LangChain model callback).
 
 ## Step 4 — Business telemetry
 

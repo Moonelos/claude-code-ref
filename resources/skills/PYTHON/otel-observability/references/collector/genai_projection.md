@@ -15,7 +15,7 @@ application — one OTLP trace
     └── Collector
         ├── main trace backend
         │   └── complete span tree, verbose GenAI payloads removed
-        └── GenAI backend / Langfuse
+        └── GenAI backend (e.g. Langfuse)
             └── same trace ID, rooted ancestor-closed GenAI projection,
                 approved captured GenAI context retained
 ```

@@ -45,7 +45,7 @@ def build_pool(
 ```python
 # bootstrap/runtime.py
 pool = build_pool(
-    settings.database_url.get_secret_value(),
+    secrets.database_dsn.get_secret_value(),
     min_size=settings.db_pool_min_size,
     max_size=settings.db_pool_max_size,
     max_waiting=settings.db_pool_max_waiting,

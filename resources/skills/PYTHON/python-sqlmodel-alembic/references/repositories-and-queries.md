@@ -5,8 +5,10 @@
 Only the service's `db/` package (and shared DB libraries) imports
 `AsyncSession`, `text()`, `select()` or table models for querying.
 
-- Ordinary entity reads and writes go in repositories.
-- A cohesive operation (UoW or transaction coordinator, lease manager,
+- Ordinary entity reads and writes go in repositories. A repository class lives
+  in the `db/` module of the store that uses it (`db/orders.py`); there is no
+  `repositories/` package until several stores share one repository.
+- A cohesive operation (UoW, lease manager,
   advisory lock, retention pass, schema probe, external read-only database)
   may live in a precisely named `db/` module instead.
 - Application, domain and ports never run SQL. No application port per table

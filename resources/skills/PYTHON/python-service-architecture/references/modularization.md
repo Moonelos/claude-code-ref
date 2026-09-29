@@ -60,8 +60,12 @@ than preserve a conflicting legacy layout for cosmetic compatibility.
 4. Move deterministic logic and keep its focused tests passing.
 5. Move concrete integrations, persistence, and GenAI responsibilities to their
    canonical owners; translate failures at the port boundary.
-6. Flatten speculative packages or introduce only the narrower package justified
-   by demonstrated growth.
+6. Flatten speculative packages and remove forwarding layers
+   ([boundaries.md](boundaries.md#no-forwarding-layers)): bootstrap handler
+   classes, `db/` transaction coordinators, callable Protocols standing in for
+   domain functions, and per-repository Protocols merged into one port per
+   capability. Introduce only the narrower package justified by demonstrated
+   growth.
 7. Move composition and lifecycle into `bootstrap/`; keep `main.py` thin.
 8. Update API/consumer entry points, diagnostics, configuration, deployment
    entry points, telemetry names, tests, markers, hooks, and CI selectors.
@@ -78,13 +82,30 @@ Move one coherent boundary or action at a time, run its
 focused tests and import/type checks, then finish with repository-wide
 verification proportional to the change.
 
+## Moving tests (structure-only)
+
+1. Inventory every test module by execution profile, owner, fixtures, support
+   imports, markers, and CI command.
+2. Split mixed-profile and mixed-owner modules before moving them; preserve
+   assertions and names unless a rename exposes ownership.
+3. Create only the profile and owner directories the suite needs.
+4. Move expensive fixtures to their narrowest profile; move importable support
+   code out of `conftest.py` into the support package.
+5. Replace bare helper imports with qualified ones; do not broaden `pythonpath`.
+6. Align markers, pytest configuration, pre-commit/pre-push filters, local
+   commands, and CI selectors with the new directories.
+7. Move one profile or capability slice at a time, run it, then finish with every
+   profile command the repository supports.
+
+Do not combine a folder-only migration with production refactoring, test
+rewrites, or coverage expansion unless the user requests both.
+
+Test placement rules are in [testing.md](testing.md).
+
 ## Reporting a structural review
 
-Distinguish:
-
-- **Violation:** dependency direction or ownership is concretely wrong.
-- **Improvement:** another shape materially improves navigation or isolation.
-- **Preference:** naming or layout differs without a material effect.
-
+Classify each finding as a Violation, Improvement, or Preference using the
+single definition in `python-service-architecture-audit` (fallback:
+`../../python-service-architecture-audit/SKILL.md`, "Classification").
 Recommend migrations for violations and improvements with a clear benefit. Do
 not report aesthetic consistency as an architectural requirement.

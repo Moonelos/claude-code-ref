@@ -9,7 +9,7 @@ src/<package>/
 │   ├── app.py                      # create_app(), lifespan, ASGI app
 │   └── runtime.py                  # Dependency graph and disposal
 ├── api/
-│   ├── dependencies.py             # ApiRuntime Protocol, get_runtime, providers
+│   ├── dependencies.py             # ApiRuntime Protocol, get_runtime, RuntimeDep
 │   ├── problems.py                 # Exception -> public error table and handlers
 │   ├── middleware.py               # Cross-request transport mechanics, when used
 │   ├── routes.py                   # Until a second router exists, then routers/
@@ -23,17 +23,42 @@ src/<package>/
 The tree lists roles, not required filenames. `bootstrap/app.py` owns the
 FastAPI instance, lifespan, router registration, and framework instrumentation.
 
-Routers validate and translate HTTP input, resolve request context, call one
-public application action, and translate the result. They never execute SQL,
-initialize clients, invoke LLM SDKs, or branch on business state.
+Business routers validate and translate HTTP input, resolve request context,
+call one public application action, and translate the result. Technical routes
+(liveness, readiness, metrics, version) call no action; see
+[Health and readiness](#health-and-readiness). They never execute SQL,
+initialize clients, invoke LLM SDKs, or branch on business state to decide
+what happens. Matching on a returned state union to build the response shape is
+translation, not a business branch.
 
 **Typed dependencies.** Store the typed runtime on `app.state` once and expose
-one accessor, `get_runtime(request) -> ApiRuntime`, where `ApiRuntime` is a
-Protocol declared in `api/` and satisfied by bootstrap. Routes receive services
-through `Annotated[X, Depends(provider)]` from `api/dependencies.py`; they never
-touch `request.app.state`, `cast` it, look attributes up by string, or
-re-validate what bootstrap validated. Group transport policy scalars into a typed
-object (`SsePolicy`). Tests use `app.dependency_overrides`.
+one dependency for it in `api/dependencies.py`:
+
+```python
+class ApiRuntime(Protocol):
+    """What routes read from the runtime; bootstrap's `Runtime` satisfies it."""
+
+    @property
+    def submission_store(self) -> SubmissionStore: ...
+    @property
+    def submission_policy(self) -> SubmissionPolicy: ...
+
+
+def get_runtime(request: Request) -> ApiRuntime:
+    runtime: ApiRuntime = request.app.state.runtime
+    return runtime
+
+
+RuntimeDep = Annotated[ApiRuntime, Depends(get_runtime)]
+```
+
+Routes take `runtime: RuntimeDep` and pass its fields to the action. There is no
+provider per service: a `get_submission_store` that returns
+`runtime.submission_store` only forwards. Routes never touch
+`request.app.state`, `cast` it, look attributes up by string, or re-validate
+what bootstrap validated. Group transport policy scalars into a typed object
+(`SsePolicy`). Tests override `get_runtime` through `app.dependency_overrides`
+with a runtime built from fakes.
 
 **Thin routes.**
 
@@ -41,18 +66,21 @@ object (`SsePolicy`). Tests use `app.dependency_overrides`.
   `extra="allow"`.
 - Status codes use `fastapi.status` names.
 - Query and path parameters are constrained with `Annotated[int, Query(gt=0,
-  le=...)]`, not `if` statements. Configured limits, cursor decoding, and
-  continuation checks are application policy.
+  le=...)]`, not `if` statements. Configured limits, cursor decoding,
+  selection building, and continuation checks are application policy: they live
+  in the action or `domain/`, never inline in the route.
 - Request bodies use `extra="forbid"`; response models keep the default.
-- Per-route authorization uses route dependencies
-  (`Security(require_scope(...))`), not method/path tables in middleware.
-  Authorization that depends on domain state belongs to the application action.
+- A required role or scope is checked twice: by a route dependency
+  (`Security(require_scope(...))`) for a fast 403 before any I/O, and by the
+  action or domain decision that relies on it, so another entry point cannot
+  skip it. Never method/path tables in middleware. Authorization that depends
+  on domain state belongs only to the action.
 - Reuse an application model as the response when it is deliberately the public
   contract (frozen, `extra="forbid"`); create `api/schemas.py` only when the HTTP
   shape differs. Never re-export domain types there.
 
 **Errors.** One exhaustive exception-to-public-error table and envelope helper;
-see [errors.md](errors.md#public-error-mapping).
+see [Public error mapping](#public-error-mapping).
 
 **Streaming.** The application runs the whole execution and returns a typed
 stream of business events, including the terminal outcome. `api/sse.py` only
@@ -61,38 +89,146 @@ encodes, sends heartbeats, and turns disconnects into cancellation.
 Middleware handles cross-request transport mechanics only: authentication
 extraction, correlation context, CORS, request logging, size limits.
 
+## Public error mapping
+
+Map exceptions to public errors in one exhaustive table in `api/`, keyed by
+exception type (resolved along the MRO) or by a closed `StrEnum`. A test asserts
+every exception a request can raise is mapped; errors raised only at startup
+(policy validation) never reach HTTP and stay out of the table.
+
+- Business exceptions state what happened. They do not carry `public_message`,
+  `status_code`, or `retryable`.
+- No `getattr(exc, "code")` resolution, no synthetic exceptions raised only to
+  reach the mapper, no path branching in global handlers; one helper builds the
+  response envelope.
+- Routers do not `try`/`except` merely to re-raise.
+- Route dependencies (authentication, scope checks) raise API-owned exception
+  types registered in the same table, never `HTTPException(detail=<code>)`,
+  which would need a second, string-keyed table the exhaustiveness test cannot
+  see. Framework-raised 404 and 405 still get one handler.
+- A code persisted in durable state is a `StrEnum` in `domain/`.
+- Use a closed allowlist and `application/problem+json`; never copy exception
+  text into the response; log only status >= 500 at the handler; send
+  `Cache-Control: no-store` and `Retry-After` when retry metadata exists.
+
 ## Long-running worker
+
+Loops and queue consumers are business entry points, like routes. They live in
+root `workers/`, the non-HTTP counterpart of `api/`: each worker parses its
+input, calls one application action, records the result, and settles the
+delivery. `bootstrap/supervisor.py` runs them and knows nothing about what they
+do.
 
 ```text
 src/<package>/
 ├── main.py
 ├── bootstrap/
-│   ├── runtime.py                  # Construct resources
-│   └── supervisor.py               # Start/stop loops and task health
+│   ├── runtime.py                  # Builds every implementation, once
+│   └── supervisor.py               # Tasks, cadence, stop event, failure policy, shutdown
+├── workers/
+│   ├── runtime.py                  # WorkerRuntime Protocol: what workers read
+│   ├── inbox.py                    # Inbound delivery contract, when a consumer exists
+│   ├── paid_orders.py              # Consumer: receive → action → settle
+│   └── stuck_orders.py             # Periodic: one action per iteration → log summary
 ├── application/
-│   ├── process_due_work.py         # Business action
-│   └── submit_batch.py             # Independent business action
-├── adapters/
+│   ├── process_paid_order.py
+│   └── reattempt_stuck_orders.py
+├── adapters/sqs_inbox.py           # Implements the inbox over SQS
 ├── ports/
-├── config/
 ├── db/
 └── observability/
 ```
 
+**Why a separate package.** A worker is where delivery meets the use case: it
+holds receipt handles, maps outcomes to acknowledgements, and logs results.
+None of that is wiring, so it does not belong in `bootstrap/`; none of it is
+business, so it does not belong in `application/`; and the SQS client should not
+know which action handles its messages, so it does not belong in `adapters/`.
+
+`workers/` imports `application/`, `domain/`, `ports/` types, and
+`observability/`. It never imports `bootstrap/`, `config/`, `db/`, `adapters/`,
+or `genai/`: like `api/`, it reads implementations through a typed runtime view.
+
+```python
+# workers/runtime.py
+class WorkerRuntime(Protocol):
+    """What workers read from the runtime; bootstrap's `Runtime` satisfies it."""
+
+    @property
+    def paid_orders(self) -> Inbox[PaidOrder]: ...
+    @property
+    def shipment_store(self) -> ShipmentStore: ...
+    @property
+    def carrier(self) -> Carrier: ...
+    @property
+    def retry_policy(self) -> RetryPolicy: ...
+```
+
+### One iteration is a worker function
+
+A worker is a plain `async def` taking the runtime view and returning whether
+more work is due now. The supervisor calls it in a loop.
+
+```python
+# workers/stuck_orders.py
+async def reattempt_stuck(runtime: WorkerRuntime) -> Iteration:
+    summary = await reattempt_stuck_orders(
+        store=runtime.shipment_store, carrier=runtime.carrier, policy=runtime.reattempt_policy
+    )
+    log.info("stuck_orders_reattempted", shipped=summary.shipped, failed=summary.failed)
+    return Iteration.MORE_DUE if summary.more_due else Iteration.IDLE
+```
+
+- The action decides whether a full batch means more work (`summary.more_due`);
+  the worker only translates that into `Iteration`. Batch-until-done, pause,
+  and admission decisions never live in the worker or the supervisor.
+- The worker is the *caller* that records telemetry from the returned summary
+  ([boundaries.md](boundaries.md#observability)).
+- `Iteration` (`IDLE`, `MORE_DUE`) is the one type the supervisor and workers
+  share; define it in `workers/runtime.py`.
+
+### The supervisor runs workers
+
 The supervisor is the one owner that creates all loop tasks, holds the stop
-event, and runs shutdown. Async mechanics are in
-[async-and-lifecycle.md](async-and-lifecycle.md).
+event, applies each loop's cadence and failure policy, and runs shutdown. It is
+generic: one `run_loop` for every worker.
 
-- Each loop is an object with `async def run(self, stop: asyncio.Event)` that
-  calls a **public** single-iteration method (`tick()` or `poll_once()`). That
-  method calls one application action and records the returned result.
-- Every loop declares exactly one failure policy:
-  - **contain:** catch around the iteration, log once with `exc_info`, back off
-    (backoff from settings), continue; or
-  - **fail fast:** log once and re-raise, letting liveness fail.
+```python
+# bootstrap/supervisor.py
+async def run_loop(
+    *, name: str, iteration: Callable[[], Awaitable[Iteration]], cadence: LoopCadence,
+    stop: asyncio.Event, health: ProcessHealth,
+) -> None:
+    while not stop.is_set():
+        try:
+            outcome = await iteration()
+        except DependencyUnavailableError:
+            log.warning("loop_degraded", loop=name, exc_info=True)
+            if await wait_or_stop(stop, cadence.backoff_seconds):
+                return
+            continue
+        except Exception:
+            log.exception("loop_failed", loop=name)
+            health.mark_failed(name)
+            raise
+        pause = 0.0 if outcome is Iteration.MORE_DUE else cadence.pause_seconds
+        if await wait_or_stop(stop, pause):
+            return
+```
 
-  A loop that must survive infrastructure failures catches the service's
-  unavailable base ([errors.md](errors.md#classification-bases)) inside the loop.
+`main.py` owns the process: it loads settings, enters `runtime()`, builds the
+list of loops (`iteration=lambda: reattempt_stuck(runtime)`), installs signal
+handlers, and awaits `supervise(loops, stop)`. `ProcessHealth` lives in
+`supervisor.py` and the runtime never needs it, so there is no import cycle.
+Binding a *worker* to the runtime is wiring. Binding an *application action* in bootstrap
+(`partial(process_paid_order, store=...)`) hides an entry point and is not
+allowed.
+
+- **Failure policy is declared per failure class.** The usual policy, shown
+  above: contain the service's unavailable base
+  ([errors.md](errors.md#classification-bases)) with backoff, and fail fast on
+  everything else, so an outage waits it out and a defect stops the process and
+  fails liveness. Containing every `Exception` needs a documented reason.
 - Use one shared stop-aware sleep:
 
   ```python
@@ -106,64 +242,141 @@ event, and runs shutdown. Async mechanics are in
       return True
   ```
 
-- When more than two cycles share the same span, metric, log, and failure shape,
-  route them through one `run_cycle(name, operation)` helper. Each cycle receives
-  its one action, not the whole runtime.
+  A loop with no pause (long polling, `MORE_DUE`) still awaits
+  `wait_or_stop(stop, 0)`, so an iteration that never suspends cannot starve the
+  event loop or miss the stop event.
 - Shutdown: set the stop event, wait under `asyncio.timeout(grace)`, cancel what
-  remains, then `gather(..., return_exceptions=True)`.
-- Pause, admission, and batch-until-done decisions belong in domain or
-  application objects, not in the loop body.
+  remains, then `gather(..., return_exceptions=True)`. Async mechanics are in
+  [async-and-lifecycle.md](async-and-lifecycle.md).
 
 A scheduled batch or CLI that runs once has no supervisor: `main.py` enters the
-runtime, invokes the action once, maps the outcome to an exit code, and exits
-non-zero on failure.
+runtime, calls one worker function or action once, maps the outcome to an exit
+code, and exits non-zero on failure.
 
 ## SQS, Kafka, or another broker
 
-Broker code is a concrete adapter under root `adapters/`; there is no root
-`messaging/`. Start with one flat module (`adapters/nats_publisher.py`) and
-promote per [boundaries.md](boundaries.md#centralized-ports-and-adapters):
+A consumer splits into two owners. The **inbox adapter** in `adapters/` owns the
+transport: polling and delivery batches, wire-envelope parsing and validation,
+trace-context extraction, visibility heartbeat, offset commit, acknowledgement,
+and dead-lettering: it sends malformed messages to the DLQ itself (and logs
+that decision, being its only handler), and repeatedly failing messages reach
+the DLQ through the broker's redrive policy. The **consumer worker** in
+`workers/` owns the use case boundary: it calls one action per delivery and maps
+the typed outcome to a settlement. There is no root `messaging/`.
 
-```text
-src/<package>/
-├── adapters/
-│   └── aws/
-│       ├── sqs_consumer.py          # Poll/receive/ack/nack boundary
-│       ├── sqs_serialization.py     # AWS wire-envelope translation
-│       └── sqs_publisher.py         # Only when publishing is used
-├── application/
-│   └── email_admission.py
-└── ports/
-    └── message_publisher.py         # Only if an application action publishes
+```python
+# workers/inbox.py — the inbound contract the worker needs
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Delivery[T]:
+    message: T
+    message_id: str  # for log correlation
+    token: str  # opaque to workers; only the inbox reads it
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Retry:
+    delay: timedelta
+
+
+class Ack:
+    """Processing finished, whatever the business outcome; delete the message."""
+
+
+type Settlement = Ack | Retry
+
+
+class Inbox[T](Protocol):
+    async def receive(self) -> Sequence[Delivery[T]]: ...
+    async def settle(self, delivery: Delivery[T], settlement: Settlement) -> None: ...
 ```
 
-The transport boundary owns polling and delivery batches, wire-envelope parsing
-and validation, trace-context extraction and injection, visibility heartbeat,
-offset commit, acknowledgement and redelivery, and transport-policy DLQ
-decisions.
+```python
+# workers/paid_orders.py
+async def consume_paid_orders(runtime: WorkerRuntime) -> Iteration:
+    deliveries = await runtime.paid_orders.receive()
+    for delivery in deliveries:
+        outcome = await process_paid_order(
+            order=delivery.message,
+            store=runtime.shipment_store,
+            carrier=runtime.carrier,
+            policy=runtime.retry_policy,
+        )
+        await runtime.paid_orders.settle(delivery, settlement_for(outcome))
+    return Iteration.MORE_DUE if deliveries else Iteration.IDLE
 
-The application action owns business authentication or authorization,
-idempotency and durable admission, classification and correlation, and state
-transitions and handoff.
 
-Broker adapters map outcomes; they do not own retry policy. The adapter maps a
-typed application outcome to ack, nak (with a delay), or terminate, and the delay
-policy is a domain function. Receipt handles and partition offsets never enter
-application, domain, or ports.
+def settlement_for(outcome: PaidOrderOutcome) -> Settlement:
+    match outcome:
+        case OrderShipped() | OrderAlreadySettled() | ShipmentRejected():
+            return Ack()  # a rejection is recorded on the order; the message is done
+        case RetryScheduled(delay=delay):
+            return Retry(delay=delay)
+        case _:
+            assert_never(outcome)
+```
+
+- `adapters/sqs_inbox.py` implements `Inbox[PaidOrder]`. It imports
+  `workers/inbox.py` (the contract it implements) and the domain type it
+  parses into, nothing else from `workers/`. It never imports an action.
+- The action owns business authorization, idempotency and durable admission,
+  classification, state transitions, and the retry delay (a domain function
+  returned in the outcome). The worker maps outcomes; the inbox applies
+  settlements. Neither owns retry policy.
+- **Outcome or exception.** When the business declares what a dependency
+  failure means for this message (the carrier is down: retry this order later),
+  the action catches that port's unavailable error and returns an outcome such
+  as `RetryScheduled`. Any failure without such a declared meaning (the database
+  or the queue itself is down) propagates: the delivery stays unsettled, the
+  broker redelivers it after the visibility timeout, and the supervisor backs
+  off.
+- A message that makes the action fail with a defect is redelivered and fails
+  again. Every consumed queue therefore has a broker redrive policy
+  (`maxReceiveCount` to the DLQ) declared with the deployment, or the consumer
+  crash-loops on one poison message.
+- The inbox's own transport failures are errors declared in `workers/inbox.py`,
+  subclassing the unavailable base in `ports/errors.py`, so the supervisor's
+  policy covers them.
+- Inbound event models from other producers use `extra="ignore"`: a producer
+  adding a field must not dead-letter every message. Request bodies the service
+  itself defines keep `extra="forbid"`.
+- Receipt handles, offsets, topics, and raw envelopes stay in `Delivery.token`
+  and the adapter; they never reach `application/`, `domain/`, or `ports/`.
+- An action that *publishes* uses an ordinary application port
+  (`ports/message_publisher.py`) implemented in `adapters/`.
+
+Start with one flat module (`adapters/sqs_inbox.py`) and promote per
+[boundaries.md](boundaries.md#adapters-and-their-placement).
 
 ## Hybrid API plus worker
 
-A deployable may expose health/admin HTTP endpoints and run background
-consumers from one composition root (`bootstrap/app.py`, `runtime.py`,
-`supervisor.py`). FastAPI lifespan may enter `runtime()` and start the
-supervisor. If API and worker become independently scaled or deployed, split
-them into separate services and extract only stable shared contracts to a
-library.
+A deployable may expose HTTP endpoints and run workers from one composition
+root (`bootstrap/app.py`, `runtime.py`, `supervisor.py`). FastAPI lifespan may
+enter `runtime()` and start the supervisor. If API and worker become
+independently scaled or deployed, split them into separate services and extract
+only stable shared contracts to a library.
 
 ## Health and readiness
 
-Health state shared by API routes and the supervisor has one explicit owner.
+Health state shared by API routes and the supervisor has one explicit owner,
+`ProcessHealth` in `bootstrap/`. `api/` reads it through a narrow `Liveness`
+Protocol in `api/dependencies.py` (trigger 4 of
+[When a port earns its cost](boundaries.md#when-a-port-earns-its-cost)), and the
+same object remembers the last readiness result so probes log only on a
+change.
 Liveness reports process life. Readiness reflects whether the process can accept
 useful work: initialized dependencies, compatible schema, healthy progress, and
 required external availability. Probe mechanics are in
 [async-and-lifecycle.md](async-and-lifecycle.md#health-probes).
+
+These are technical endpoints, not business entry points
+([boundaries.md](boundaries.md#application)), so they call no application action:
+
+| Endpoint | Reads | Calls an action? |
+| --- | --- | --- |
+| Liveness | The supervisor's health state from the runtime container | No |
+| Readiness | A port method on the runtime container (for example `store.ping()`) | No |
+| Metrics | Served by the telemetry exporter, not a route handler | No |
+| `GET /submissions/{id}` | `get_submission` | Yes, exactly one |
+
+A probe that starts reporting business facts (pending counts, backlog age for an
+operator) is a business read and gets an action.

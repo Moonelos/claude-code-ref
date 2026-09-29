@@ -13,7 +13,7 @@ Production has a different job from staging: keep what explains failures, drop w
 - [Deterministic noise](#remove-deterministic-noise-before-sampling)
 - [Complete configuration](#configuration)
 - [Processor order](#processor-order-is-not-cosmetic)
-- [Langfuse routing](#adding-a-langfuse-path)
+- [GenAI backend routing](#adding-a-genai-backend-path)
 - [Redaction](#redaction-is-a-second-line-of-defence-not-the-first)
 - [Scale and resilience](#tail-sampling-at-scale)
 - [Deployment checklist](#before-calling-it-done)
@@ -152,7 +152,7 @@ processors:
         # application side. One owner per attribute: the application wins.
         action: insert
 
-  # Universal secrets: removed on every path, including Langfuse.
+  # Universal secrets: removed on every path, including the GenAI branch.
   attributes/drop_secrets:
     actions:
       - key: http.request.header.authorization
@@ -195,7 +195,7 @@ processors:
       - key: gen_ai.tool.call.result
         action: delete
       # Neutral backend-presentation copies are content too. They are mapped
-      # only on the Langfuse branch and must not survive on the APM branch.
+      # only on the GenAI-backend branch and must not survive on the APM branch.
       - key: app.gen_ai.observation.input
         action: delete
       - key: app.gen_ai.observation.output
@@ -384,40 +384,23 @@ Add a processor only with a stated purpose. Each one costs CPU and a place where
 
 ---
 
-## Adding a Langfuse path
+## Adding a GenAI backend path
 
-Two pipelines consume one application trace: APM keeps the complete tree without GenAI payloads; Langfuse keeps approved payloads and the rooted projection from `genai_projection.md`. The application still owns one provider and root; neither branch rewrites identity.
+Two pipelines consume one application trace: APM keeps the complete tree without GenAI payloads; the GenAI backend keeps approved payloads and only the rooted projection from `genai_projection.md`. The application still owns one provider and root; neither branch rewrites identity. This is how a GenAI-focused tracing tool receives only GenAI traces without a second SDK or trace.
 
 ```yaml
 processors:
-  filter/langfuse_projection:
+  filter/genai_projection:
     error_mode: ignore
     trace_conditions:
       # DROP unmarked spans; the application marks GenAI spans and their complete path to the root.
       - 'span.attributes["app.telemetry.category"] != "genai"'
 
-  transform/langfuse:
-    error_mode: ignore
-    trace_statements:
-      - >
-        set(span.attributes["langfuse.trace.name"],
-            span.attributes["app.workflow.name"])
-        where span.attributes["app.workflow.name"] != nil
-      - >
-        set(span.attributes["langfuse.release"],
-            resource.attributes["service.version"])
-        where resource.attributes["service.version"] != nil
-      - >
-        set(span.attributes["langfuse.trace.metadata.tenant_tier"],
-            span.attributes["app.tenant.tier"])
-        where span.attributes["app.tenant.tier"] != nil
-
 exporters:
-  otlphttp/langfuse:
-    endpoint: ${env:LANGFUSE_OTEL_ENDPOINT}
+  otlphttp/genai:
+    endpoint: ${env:GENAI_BACKEND_OTLP_ENDPOINT}
     headers:
-      Authorization: "Basic ${env:LANGFUSE_AUTH_STRING}"
-      x-langfuse-ingestion-version: "4"
+      Authorization: ${env:GENAI_BACKEND_AUTHORIZATION}
     sending_queue:
       enabled: true
       queue_size: 10000
@@ -439,7 +422,7 @@ service:
         - batch
       exporters: [otlphttp/apm]
 
-    traces/langfuse:
+    traces/genai:
       receivers: [otlp]
       processors:
         - memory_limiter
@@ -448,29 +431,20 @@ service:
         - attributes/drop_span_exception_detail
         - tail_sampling
         # Sample the complete trace before projecting; operational errors affect retention.
-        - filter/langfuse_projection
-        - transform/langfuse           # payloads stay on this branch
+        - filter/genai_projection
+        # Destination mapping processors go here (payloads stay on this branch);
+        # see ../backends/<backend>.md.
         - batch
-      exporters: [otlphttp/langfuse]
+      exporters: [otlphttp/genai]
 ```
 
 Every retained span needs a retained path to the root; the processor does not infer ancestors. Mark the root, GenAI spans, and real business ancestors with `app.telemetry.category="genai"`, not operational siblings. Never filter on `gen_ai.*` alone. If no meaningful business wrapper exists, parent the workflow directly under the operation root. The full invariant is in `genai_projection.md`.
 
-Both branches share a trace ID and preserve retained span/parent IDs. A log's trace ID finds the operation in both backends; a projected-out span has no Langfuse observation-level counterpart.
+Both branches share a trace ID and preserve retained span/parent IDs. A log's trace ID finds the operation in both backends; a projected-out span has no observation-level counterpart in the GenAI backend.
 
 **Naming `tail_sampling` in two pipelines allocates it twice.** This example has two buffers and decision-cache pairs. Budget `N ×` the single-instance estimate (`--sampling-pipelines N`), or sample once and fan out through a routing/forward connector. Identical probabilistic policies agree because both hash the same trace ID with the same default salt.
 
-The mapping **copies** rather than renaming canonical `gen_ai.*`. Neutral `app.gen_ai.observation.*` values are deleted after the Langfuse copies are made, as shown in `component.md`; APM contains neither payload representation.
-
-Only map what a concrete Langfuse filter needs. Mirroring every application attribute into `langfuse.trace.metadata.*` produces an unusable filter list.
-
-`LANGFUSE_AUTH_STRING` is base64 of `public_key:secret_key` — not a third credential:
-
-```bash
-LANGFUSE_AUTH_STRING="$(printf '%s' "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64 | tr -d '\n')"
-```
-
-The trailing-newline strip matters; `base64` adds one and the header then fails authentication with an unhelpful 401.
+Destination mapping **copies** rather than renaming canonical `gen_ai.*`. Neutral `app.gen_ai.observation.*` values are deleted after the destination copies are made; APM contains neither payload representation. For Langfuse — exporter, authentication, and mapping processors — see `../backends/langfuse.md`.
 
 ---
 
@@ -570,8 +544,8 @@ Telemetry loss is preferable to application downtime. Silent telemetry loss duri
 - Record the policy owner, rationale, thresholds, expected volume, review date, and expiry of temporary rules.
 - Roll config changes gradually and keep a tested rollback path. A bad telemetry config creates blind spots precisely when you need visibility.
 - Canary one bounded operation before rollout. Confirm that the APM backend has the complete tree
-  without GenAI payloads and that Langfuse has the same trace ID as a connected root/business/GenAI
-  projection with the expected captured-content mappings.
+  without GenAI payloads and that the GenAI backend has the same trace ID as a connected
+  root/business/GenAI projection with the expected captured-content mappings.
 - Compare application request/job metrics with Collector accepted/exported counts and backend ingest; process health alone does not prove delivery.
 - Watch trace completeness, orphan rate, late spans, early decisions, error-trace retention, memory, queue utilisation, and actual retained percentage during the canary.
 - Remove release burn-in and forced-diagnostic rules when their expiry is reached.
@@ -603,7 +577,7 @@ Telemetry loss is preferable to application downtime. Silent telemetry loss duri
       counters rather than historical values.
 - [ ] Health probes, self-telemetry, and an end-to-end backend canary are all present; none is treated as proof supplied by another.
 - [ ] Temporary burn-in/diagnostic rules have an owner and expiry.
-- [ ] Langfuse exporters use OTLP/HTTP and send `x-langfuse-ingestion-version: "4"`.
+- [ ] Each GenAI-backend exporter passes that backend's checks in `../backends/` (Langfuse: `../backends/langfuse.md`).
 - [ ] The main trace backend contains the complete operational tree with every verbose GenAI payload and neutral presentation copy removed.
-- [ ] Langfuse contains the same trace ID, the root, GenAI spans, and only their meaningful business ancestors; every retained parent exists and retained span IDs match the main trace.
-- [ ] Tail sampling evaluates the complete trace before the Langfuse projection filter.
+- [ ] The GenAI backend contains the same trace ID, the root, GenAI spans, and only their meaningful business ancestors; every retained parent exists and retained span IDs match the main trace.
+- [ ] Tail sampling evaluates the complete trace before the GenAI projection filter.

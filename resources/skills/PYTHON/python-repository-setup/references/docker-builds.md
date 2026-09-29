@@ -12,15 +12,16 @@
 - Service variants
 - Validation
 
-For workspace mode, use `../assets/workspace-template/services/api/Dockerfile`
-and `../assets/workspace-template/.dockerignore` as the canonical files. Copy
-and adapt them; do not rewrite the pattern from memory. For a single service,
-retain the same production invariants while removing workspace-only paths and
-flags as described below.
+Copy the canonical files; do not rewrite the pattern from memory. Workspace:
+`../assets/workspace-template/services/api/Dockerfile`. Single service:
+`../assets/single-service-template/Dockerfile`. Both use the same
+`.dockerignore`, and their base and runtime stages are identical (checked by
+`../tests/test_templates.py`).
 
 ## Single-service adaptation
 
-Build a root `Dockerfile` with `.` as its context. Copy the root
+The single-service template already applies this. Build a root `Dockerfile`
+with `.` as its context. Copy the root
 `pyproject.toml`, `uv.lock`, and `.python-version` for the dependency layer,
 then copy `src/` before the final install. Because the root is the installable
 project, omit workspace-member metadata and do not use `--package` or
@@ -209,7 +210,7 @@ uv lock --check
 uv sync --frozen
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy services libs
+scripts/mypy-members.sh
 uv run pytest
 docker build --pull -f services/api/Dockerfile -t sample-api:local .
 docker run --rm --entrypoint python sample-api:local --version

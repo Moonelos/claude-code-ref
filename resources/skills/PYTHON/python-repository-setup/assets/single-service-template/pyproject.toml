@@ -1,0 +1,179 @@
+[project]
+name = "sample-service"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.141.1,<1",
+    "uvicorn[standard]>=0.52.3,<1",
+]
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.15,<3",
+    "mypy>=2.3.0,<3",
+    "pre-commit>=4.6.1,<5",
+    "pytest>=9.1.1,<10",
+    "pytest-cov>=7.1.0,<8",
+    "ruff>=0.16.3,<0.17",
+]
+
+[build-system]
+requires = ["hatchling>=1.32.0,<2"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+required-version = "==0.12.7"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9", "F",  # pyflakes/pycodestyle errors: real bugs
+    "I",                    # isort: deterministic import order
+    "UP",                   # pyupgrade: syntax for the pinned Python
+    "B",                    # bugbear: mutable defaults, loop closures, other traps
+    "TID252",               # mandatory: absolute imports only
+    "C90",                  # mccabe: cyclomatic complexity <= max-complexity
+    "PLR0912", "PLR0915",   # too many branches / statements
+    "S101",                 # no assert in production code
+    "BLE",                  # blind except; `# noqa: BLE001 <reason>` at a real boundary
+    "ASYNC",                # blocking calls and misuse inside async code
+    "DTZ",                  # naive datetimes
+    "T20",                  # print/pprint left in code
+    "TRY400",               # log.exception, not log.error, inside except
+    "N818",                 # exception names end in Error
+    "FBT003",               # positional boolean literal in a call
+    "INP",                  # every package directory has __init__.py
+    "PIE", "RET", "SIM", "C4", "PERF", "FURB",  # simplifications and cheap performance wins
+    "PGH",                  # specific codes on noqa / type: ignore
+    "ERA",                  # commented-out code
+    "RUF",                  # Ruff-specific, incl. RUF022 sorted __all__
+]
+# Deliberately not enabled: PLR0913 (keyword-only DI constructors legitimately
+# exceed it) and EM/TRY003 (high volume, little value).
+# Consider: ANN401 (per-file ignore for true adapters), FBT001, PLR2004 (not in tests).
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101", "INP"]
+"**/alembic/**" = ["INP001"]  # run by Alembic from its script directory, never imported
+"**/bootstrap/runtime.py" = ["PLR0915"]  # wiring-only composition root
+
+[tool.ruff.lint.isort]
+# Every import package and member test-support package (`<member>_testing`),
+# which Ruff cannot discover under tests/.
+known-first-party = ["sample_service"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.pytest.ini_options]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+    "--import-mode=importlib",
+]
+testpaths = ["tests"]
+markers = [
+    "integration: needs disposable infrastructure (database, broker, emulator)",
+    "contract: verifies a shipped compatibility surface without live infrastructure",
+    "e2e: starts the deployable and crosses several real boundaries",
+    "live: reaches a non-disposable provider; never runs in ordinary CI",
+]
+
+# Coverage is a map for review, not a gate: CI reports it on the run that
+# includes the integration profile (the only run that exercises db/).
+[tool.coverage.run]
+branch = true
+source = ["sample_service"]
+omit = ["*/alembic/env.py", "*/alembic/versions/*"]  # executed by Alembic, not tests
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.13"
+# Tests have no __init__.py and several conftest.py files, so module names come
+# from explicit bases: run `mypy src tests`.
+mypy_path = ["src", "tests"]
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "possibly-undefined"]
+plugins = ["pydantic.mypy"]  # keep while any member uses pydantic
+# Stubs: add boto3-stubs / types-* to the dev group. For a package with no stubs,
+# use one override block listing every such module, never per-import ignores:
+# [[tool.mypy.overrides]]
+# module = ["untyped_vendor.*"]
+# ignore_missing_imports = true
+
+[tool.importlinter]
+root_packages = ["sample_service"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "sample_service: application depends only on domain, ports, and observability"
+type = "forbidden"
+source_modules = ["sample_service.application.**"]
+forbidden_modules = [
+    "sample_service.adapters",
+    "sample_service.api",
+    "sample_service.bootstrap",
+    "sample_service.config",
+    "sample_service.db",
+    "sample_service.genai",
+    "sample_service.workers",
+    "fastapi",
+    "opentelemetry",
+]
+# application -> observability -> opentelemetry is the allowed telemetry path.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "sample_service: domain and ports are pure"
+type = "forbidden"
+source_modules = ["sample_service.domain.**", "sample_service.ports.**"]
+forbidden_modules = [
+    "sample_service.adapters",
+    "sample_service.api",
+    "sample_service.application",
+    "sample_service.bootstrap",
+    "sample_service.config",
+    "sample_service.db",
+    "sample_service.genai",
+    "sample_service.observability",
+    "sample_service.workers",
+    "fastapi",
+    "opentelemetry",
+]
+
+[[tool.importlinter.contracts]]
+name = "sample_service: only entry points import bootstrap"
+type = "forbidden"
+source_modules = [
+    "sample_service.adapters.**",
+    "sample_service.api.**",
+    "sample_service.db.**",
+    "sample_service.genai.**",
+    "sample_service.workers.**",
+]
+forbidden_modules = ["sample_service.bootstrap"]
+
+[[tool.importlinter.contracts]]
+name = "sample_service: entry points use actions and contracts, not concrete integrations"
+type = "forbidden"
+source_modules = ["sample_service.api.**", "sample_service.workers.**"]
+forbidden_modules = [
+    "sample_service.adapters",
+    "sample_service.config",
+    "sample_service.db",
+    "sample_service.genai",
+]
+# Only direct imports: runtime wiring is in bootstrap.
+allow_indirect_imports = true

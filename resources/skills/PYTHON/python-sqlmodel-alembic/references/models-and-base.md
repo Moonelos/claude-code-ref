@@ -1,10 +1,12 @@
-# `base.py` and `models`
+# Models and the table base
 
-## `base.py`: shared metadata + reusable table base
+## The table base: shared metadata + reusable base
 
 `SQLModel.metadata` is the single global `MetaData` every `table=True` class
-attaches to. `base.py` configures it once and defines any shared non-table
-base, so model modules stay pure data-shape declarations.
+attaches to. The top of `models.py` configures it once and defines any shared
+non-table base (`models/base.py` once models become a package; `base.py` in a
+shared `db_models` library), so table classes stay pure data-shape
+declarations.
 
 **1. A naming convention**, chosen before the first migration (changing it
 later renames every constraint):
@@ -83,7 +85,7 @@ gains relationships or behaviour.**
 # models/user.py
 from sqlmodel import Field, Relationship
 
-from myservice.db.base import TableBase
+from myservice.db.models.base import TableBase
 
 
 class User(TableBase, table=True):
@@ -125,7 +127,7 @@ from sqlalchemy import CheckConstraint, Column, DateTime, Dialect, Index, Text, 
 from sqlalchemy.types import TypeDecorator
 from sqlmodel import Field
 
-from myservice.db.base import TableBase
+from myservice.db.models.base import TableBase
 
 E = TypeVar("E", bound=StrEnum)
 

@@ -223,7 +223,9 @@ contractual reason:
   visible;
 - shares mutable state, a fake with a call counter, a checkpointer, a database
   row, or a queue across tests without deterministic isolation;
-- silently skips because required integration infrastructure is absent;
+- silently skips because required integration infrastructure is absent
+  (prerequisites go through the one `require_env` helper, which fails when the
+  profile is required);
 - relies on retries to conceal flakiness, arbitrary sleeps, execution order, or
   an unbounded wait;
 - marks a known bug `xfail` without a narrow condition, expected failure mode,

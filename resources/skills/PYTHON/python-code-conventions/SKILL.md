@@ -25,7 +25,7 @@ Each rule shows a compact bad/good pair; `references/examples.md` has the longer
 | Need | Use |
 |---|---|
 | Internal value, result, command, policy | `@dataclass(frozen=True, slots=True)`; add `kw_only=True` for >3 fields, any `bool` field, or adjacent fields of the same type |
-| Collections inside a frozen value | `tuple[...]`, `frozenset[...]`, `Mapping[...]`; never `list`/`dict`/`set` |
+| Collections inside a frozen value | `tuple[...]` and `frozenset[...]`; for mappings, expose `Mapping[...]` backed by an immutable copy when immutability matters. A `Mapping` annotation alone does not freeze a `dict`. |
 | Untrusted, persisted, wire or LLM-facing data | Pydantic, on one named base per member (`StrictModel` with `ConfigDict(frozen=True, extra="forbid")`), not copied into several modules |
 | Fixed-key JSON that must stay a dict (OTel carrier, SDK kwargs, framework state) | `TypedDict` |
 | Undecoded JSON at the edge | `pydantic.JsonValue` or `Mapping[str, object]`, narrowed immediately |
@@ -110,7 +110,7 @@ Trigger: a class or function whose body only forwards to another callable with t
 - `__init__` assigns one attribute per line; attribute name equals parameter name; collaborators get a leading `_`. If `__init__` only stores arguments, use a `@dataclass`. Don't expose collaborators as public mutable attributes for tests to overwrite.
 - Settings-derived scalars one owner always consumes together become a frozen policy dataclass validated in `__post_init__`; no one-field wrapper while siblings stay loose.
 - A boolean flag that selects different object shapes or methods becomes two functions.
-- Delete pass-through wrappers: bootstrap "handlers" repeating a service signature, application functions that only call `store.x()`, a class storing N fields only to call a function with the same N. A wrapper earns its place by translating types or errors, adding policy, or narrowing a wide API.
+- Delete pass-through wrappers: bootstrap "handlers" repeating a service signature, a class storing N fields only to call a function with the same N. A wrapper earns its place by translating types or errors, adding policy, or narrowing a wide API. For application action boundaries, see `python-service-architecture` (fallback: `../python-service-architecture/references/boundaries.md#action-boundaries-a-deliberate-cost`).
 - Never regex structured data back out of text you rendered yourself; pass the structure.
 
 Bad: `ReportHandler.handle(report_id)` whose body is `return await self._service.build(report_id)`. Good: callers use `ReportService.build`.
@@ -132,13 +132,13 @@ Bad: a service `__init__.py` with `from worker.bootstrap.runtime import build_ru
 
 ## Docstrings and comments
 
-Trigger: a module without a docstring, a public class or exception without a contract line, a docstring that restates parameters. Every module has a one-line docstring stating its responsibility. Public classes get a one-line contract; exceptions say when they are raised. A function docstring is required only when the contract isn't visible from the signature: falsy/`None` meaning, side effects, ordering, idempotency, units, or the *why* of a surprising choice. Comments explain *why*. No banners, no commented-out code (Ruff `ERA001`). No density quota: match the existing healthy pattern.
+Trigger: a module without a docstring, a public class or exception without a contract line, a docstring that restates parameters. Every module except an intentionally empty service `__init__.py` has a one-line docstring stating its responsibility. Public classes get a one-line contract; exceptions say when they are raised. A function docstring is required only when the contract isn't visible from the signature: falsy/`None` meaning, side effects, ordering, idempotency, units, or the *why* of a surprising choice. Comments explain *why*. No banners, no commented-out code (Ruff `ERA001`). No density quota: match the existing healthy pattern.
 
 Bad: `"""Claim jobs. Args: limit: The limit."""`. Good: `"""Claim up to limit due jobs; empty means none are due."""`.
 
 ## Error and async idioms
 
-Language-level idioms only. Error design (broad-except shapes, port errors, public error mapping) is owned by `../python-service-architecture/references/errors.md`; asyncio lifecycle, cancellation and structured concurrency by `../python-service-architecture/references/async-and-lifecycle.md`.
+Language-level idioms only. Error design (broad-except shapes, port errors) is owned by `../python-service-architecture/references/errors.md` and public error mapping by `../python-service-architecture/references/api-and-workers.md`; asyncio lifecycle, cancellation and structured concurrency by `../python-service-architecture/references/async-and-lifecycle.md`.
 
 - A `try` holds only the call whose failure the `except` handles. Don't raise inside a `try` just to catch it lines later. Never catch `KeyError`/`TypeError` around parsing: that turns bugs into domain failures.
 - `raise X from exc` by default (Ruff `B904`). `from None` only when the cause may carry secret input (the new error carries a sanitized projection) or for expected client-facing 4xx translations where the cause adds nothing.

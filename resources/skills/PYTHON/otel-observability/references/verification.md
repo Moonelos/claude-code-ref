@@ -186,10 +186,10 @@ Expect no matches.
 - [ ] A provider response containing one exactly empty reasoning part plus one JSON text part
   keeps both parts in canonical output but projects the decoded object for the backend. Repeat
   with non-empty reasoning and confirm the presentation falls back to the canonical envelope.
-- [ ] On the Langfuse branch, the stored observation uses the projected
-  `langfuse.observation.input` / `output`; the neutral source keys are absent from
-  metadata. Expand or query the stored output and verify the actual content, since a
-  collapsed object may display only an item count.
+- [ ] On the GenAI-backend branch, the stored observation uses the backend's mapped
+  input/output keys and the neutral source keys are absent from metadata (Langfuse:
+  `backends/langfuse.md`, Verify). Expand or query the stored output and verify the actual
+  content, since a collapsed object may display only an item count.
 - [ ] If capture is filtered or truncated, `app.gen_ai.input.capture_mode` marks it.
 - [ ] `gen_ai.conversation.compacted` is absent unless the model genuinely received compacted context.
 
@@ -253,10 +253,10 @@ Query the metrics backend for the canary service's `app.*`, `gen_ai.*`, and
 - [ ] The health endpoint responds — and remember it proves only that the process is up, not that the backend is accepting data.
 - [ ] Collector self-metrics use a periodic OTLP reader with no pull reader or
   metrics listener; the monitoring backend contains `otelcol_process_uptime`.
-- [ ] A Langfuse exporter uses OTLP/HTTP and sends `x-langfuse-ingestion-version: "4"`.
-- [ ] Destination presentation attributes are created only on the Langfuse branch;
-  general trace backends contain neither `app.gen_ai.observation.*` nor
-  `langfuse.observation.*` payload copies.
+- [ ] Each GenAI-backend exporter passes that backend's checks under `backends/` (Langfuse: `backends/langfuse.md`).
+- [ ] Destination presentation attributes are created only on the GenAI-backend branch;
+  general trace backends contain neither `app.gen_ai.observation.*` nor any vendor
+  payload copy such as `langfuse.observation.*`.
 
 ## 11. Production retention and rollout (if production or sampling changed)
 

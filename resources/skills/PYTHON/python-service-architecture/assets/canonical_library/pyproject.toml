@@ -1,0 +1,14 @@
+[project]
+name = "edm-client"
+version = "0.1.0"
+dependencies = ["httpx", "pydantic"]
+
+[tool.importlinter]
+root_packages = ["edm_client"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "edm_client: independent of every service"
+type = "forbidden"
+source_modules = ["edm_client", "edm_client.**"]
+forbidden_modules = ["my_service", "pydantic_settings"]

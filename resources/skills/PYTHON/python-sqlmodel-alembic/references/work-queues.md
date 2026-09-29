@@ -18,7 +18,7 @@ from sqlalchemy import ColumnElement, and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col
 
-from myservice.db.clock import db_now, db_now_plus
+from myservice.db.transactions import db_now, db_now_plus
 from myservice.db.models.job import Job, JobStatus
 
 
@@ -120,12 +120,13 @@ async def complete_job(
 ## Database clock
 
 Leases, deadlines and due times are computed in SQL with the database clock,
-through one helper module that every service in the repo uses the same way:
+through two helpers in `db/transactions.py` that every service in the repo
+writes the same way:
 
 ```python
-# db/clock.py
-"""Database clock. Uses now() (transaction start), so every row written in
-one transaction shares one timestamp."""
+# db/transactions.py (continued)
+# Database clock: now() is transaction start, so every row written in one
+# transaction shares one timestamp.
 from datetime import datetime, timedelta
 
 from sqlalchemy import ColumnElement, func
@@ -140,8 +141,8 @@ def db_now_plus(delta: timedelta) -> ColumnElement[datetime]:
 ```
 
 - Pick `now()` (transaction start) or `statement_timestamp()` (statement
-  start), document the choice in the module docstring, and keep it identical
-  across services.
+  start), document the choice beside the helpers, and keep it identical across
+  services.
 - Fetch `SELECT now()` into Python only when application code needs the value
   itself, and never open a transaction just to read the clock. Other code uses
   the injected `clock` callable (`python-service-architecture`).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update and verify the bundled template's duplicated toolchain pins."""
+"""Update and verify the bundled templates' duplicated toolchain pins."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ PYTHON_FILES = {
     "references/docker-builds.md": 2,
     "assets/workspace-template/.python-version": 1,
     "assets/workspace-template/services/api/Dockerfile": 1,
+    "assets/single-service-template/.python-version": 1,
+    "assets/single-service-template/Dockerfile": 1,
 }
 UV_FILES = {
     "SKILL.md": 2,
@@ -25,6 +27,11 @@ UV_FILES = {
     "assets/workspace-template/.pre-commit-config.yaml": 1,
     "assets/workspace-template/pyproject.toml": 1,
     "assets/workspace-template/services/api/Dockerfile": 1,
+    "assets/workspace-template/.github/workflows/ci.yml": 2,
+    "assets/single-service-template/.pre-commit-config.yaml": 1,
+    "assets/single-service-template/pyproject.toml": 1,
+    "assets/single-service-template/Dockerfile": 1,
+    "assets/single-service-template/.github/workflows/ci.yml": 2,
 }
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
