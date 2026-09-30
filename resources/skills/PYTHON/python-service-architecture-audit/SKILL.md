@@ -2,7 +2,7 @@
 name: python-service-architecture-audit
 description: >-
   Audit architectural drift inside an established Python backend service or
-  internal shared library, and repair it when the user asks. Use for hexagonal
+  internal shared library. Use for hexagonal
   dependency violations, library kind and independence problems,
   misplaced modules, leaking framework contracts, forwarding layers, callable
   or per-repository Protocols, business logic outside application actions,
@@ -291,47 +291,58 @@ tests: `testing.md`.
 
 ## Report and route
 
-By default the audit is **report-only**. Report the static checks, the semantic
-findings with evidence and classification, the ownership matrix, the
-shared-capability conclusions, and one recommended route:
+Report the static checks, the semantic findings with evidence and classification, the
+ownership matrix, the shared-capability conclusions, and one recommended route:
 
 - **No actionable findings:** state the checks run and the remaining
-  uncertainty.
-- **Plan first:** numerous findings, coordinated changes across boundaries or
-  consumers, shared-library extraction, state-transition or compatibility
-  changes, or material design uncertainty. Count alone does not decide; one
-  consequential finding can require a plan.
-- **Focused repair:** few findings whose fixes are local, understood, and
-  reversible.
-
-Write files or change code only when the user asks for repair:
-
-- **Plan first:** invoke `openspec-propose` (fallback
+  uncertainty. Write no audit file.
+- **Many findings:** coordinated changes across boundaries or consumers,
+  shared-library extraction, state-transition or compatibility changes, or
+  material design uncertainty. Count alone does not decide; one consequential
+  finding can require this route. Invoke `openspec-propose` (fallback
   `../openspec-propose/SKILL.md`) to create the proposal, delta specs, design,
   and tasks, including evidence, classification, acceptance criteria,
-  shared-capability conclusions, migration order, and verification tasks. Stop
-  after presenting the planning artifacts; implementation waits for a new
-  request. If `openspec-propose` is not installed, write the same content to
-  `ARCHITECTURE-PLAN.md` at the reviewed repository root (if it exists, use an
-  unused descriptive name as for the feedback file below): the findings, then
-  the migration as ordered `- [ ]` tasks, each with its acceptance criteria and
-  verification step. Stop there; never implement unplanned changes.
-- **Focused repair:** create `FEEDBACK.md` at the reviewed repository root
-  before editing code (if it exists, preserve it and use an unused descriptive
-  name such as `worker-architecture-FEEDBACK.md`). Record each finding's
-  classification, evidence, intended fix, and verification steps as `- [ ]`
-  checkboxes; tick one only after its fix and checks pass. Move one coherent
-  boundary at a time, update all consumers, add or strengthen behavior or
-  contract tests for the defect, and run focused tests before the full suite.
-  Record the completion-gate results and any unchecked work in the same file.
+  shared-capability conclusions, migration order, and verification tasks. If
+  `openspec-propose` is not installed, write the audit file below instead.
+- **Few findings:** fixes that are local, understood, and reversible. Write the
+  audit file below.
 
-Keep repairs scoped to the reviewed service and its necessary consumers. If a
-focused repair reveals a need for coordinated design, keep the feedback file
-and completed work, and route the rest through planning.
+The audit file is always the same: `PYTHON-AUDIT-<YYYY-MM-DD>.md` at the
+reviewed repository root. If it exists, append a new section instead of
+replacing it. For each finding record its classification, evidence, intended
+fix, acceptance criteria, and verification steps as `- [ ]` checkboxes, with the
+migration order when there is more than one. The audit's output is the report,
+the proposal or audit file, and the skill-gap file.
+
+## Skill-gap cross-validation
+
+Run this only after the audit above is finished and its findings are
+classified; it reads that list and never changes the report. Its question is
+whether `python-service-architecture` is missing guidance the audit needed, not
+whether the service is wrong.
+
+For each finding, and for each place the audit had to guess, sort it:
+
+- **Service breaks an existing rule:** an ordinary finding; not recorded here.
+- **Rule exists but is ambiguous or contradicts another:** a gap.
+- **No rule covers the situation:** a gap.
+
+Before calling anything a gap, search every `python-service-architecture`
+reference (`SKILL.md` and `references/*.md`) for the topic with several
+phrasings; a rule found late is not a gap.
+
+If at least one gap survives, write `SKILL-GAPS-<YYYY-MM-DD>.md` at the reviewed
+repository root. If that file exists, append a new section instead of replacing
+it. This file is independent of the route above: it records gaps in the skill, not
+work on the service. Per gap, record: the code path and finding that exposed it, the rules searched
+(file and section) and why they do not settle it, and the smallest guidance that
+would have. Quote no more code than the evidence needs. If no gap survives,
+create no file and say so in the report.
 
 ## Completion gate
 
-Before declaring a structural repair complete:
+Before declaring the audit complete, including one that verifies a structural
+refactor:
 
 1. rerun `scripts/audit_service.py`;
 2. run the service's architecture-fitness tests;
