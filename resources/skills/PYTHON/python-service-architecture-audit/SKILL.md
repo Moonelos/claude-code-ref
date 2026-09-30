@@ -183,6 +183,27 @@ Procedure notes the rules do not cover:
   only be shown through a real DB, broker, model, or SDK, check whether policy
   has escaped into that implementation.
 
+### Behavioral probes
+
+Static checks, lint, types, and happy-path tests do not find these. Run a probe
+only when the service has the feature it names; a probe never justifies adding
+machinery the brief does not need. Report a hit as a behavioral Violation when
+it breaks a guarantee listed in [Classification](#classification), otherwise as
+a risk with evidence.
+
+| Feature | Probe |
+|---|---|
+| External HTTP/SDK integration | Map each concrete outcome (400/401/403/404/408/409/429/5xx, malformed 2xx) to a port result or error; a single `>= 400` branch is not a classification. Check a `409` on a *replay*, not only on the first call |
+| Value sent outbound | Feed non-ASCII, control characters (including `NUL`), and length limits into every database column, URL, and header the value reaches; an identifier that becomes an `Idempotency-Key` header is the usual failure |
+| Untrusted response headers | Check `Retry-After` and similar conversions for Unicode digits (`str.isdigit()` accepts them) and unbounded values that `int()` or `timedelta` rejects |
+| PostgreSQL adapter | List the driver and dialect errors caught; check that timeout, cancellation, and failover wrapped in `DBAPIError` reach `Unavailable`. An unreachable-host test does not cover errors after connect |
+| Leased outbox or broker batch | Compute the worst case from claim or receive to settlement for the *last* item of a full batch against the lease or visibility timeout and against the shutdown grace period. Check that the attempt counter counts attempts, not reservations, and that outcomes are counted or logged only after the fenced write succeeds |
+| Consumer and sweeper on the same record | Compare their due and claim rules; the same record due in both at once should not produce two external calls unless the provider's idempotency is verified |
+| Idempotency key | Replay after a policy change returns the original result; the same key with changed data gives a named conflict |
+| Corrupt or poison rows | A cursor page of only corrupt rows followed by a valid row; a poison queue or outbox row ahead of a valid one; a schema-valid message the database rejects. None may stop the batch or crash-loop the process |
+| Operator exit or unbounded retry | The discovery query, alert or threshold, and safe action live in the repository (not only in a build report or handoff) |
+| Readiness | Test a stopped loop and a missing schema. `SELECT 1` proves only a connection; an exact migration-head check fails old replicas during a rolling deploy |
+
 Summarize the semantic pass with a compact ownership matrix containing, as
 applicable: action, business decision, boundary input, port, concrete
 implementation, hop chain, state-transition owner, and lifecycle owner. Label

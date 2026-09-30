@@ -13,10 +13,11 @@
 - κανένας υπερ-σχεδιασμός που τον προκάλεσε κανόνας του skill,
 - τα ίδια σημεία να μη χρειάζονται «μάντεμα» από διαφορετικούς builders.
 
-Για τον στόχο «σωστό πρώτο build», απαιτούμε επιπλέον **κανένα επιβεβαιωμένο
-production-relevant behavioral defect** στα frozen services του γύρου. Ένα
-πράσινο lint/type/test suite ή στατικό audit δεν καλύπτει αυτή την απαίτηση·
-χρειάζεται ανεξάρτητο semantic audit και επαλήθευση των κρίσιμων failure paths.
+Τα behavioral defects (edge cases σε failure paths, encoding, timing) τα
+μετράμε **χωριστά** και δεν είναι κριτήριο επιτυχίας του γύρου: το σύνολό τους
+δεν έχει όριο, και ο στόχος «μηδέν defects στο πρώτο build» οδήγησε στους
+γύρους v3–v7 σε κανόνες υπερπροσαρμοσμένους στα briefs A/B. Τα βρίσκει το
+audit skill («Behavioral probes»), όχι το builder skill.
 
 ## Κόστος
 
@@ -156,6 +157,9 @@ The brief the builder received, for context: <paste the brief>
 2. **(b)**: λύσε τη σύγκρουση σε ένα σημείο (ένας κανόνας, ένας ιδιοκτήτης,
    βλ. `resources/skills/CLAUDE.md` «Rule ownership»).
 3. **(a)**: πρόσθεσε κανόνα μόνο αν χρειάστηκε σε πραγματικό service.
+   Ένα behavioral εύρημα μπαίνει στο builder skill μόνο αν είναι (b) ή αν το
+   ίδιο defect εμφανίστηκε σε **2+ διαφορετικά briefs**. Αλλιώς, και για κάθε
+   (c), γίνεται probe στο audit skill («Behavioral probes»).
 4. **Υπερ-σχεδιασμός**: ξαναδιατύπωσε τον κανόνα που τον προκάλεσε, με ρητό
    trigger («μόνο όταν…»).
 5. **Script noise**: false positive → διόρθωση στο script + regression test στο
@@ -328,3 +332,21 @@ pagination ούτε απαγορεύει self-approval, ενώ τα υπόλοι
 **μην περάσει** τον στόχο «σωστό από την πρώτη προσπάθεια». Μετά το freeze
 προστέθηκαν στο πρώτο skill και στα references έλεγχοι outbound encoding,
 πραγματικών driver errors, schema/progress readiness και operator runbook.
+
+## Trim μετά τον v7
+
+Οι κανόνες των γύρων v3–v7 (snapshot `745a17e`) ξαναεξετάστηκαν με τα
+κριτήρια του Βήματος 3. Οι γενικοί αρχιτεκτονικοί κανόνες έμειναν: process
+owner σε hybrid, ιδιοκτησία health state, `core/clock.py`, attempt count ως
+retry input, domain validation στον adapter, idempotent replay/conflict,
+μη-ειδικά 4xx ως unavailable, discoverable operator exit. Οι κανόνες lease,
+visibility, grace period, 409 replay, DB error classification, corrupt cursor
+και poison/encoding συμπτύχθηκαν σε μία αρχή ο καθένας. Ο πίνακας
+«Implementation checks» του `SKILL.md` έγινε μία παράγραφος. Οι λεπτομέρειες
+(encoding σε headers, `Retry-After`, attempt counters, consumer/sweeper
+overlap, runbook, readiness σε rolling deploy) μεταφέρθηκαν στα «Behavioral
+probes» του audit skill.
+
+Επόμενος γύρος (v8): blind builds σε ένα από τα A/B, σε ένα απλό CRUD API
+(έλεγχος υπερ-σχεδιασμού) και στο 4ο brief (γενίκευση). Μετράμε χωριστά
+αρχιτεκτονική συμμόρφωση και behavioral defects.

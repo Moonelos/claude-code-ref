@@ -251,11 +251,9 @@ allowed.
 - Shutdown: set the stop event, wait under `asyncio.timeout(grace)`, cancel what
   remains, then `gather(..., return_exceptions=True)`. Async mechanics are in
   [async-and-lifecycle.md](async-and-lifecycle.md).
-  Bound one iteration by the grace period, including long polling and every
-  item in a received batch. If a whole batch cannot finish in time, pass a
-  stop indication to the worker, finish or release the current item safely,
-  and leave later messages unsettled for redelivery. Test SIGTERM with a full
-  batch rather than only an idle loop.
+  An iteration, including every item of a received batch, must fit the grace
+  period, or the worker checks the stop event between items and leaves the
+  unstarted ones unsettled for redelivery.
 
 A scheduled batch or CLI that runs once has no supervisor: `main.py` enters the
 runtime, calls one worker function or action once, maps the outcome to an exit
@@ -273,17 +271,9 @@ the DLQ through the broker's redrive policy. The **consumer worker** in
 the typed outcome to a settlement. There is no root `messaging/`.
 The delivery attempt count may cross from the inbox to an action as a plain
 retry-policy input when needed; receipt handles, queue URLs, and raw envelopes
-still stay in the delivery boundary. Name a settlement for a conflicting but
-well-formed duplicate: acknowledge only if the conflict remains discoverable
-for an operator, or dead-letter it. Do not silently discard changed business
-data.
-
-For a broker with visibility timeouts, the inbox must extend visibility while
-work remains or the configured timeout must exceed the worst-case time from
-receive through settlement, including earlier messages in a sequential batch.
-Check the deployed queue setting, batch size, external-call timeout, and retry
-budget together. An idempotency key limits duplicate effects but does not make
-premature redelivery a healthy steady state. Test or validate that bound.
+still stay in the delivery boundary. A visibility timeout follows the lease rule
+in [Uncertain external writes](persistence.md#uncertain-external-writes): it
+outlasts the worst case from receive to settlement, or the inbox extends it.
 
 ```python
 # workers/inbox.py — the inbound contract the worker needs
@@ -390,17 +380,9 @@ Liveness reports process life. Readiness reflects whether the process can accept
 useful work: initialized dependencies, compatible schema, healthy progress, and
 required external availability. Probe mechanics are in
 [async-and-lifecycle.md](async-and-lifecycle.md#health-probes).
-Define the `ping()` contract in terms of the tables or schema revisions the
-current binary needs; `SELECT 1` checks only a connection and cannot establish
-schema readiness. For a worker, record a loop's successful iteration or poll
-time and mark it unready if progress has stopped beyond a configured bound.
-Distinguish an idle queue from a loop that has stopped polling. Test missing or
-incompatible schema and a stopped loop. Keep probe queries bounded so health
-checks do not become the outage.
-If migrations run before a rolling deployment, an older healthy process must
-not fail readiness solely because the schema revision is newer. Check the
-schema's compatibility range or enforce a startup migration gate; an exact
-head-equality check on every probe can take all old replicas out of service.
+For a worker, readiness includes progress: the supervisor records each loop's
+last successful iteration, so a stopped loop is distinguishable from an idle
+queue.
 
 These are technical endpoints, not business entry points
 ([boundaries.md](boundaries.md#application)), so they call no application action:
