@@ -32,7 +32,9 @@ src/<package>/
 
 Create only the directories the service uses. This `config/` is Python settings
 code, not the home of YAML baselines; see `python-settings-config`. `core/` is
-deliberately absent ([boundaries.md](boundaries.md#core)). For APIs, workers,
+absent by default; the explicit real-clock seam in
+[boundaries.md](boundaries.md#nondeterminism) may justify `core/clock.py`, but
+does not invite a general `core/` package. For APIs, workers,
 consumers, and hybrid processes, use the trees in
 [api-and-workers.md](api-and-workers.md).
 

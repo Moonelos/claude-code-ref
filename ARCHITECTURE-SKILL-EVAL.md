@@ -13,6 +13,11 @@
 - κανένας υπερ-σχεδιασμός που τον προκάλεσε κανόνας του skill,
 - τα ίδια σημεία να μη χρειάζονται «μάντεμα» από διαφορετικούς builders.
 
+Για τον στόχο «σωστό πρώτο build», απαιτούμε επιπλέον **κανένα επιβεβαιωμένο
+production-relevant behavioral defect** στα frozen services του γύρου. Ένα
+πράσινο lint/type/test suite ή στατικό audit δεν καλύπτει αυτή την απαίτηση·
+χρειάζεται ανεξάρτητο semantic audit και επαλήθευση των κρίσιμων failure paths.
+
 ## Κόστος
 
 | Βήμα | Agents | Tokens (περίπου) | Χρόνος |
@@ -160,14 +165,14 @@ The brief the builder received, for context: <paste the brief>
 ```bash
 cd resources/skills/PYTHON/python-service-architecture-audit
 uv run --with pytest pytest -q tests
-python3 scripts/audit_service.py ../python-service-architecture/assets/canonical_service/src/my_service
+uv run --python 3.13 --no-project python scripts/audit_service.py ../python-service-architecture/assets/canonical_service/src/my_service
 cd ../python-service-architecture
 PYTHONPATH=assets/canonical_service/src uv run --no-project \
   --with "sqlalchemy[asyncio]" --with sqlmodel --with aiosqlite \
   python -B -m unittest discover -s assets/canonical_service/tests/integration
 cd ../python-repository-setup
-python3 -m unittest discover -s tests        # τα δύο templates δεν αποκλίνουν
-python3 scripts/update_toolchain.py --check  # pins συνεπή σε όλα τα αρχεία
+uv run --python 3.13 --no-project python -m unittest discover -s tests  # τα δύο templates δεν αποκλίνουν
+uv run --python 3.13 --no-project python scripts/update_toolchain.py --check  # pins συνεπή σε όλα τα αρχεία
 ```
 
    Έλεγξε και για σπασμένα anchors μετά από μετονομασία ή μεταφορά ενοτήτων
@@ -179,3 +184,147 @@ python3 scripts/update_toolchain.py --check  # pins συνεπή σε όλα τ�
 | --- | --- | --- | --- | --- |
 | v0 (baseline) | 2026-09-29 | 9 / 5 / 6 | (b) σχεδόν όλα | Κενό: πού ζουν loops και consumers → νέο `workers/` |
 | v1 | 2026-09-29 | 1 (FP) / 0 / 0 | συμπεριφορά (κατάταξη σφαλμάτων, 401 ως «μόνιμο») | Υπερ-σχεδιασμός από «commit πριν από την κλήση σε μοντέλο» και από τον πίνακα UoW. Διορθώθηκαν μετά τον γύρο, χωρίς να ξαναδοκιμαστούν |
+| v2 | 2026-09-29 | 0V+7R / 0V+5R / 0V+1R | (b) CI, κυρίως (c) | Και τα τρία builds πέρασαν Ruff, strict mypy, unit tests και import-linter, αλλά τα ανεξάρτητα audits βρήκαν πραγματικά λειτουργικά σφάλματα. Έγινε repair pass· βλ. παρακάτω. |
+
+## Αποτελέσματα v2
+
+Snapshot: commit `901bc4b4005f49794d6c21227ac26c5de0aeddea`,
+`/tmp/arch-eval/skills-v2`. Οι builders δεν διάβασαν το audit skill. Τα
+audits ήταν report-only και έτρεξαν μετά από κάθε αρχικό build.
+
+| Service | Script V/R αρχικά | Semantic ευρήματα | Ρίζα | Υπερ-σχεδιασμός από κανόνα | Builder guesses |
+| --- | --- | --- | --- | --- | --- |
+| expense-approvals | 0/7, όλα τα R επιβεβαιώθηκαν | Αβέβαιη παράδοση payroll, ελλιπής μετάφραση DB σφαλμάτων, worker lifecycle, HTTP status mapping, technical routes σε bootstrap, ανεπαρκής έλεγχος concurrency | 1 κοινό (b) για CI· τα υπόλοιπα (c) | Κανένας | Payroll idempotency/replay, μόνιμη απόρριψη, category limits, read visibility |
+| shipment-worker | 0/5, 4 επιβεβαιώθηκαν, 1 FP (`Inbox` Protocol) | Carrier 404, malformed SQS envelopes, concurrent success/rejection, duplicate ID, batch isolation, redrive policy | 1 κοινό (b) για CI· τα υπόλοιπα (c) | Κανένας | Carrier replay contract, address schema, provider status taxonomy |
+| ticket-triage | 0/1, επιβεβαιώθηκε | OpenAI error classification, χαμένα low-confidence metadata, διπλό integration instance | 1 κοινό (b) για CI· τα υπόλοιπα (c) | Κανένας | Crash πριν από το πρώτο commit, known-issue fallback/search, metadata retention |
+
+**Κοινό (b):** Το architecture skill ζητούσε CI μόνο όταν υπήρχε ήδη CI,
+ενώ το audit skill και το repository-setup ζητούσαν CI ακόμη και σε νέο
+repository. Ο κανόνας στο architecture skill ευθυγραμμίστηκε με τα άλλα δύο.
+Το ψευδές εύρημα για το ρητά προβλεπόμενο worker `Inbox` αφαιρέθηκε από το
+audit script και καλύπτεται με regression test. Δεν προέκυψε κανόνας που
+εξανάγκασε υπερ-σχεδιασμό ή επαναλαμβανόμενο σημείο αρχιτεκτονικής όπου οι
+builders έπρεπε να μαντέψουν. Οι ελλείψεις συμπεριφοράς είχαν σαφείς κανόνες
+που δεν εφαρμόστηκαν στον πρώτο γύρο.
+
+**Repair pass:** Οι ίδιοι builders διόρθωσαν τα ευρήματα στα scratch services.
+Ruff, strict mypy, unit tests και import-linter ξαναπέρασαν και στα τρία.
+Τα unit tests έγιναν 7/9/10 για A/B/C. Το A πέρασε επιπλέον ένα integration
+test σε απομονωμένο PostgreSQL για concurrent submit/approve/reject και
+outbox recovery· η πρώτη δοκιμή migration αποκάλυψε rollback bug που
+διορθώθηκε. Το παγωμένο audit script μετά τις διορθώσεις έδωσε 0/0 για A,
+0/1 για B (μόνο το γνωστό `Inbox` FP), 0/0 για C. Το live audit script έδωσε
+103 passing tests και 52 passing subtests, μαζί με το νέο regression test.
+
+Απομένει επαλήθευση με πραγματικό SQS/carrier για το B, με PostgreSQL/live
+model για το C και με πραγματικό payroll για το A. Η εγγύηση replay των
+παρόχων για σταθερό `Idempotency-Key` είναι εξωτερική υπόθεση στα A/B.
+Επομένως ο γύρος δείχνει ότι οι κανόνες είναι πλέον συνεπείς, αλλά **δεν**
+τεκμηριώνει «μηδέν προβλήματα» στην πρώτη υλοποίηση ή production readiness.
+
+## Γύρος v3: πρώτη προσπάθεια με implementation checks
+
+Snapshot: `/tmp/arch-eval/skills-v3`. Τρεις νέοι builders πήραν μόνο το brief
+και τα builder skills. Δύο αρχικοί agents είδαν κατά λάθος το ιστορικό v2 του
+παρόντος εγγράφου· αποκλείστηκαν και αντικαταστάθηκαν από fresh agents με
+αυτοτελές brief. Το C έμεινε blind. Τα αποτελέσματα παρακάτω αφορούν μόνο τα
+τρία blind builds. Οι builders δεν διάβασαν το audit skill.
+
+| Service | First-pass gates | Static audit μετά το freeze | Συμπέρασμα |
+| --- | --- | --- | --- |
+| expense-approvals | Ruff, strict mypy, 4 unit, 4 import contracts | 0V/5R | Ένα επιβεβαιωμένο κενό coverage στα contracts και τέσσερα άμεσα `datetime.now` στο `db/`. Δεν έγινε PostgreSQL integration· το ίδιο το build αναφέρει σφάλμα επιλογής YAML layer από `.env`. |
+| shipment-worker | Ruff, strict mypy, 15 unit, import contracts | 0V/6R | Δύο άμεσα `uuid4` στα actions είναι επιβεβαιωμένα. Τα μεγάλα repository methods χρειάζονται semantic review· τα `Liveness` και `Inbox` notices απαιτούν κρίση ως boundary protocols. Δύο PostgreSQL tests έγιναν skip χωρίς database. Η carrier replay παραδοχή γράφτηκε στο handoff αλλά όχι στο port docstring. |
+| ticket-triage | Ruff, strict mypy, 17 unit, 3 PostgreSQL integration, Alembic, pre-commit/pre-push, Docker smoke | 0V/0R | Η builder-initiated PostgreSQL δοκιμή βρήκε και διόρθωσε ordering bug πριν το freeze. Δεν έγινε live model test. |
+
+Ο v3 γύρος δείχνει καλύτερη πρώιμη επαλήθευση στο C, αλλά **δεν περνά** το
+κριτήριο «χωρίς προβλήματα στην πρώτη προσπάθεια» για A/B. Τα παραπάνω static
+hits ελέγχθηκαν από τον συντονιστή, όχι από νέο ανεξάρτητο semantic auditor:
+το διαθέσιμο agent thread limit δεν επέτρεψε νέα audit threads. Άρα δεν
+ισχυριζόμαστε πλήρες semantic pass για κανένα από τα τρία services.
+
+Μετά το freeze του v3, το live architecture skill απέκτησε ρητό mapping
+provider statuses → port outcomes, υποχρεωτικό search για άμεσο χρόνο/UUID
+στις εσωτερικές layers, επαλήθευση πλήρους import-contract coverage και
+έλεγχο της replay παραδοχής στο port docstring. Αυτή η νεότερη έκδοση
+**δεν είχε ακόμη δοκιμαστεί από νέο blind builder** κατά το freeze του v3.
+
+## Γύρος v4: δεύτερος blind έλεγχος A/B
+
+Snapshot: `/tmp/arch-eval/skills-v4`. Δύο fresh builders πήραν αυτοτελή
+briefs A/B και μόνο τα builder skills, χωρίς το παρόν έγγραφο, τα παλιά builds
+ή το audit skill. Δύο χωριστοί report-only auditors διάβασαν το audit skill
+μετά το freeze.
+
+| Service | First-pass verification | Static V/R | Κύρια semantic ευρήματα |
+| --- | --- | --- | --- |
+| expense-approvals | 237 tests σε PostgreSQL 16, 4 import contracts, Ruff, strict mypy, pre-commit | 0/2, και τα δύο R απορρίφθηκαν ως FP/review-only | Batch 20 payouts με lease 60s μπορεί να ξεπεράσει το lease λόγω 10s timeout ανά item· HTTP 409 σε replay μπορεί να σημαίνει ήδη δημιουργημένο payout· τα unattempted leased rows αυξάνουν attempt counter. Επίσης cursor σε σελίδα μόνο με corrupt rows δεν προχωρά. |
+| shipment-worker | 159 tests με PostgreSQL 14, moto SQS και carrier stub, 4 contracts, Ruff, strict mypy, pre-commit | 0/0 | Δεν υπάρχει visibility heartbeat ούτε δηλωμένο bound για batch 10 × carrier timeout έναντι queue visibility. SIGTERM grace 45s μπορεί να λήξει μέσα σε πλήρη παρτίδα. Ένα integrity error σε settle/record attempt δεν έχει item-level handling. |
+
+Η δομή, οι atomic transitions, η βασική idempotency ροή και η επαναφορά μετά
+από crash πέρασαν ουσιαστική δοκιμή. Οι auditors βρήκαν όμως παραγωγικά timing
+και failure-path κενά, άρα ούτε ο v4 είναι clean first pass. Δεν μετρήσαμε ως
+skill defects επιλογές προϊόντος που δεν καθορίζει το brief (π.χ. self-approval,
+ακριβές σχήμα address, health semantics).
+
+Μετά τα audits, το live skill απέκτησε κανόνες για lease/visibility sizing,
+shutdown με πλήρη παρτίδα, replay-409, attempt counters, conflicting duplicate
+keys και cursor progress πάνω από corrupt rows. Οι κανόνες μπήκαν στους
+θεματικούς ιδιοκτήτες (`persistence.md`, `api-and-workers.md`, `boundaries.md`)
+και το `SKILL.md` παραπέμπει σε αυτούς με implementation checks. Αυτές οι
+διορθώσεις **δεν ανήκουν στο v4 snapshot** και χρειάζονται νέο blind round.
+
+## Γύρος v5: επανέλεγχος lease και visibility
+
+Snapshot: `/tmp/arch-eval/skills-v5`. Νέα blind builds A/B και ξεχωριστοί
+report-only semantic auditors, χωρίς πρόσβαση των builders σε παλιά ευρήματα.
+
+| Service | First-pass verification | Static V/R | Αποτελέσματα audit |
+| --- | --- | --- | --- |
+| expense-approvals | 229 tests σε PostgreSQL 16, Docker smoke, Ruff, strict mypy, 4 import contracts, pre-commit | 0/1, R review-only | Το per-item lease διορθώνει τον κίνδυνο του v4. Όμως rejected payout δεν έχει discoverable operator exit, corrupt outbox row μπορεί να σταματήσει τον dispatcher, corrupt claim row σταματά ολόκληρο cursor page, και replay μετά αλλαγή policy μπορεί να δώσει 422 αντί για αρχικό αποτέλεσμα. |
+| shipment-worker | 164 tests με PostgreSQL, moto SQS και carrier stub, 2 E2E, Ruff, strict mypy, 4 import contracts | 0/0 | Το visibility budget και το stop ανά item διορθώνουν τα v4 κενά. Όμως schema-valid αλλά μη αποθηκεύσιμο `order.paid` μπορεί να crash-loop το process· whitespace-only tracking number περνά adapter validation και σπάει domain invariant. |
+
+Οι νέοι κανόνες βελτίωσαν τα συγκεκριμένα timing paths, αλλά ο v5 **δεν
+τεκμηριώνει καθαρή πρώτη προσπάθεια**. Μετά το freeze προστέθηκαν στους
+θεματικούς ιδιοκτήτες κανόνες για storage-compatible validation, per-item
+poison records, κοινή validation adapter/domain, replay πριν από μεταβλητή
+policy, και αναφορά αποτελέσματος μόνο μετά από επιτυχημένο fenced write.
+Το πρώτο skill πρόσθεσε μόνο τους αντίστοιχους ελέγχους handoff.
+
+## Γύρος v6: poison data και replay
+
+Snapshot: `/tmp/arch-eval/skills-v6`. Τα blind builds A/B διακόπηκαν μία φορά
+από κοινό `ENOTFOUND` προς το API και συνεχίστηκαν από τις ίδιες συνεδρίες,
+χωρίς πρόσβαση στα audit skills ή στα παλιά αποτελέσματα. Το σφάλμα δικτύου
+δεν μετρήθηκε ως εύρημα. Ξεχωριστοί auditors έλεγξαν τα frozen services.
+
+| Service | First-pass verification | Static V/R | Αποτέλεσμα semantic audit |
+| --- | --- | --- | --- |
+| expense-approvals | 142 tests (22 integration, 1 E2E) σε PostgreSQL 16, Docker build, Ruff, strict mypy, import contracts | 0/1, R review-only | Replay μετά αλλαγή policy και poison payout πριν από valid row καλύπτονται. Όμως `NUL` σε description/rejection reason περνά domain validation και απορρίπτεται από PostgreSQL ως raw data error· exact Alembic-head readiness μπορεί να βγάλει παλιά pods εκτός υπηρεσίας κατά rolling migration. |
+| shipment-worker | 121 tests (13 integration) σε PostgreSQL 16, Ruff, strict mypy, import contracts | 0/0 | Poison stored row και full-batch SIGTERM καλύπτονται. Όμως Unicode digit ή υπερμεγέθες `Retry-After` μπορεί να προκαλέσει uncaught exception και επαναλαμβανόμενο crash του worker. Consumer retry και sweeper μπορούν να συμπέσουν στο ίδιο order· αυτό βασίζεται στην ανεπιβεβαίωτη εγγύηση carrier idempotency. |
+
+Ο v6 είναι σαφώς καλύτερος στα paths που έσπασαν στον v5, αλλά **δεν
+αποδεικνύει μηδέν προβλήματα**. Μετά το freeze ο κανόνας boundary validation
+αναφέρει ρητά storage-incompatible text και bounded conversion από untrusted
+headers· το persistence περιγράφει κοινό due/claim contract για consumer και
+sweeper και πλήρη lease budget· το health guidance αποτρέπει exact-head
+readiness σε rolling deploy. Χρειάζεται νέο blind round για αυτές τις αλλαγές.
+
+## Γύρος v7: outbound encoding και πραγματικές αποτυχίες DB
+
+Snapshot: `/tmp/arch-eval/skills-v7`. Δύο νέοι builders διάβασαν μόνο το
+builder skill και τα routed references. Το shipment session διακόπηκε μία φορά
+και συνεχίστηκε από το ίδιο session. Ξεχωριστοί report-only auditors εξέτασαν
+τα frozen services χωρίς προηγούμενα αποτελέσματα.
+
+| Service | First-pass verification | Static V/R | Semantic αποτέλεσμα |
+| --- | --- | --- | --- |
+| expense-approvals | 194 tests, PostgreSQL 14, Ruff, strict mypy, 4 import contracts | 0/2 (και τα 2 review-only) | Η προηγούμενη αποτυχία σε `Retry-After`, replay μετά από policy change και poison row καλύφθηκε. Παραμένει αδύναμη η μόνιμη ανακάλυψη/επανεκκίνηση των `FAILED` payouts: το runbook υπάρχει μόνο στο `BUILD_REPORT.md`. Το payroll 409 θεωρείται delivered από μη επαληθευμένη παραδοχή. |
+| shipment-worker | 208 tests, PostgreSQL 16, moto SQS, carrier stub, Docker image, Ruff, strict mypy, 4 import contracts | 0/2 (και τα 2 review-only) | Μη ASCII `order_id` γίνεται μη κωδικοποιήσιμο HTTP `Idempotency-Key` και μπορεί να ρίξει τη διαδικασία. Η ταξινόμηση DB exceptions χάνει timeout/failover errors που ο dialect τυλίγει ως `DBAPIError`. Readiness με `SELECT 1` δεν ελέγχει schema ή πρόοδο loop. Απεριόριστα unknown retries χρειάζονται μόνιμη operator ανακάλυψη. |
+
+Οι στατικοί έλεγχοι δεν εντόπισαν αυτά τα behavioral gaps. Δεν υιοθετήθηκαν
+αυτόματα όλες οι auditor παρατηρήσεις: το brief δεν υπόσχεται snapshot
+pagination ούτε απαγορεύει self-approval, ενώ τα υπόλοιπα 409 semantics
+απαιτούν πραγματικό provider contract. Τα παραπάνω είναι επαρκή ώστε ο v7 να
+**μην περάσει** τον στόχο «σωστό από την πρώτη προσπάθεια». Μετά το freeze
+προστέθηκαν στο πρώτο skill και στα references έλεγχοι outbound encoding,
+πραγματικών driver errors, schema/progress readiness και operator runbook.

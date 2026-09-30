@@ -169,10 +169,15 @@ A.B.C; do you want different versions?” Skip the question when the user has
 already supplied both versions. When nobody can be asked (a delegated agent, a
 non-interactive run), use the installed uv and Python if they are stable
 releases of the intended minor, otherwise the template's pins, and state the
-chosen pins as an assumption in the handoff. Before copying the bundled asset, update its
-single toolchain manifest and every derived pin with
+chosen pins as an assumption in the handoff. After copying the bundled asset
+to a writable location and before using it, update its single toolchain
+manifest and every derived pin with
 `scripts/update_toolchain.py --python X.Y.Z --uv A.B.C`; do not hand-edit a
-subset of the copies.
+subset of the copies. Run that script on a writable copy of the template,
+never on the installed skill source. When constructing a service without
+copying the template, set all new toolchain pins coherently and run the
+equivalent pin checks in that service; the template update script does not
+apply to files it does not own.
 
 The bundled template snapshot currently uses:
 

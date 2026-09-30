@@ -93,6 +93,21 @@ misconfigured base URL, a quota exhausted for the account — is **unavailable**
 items wait and retry once an operator fixes it, and alerting on the outage
 catches it. Classifying a 401 as rejected turns a rotated token into every item
 failing permanently.
+Do not park an item on an undocumented 4xx alone. Confirm that the response
+means this item's business data was refused; a wrong route, method, version,
+authorization, or request schema is an integration outage even if the provider
+uses 400, 405, 410, or 422. In an unknown case keep the outcome retryable or
+reconcilable under the same request identity and raise an operator signal.
+
+For a database port, make a table for the selected driver and dialect before
+choosing caught exception classes. Include connection loss, failover, resource
+exhaustion, statement timeout or cancellation, serialization failure, and
+deadlock as candidates for `Unavailable`; inspect SQLSTATE or the wrapped
+driver error when several outcomes share a broad wrapper such as SQLAlchemy's
+`DBAPIError`. Keep data and constraint errors separate as `Integrity`, with
+record identity when possible. Test at least one real timeout or terminated
+connection on the production database engine; an unreachable-host test alone
+does not verify errors raised after a connection was established.
 
 The bases describe a failing dependency only. An expected business outcome of
 a port call (not found, a stale revision, already processed) is a named result

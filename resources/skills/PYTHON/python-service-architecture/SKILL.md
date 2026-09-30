@@ -140,8 +140,8 @@ fast 403, but never as the only guard: the next entry point would skip it.
 ## Enforcement
 
 Every service has import-linter contracts in pre-commit and a CI job that runs
-the same hooks (create the job with the service when the repository has CI; say
-so in the handoff when it has none yet), for rule 3, pure
+the same hooks (create the job when the service is created, including when the
+repository has no CI yet), for rule 3, pure
 `domain/` and `ports/`, entry points importing no concrete integrations, and
 only entry points importing `bootstrap/`. The contracts name every canonical
 boundary whether or not it exists yet (`python-repository-setup`, fallback:
@@ -174,6 +174,52 @@ Before proposing or changing a structure:
    benefit. Never reorganize unrelated services for symmetry.
 6. Before copying plumbing, look for an existing library or implementation to
    reuse ([shared-libraries.md](references/shared-libraries.md#extraction-triggers)).
+
+## Implementation checks
+
+Before coding each feature, in a new service or an existing one, answer these
+for the brief's actual operations. Keep the answers in your reasoning or the
+handoff, not in files or extra production modules. An action list and passing
+lint/type checks alone do not establish correct behavior.
+For each external integration, map its concrete provider outcomes (including
+400/401/403/404/408/429/5xx or SDK equivalents) to port results/errors and
+handling boundaries. A single `>= 400` branch is not a classification.
+
+| If the feature has… | Decide and verify before implementing |
+| --- | --- |
+| A state transition, duplicate request, or model result that is persisted | What is the domain decision, made once, the transaction owner, the lock/uniqueness mechanism, and the outcome of a competing request? Does the repository persist that decision without recomputing it, and what model metadata survives a fallback? Use [Behavioral verification](references/persistence.md#behavioral-verification) and [Repositories apply decisions](references/boundaries.md#repositories-apply-decisions). |
+| A database change followed by an external write | What durable intent survives a crash, how is it recovered, and what happens after an **unknown** external outcome? Identify the provider's replay or reconciliation guarantee; if the brief leaves it unstated, verify the assumption is in both the port docstring and handoff ([Uncertain external writes](references/persistence.md#uncertain-external-writes)). |
+| A broker consumer or periodic process | For a malformed envelope, one bad item, dependency outage, crash after commit, and SIGTERM: which item is settled, retried, or left for redrive? Use [Long-running worker](references/api-and-workers.md#long-running-worker), [broker handling](references/api-and-workers.md#sqs-kafka-or-another-broker), and [Handling boundaries](references/errors.md#handling-boundaries). |
+| A leased outbox or broker batch | Can the last item still be processing when its lease/visibility expires or shutdown grace ends? Check the deployed timeout, batch size, sequential call time, and heartbeat or stop behavior using [Uncertain external writes](references/persistence.md#uncertain-external-writes) and [broker handling](references/api-and-workers.md#sqs-kafka-or-another-broker). |
+| An external SDK, HTTP API, or model | For input rejection, missing endpoint, credentials, quota, timeout, and malformed success response: which port result/error is raised, and which action or process boundary handles it? Use [Classification bases](references/errors.md#classification-bases) and, for models, [AI invocation](references/ai.md#invocation-and-error-translation). |
+| A value written to both storage and an outbound request | Can every accepted value be encoded in its database column, JSON body, URL, and header (including key length and character set)? What per-item result follows if it cannot? Test a value that passes storage validation but fails outbound encoding ([Validate external structure](references/boundaries.md#validate-external-structure)). |
+| A PostgreSQL adapter or a long-running retry loop | Which real driver/dialect errors mean transient outage, timeout, cancellation, or failover? Test translation at the port boundary; trace an unhandled integrity error at *every* port call site. For a retry that can continue indefinitely, name the durable operator query and alert path ([Classification bases](references/errors.md#classification-bases), [Intermediate states](references/persistence.md#choose-the-transaction-owner)). |
+| Health or readiness probes | What query proves required schema compatibility, and what signal proves the worker still makes progress? Test a missing or incompatible schema and a stopped loop; `SELECT 1` alone proves only that a connection works ([Health and readiness](references/api-and-workers.md#health-and-readiness)). |
+
+Before calling the work complete, trace every action from entry point through
+port implementation to its failure boundary, and supply clocks/IDs as
+[nondeterministic inputs](references/boundaries.md#nondeterminism). For each
+triggered row above, add a test of its failure or recovery path; a happy-path
+fake alone cannot verify it. Run the checks from [Enforcement](#enforcement)
+plus Ruff, strict mypy, and unit tests. Where the brief permits skipping live
+infrastructure, report which database, broker, or provider guarantee remains
+unverified rather than treating skipped integration tests as evidence.
+Before handoff, search `application/`, `domain/`, `ports/`, and `db/` for direct
+`datetime.now`, `date.today`, `uuid4`, `random`, and `os.environ` calls; inspect
+each hit against the nondeterminism rule. Compare import-linter contracts with
+the complete canonical boundary list, including packages absent today
+([Architecture contracts](../python-repository-setup/references/pre-commit.md#architecture-contracts)).
+Check that bootstrap constructs each concrete integration once and that
+technical HTTP routes live in `api/`. Run pre-commit and the CI-equivalent
+commands; if the scratch directory cannot run pre-commit directly, run every
+equivalent hook command and report that limitation.
+Enumerate each port method's possible results and errors at every call site;
+verify a named action, item, or process boundary handles each one. For any
+cursor page that tolerates corrupt rows, test a page with no valid rows and a
+later valid row ([Validate external structure](references/boundaries.md#validate-external-structure)).
+For a durable queue or outbox, also test a poison stored row ahead of a valid
+row, and verify the valid row can still proceed. Check lease-fenced outcome
+reporting against [Uncertain external writes](references/persistence.md#uncertain-external-writes).
 
 ## Reference routing
 

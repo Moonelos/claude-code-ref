@@ -220,6 +220,9 @@ async def run_loop(
 list of loops (`iteration=lambda: reattempt_stuck(runtime)`), installs signal
 handlers, and awaits `supervise(loops, stop)`. `ProcessHealth` lives in
 `supervisor.py` and the runtime never needs it, so there is no import cycle.
+For a hybrid service launched through `uvicorn --factory`, the ASGI factory's
+lifespan may own this same startup/shutdown sequence instead of `main.py`; use
+one process owner, not both.
 Binding a *worker* to the runtime is wiring. Binding an *application action* in bootstrap
 (`partial(process_paid_order, store=...)`) hides an entry point and is not
 allowed.
@@ -248,6 +251,11 @@ allowed.
 - Shutdown: set the stop event, wait under `asyncio.timeout(grace)`, cancel what
   remains, then `gather(..., return_exceptions=True)`. Async mechanics are in
   [async-and-lifecycle.md](async-and-lifecycle.md).
+  Bound one iteration by the grace period, including long polling and every
+  item in a received batch. If a whole batch cannot finish in time, pass a
+  stop indication to the worker, finish or release the current item safely,
+  and leave later messages unsettled for redelivery. Test SIGTERM with a full
+  batch rather than only an idle loop.
 
 A scheduled batch or CLI that runs once has no supervisor: `main.py` enters the
 runtime, calls one worker function or action once, maps the outcome to an exit
@@ -263,6 +271,19 @@ that decision, being its only handler), and repeatedly failing messages reach
 the DLQ through the broker's redrive policy. The **consumer worker** in
 `workers/` owns the use case boundary: it calls one action per delivery and maps
 the typed outcome to a settlement. There is no root `messaging/`.
+The delivery attempt count may cross from the inbox to an action as a plain
+retry-policy input when needed; receipt handles, queue URLs, and raw envelopes
+still stay in the delivery boundary. Name a settlement for a conflicting but
+well-formed duplicate: acknowledge only if the conflict remains discoverable
+for an operator, or dead-letter it. Do not silently discard changed business
+data.
+
+For a broker with visibility timeouts, the inbox must extend visibility while
+work remains or the configured timeout must exceed the worst-case time from
+receive through settlement, including earlier messages in a sequential batch.
+Check the deployed queue setting, batch size, external-call timeout, and retry
+budget together. An idempotency key limits duplicate effects but does not make
+premature redelivery a healthy steady state. Test or validate that bound.
 
 ```python
 # workers/inbox.py — the inbound contract the worker needs
@@ -362,18 +383,31 @@ Health state shared by API routes and the supervisor has one explicit owner,
 Protocol in `api/dependencies.py` (trigger 4 of
 [When a port earns its cost](boundaries.md#when-a-port-earns-its-cost)), and the
 same object remembers the last readiness result so probes log only on a
-change.
+change. The process owner (`main.py` for a worker or the ASGI lifespan for a
+hybrid) constructs it once and passes it to the supervisor and API factory
+alongside the runtime; the integration runtime does not own it.
 Liveness reports process life. Readiness reflects whether the process can accept
 useful work: initialized dependencies, compatible schema, healthy progress, and
 required external availability. Probe mechanics are in
 [async-and-lifecycle.md](async-and-lifecycle.md#health-probes).
+Define the `ping()` contract in terms of the tables or schema revisions the
+current binary needs; `SELECT 1` checks only a connection and cannot establish
+schema readiness. For a worker, record a loop's successful iteration or poll
+time and mark it unready if progress has stopped beyond a configured bound.
+Distinguish an idle queue from a loop that has stopped polling. Test missing or
+incompatible schema and a stopped loop. Keep probe queries bounded so health
+checks do not become the outage.
+If migrations run before a rolling deployment, an older healthy process must
+not fail readiness solely because the schema revision is newer. Check the
+schema's compatibility range or enforce a startup migration gate; an exact
+head-equality check on every probe can take all old replicas out of service.
 
 These are technical endpoints, not business entry points
 ([boundaries.md](boundaries.md#application)), so they call no application action:
 
 | Endpoint | Reads | Calls an action? |
 | --- | --- | --- |
-| Liveness | The supervisor's health state from the runtime container | No |
+| Liveness | The supervisor's health state passed to the API factory | No |
 | Readiness | A port method on the runtime container (for example `store.ping()`) | No |
 | Metrics | Served by the telemetry exporter, not a route handler | No |
 | `GET /submissions/{id}` | `get_submission` | Yes, exactly one |

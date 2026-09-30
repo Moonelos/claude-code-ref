@@ -27,6 +27,27 @@ timeout, an operator action, or an expiry. A state that only a crash can leave
 behind and nothing can leave is a stuck record. Test the path from a crash after
 the first commit to the exit. Make the entry idempotent (a client key or a
 natural unique constraint) when a client may retry after a failure.
+When operator action is the named exit, identify the command, endpoint, or
+runbook that performs it and how an operator discovers the record. A state
+parked indefinitely without a discoverable path is not an exit.
+A generic note saying "manual SQL" is not a runbook: give the identifying
+query, safe action, and an alert, metric, or log that points to the affected
+record.
+Keep that runbook in a repository file shipped to operators (for example,
+`ops/runbook.md`); a build report or handoff message is not its durable home.
+For a state that may retry forever, expose a query for aged or high-attempt
+records and an alert or scheduled inspection with a defined threshold. A
+one-time log line without a durable lookup cannot establish that all parked
+records will be found.
+For a duplicate key, distinguish an exact replay from the same key carrying
+different business data. Define a named conflict outcome for the latter; do not
+silently treat changed data as the original request. Test both cases against
+the actual uniqueness constraint.
+For a request that already committed under an idempotency key, return the
+original result before reapplying mutable business policy such as current
+limits or category eligibility. Still validate the key and the request's
+basic parseable shape; compare the stored original payload to detect a changed
+request. Test replay after a policy change.
 
 ## One atomic transition
 
@@ -101,6 +122,32 @@ uncertain path never blindly replays. Ordinary retries are fine when the
 provider verifies an idempotency key. That guarantee comes from the provider's
 documented contract; when the brief does not state it, record it as an
 assumption in the port's docstring and in the handoff, never as a fact.
+Record what a provider's duplicate-key response means. A `409` after replay
+may mean an already-created or in-progress effect rather than an item
+rejection; classify it from the provider contract or leave the outcome unknown
+for reconciliation. A documented assumption can justify safe same-key replay
+when the real provider is unavailable for a test; it does not by itself prove
+that a `409` confirms delivery. Test that response on a replay, not only an
+initial call.
+
+For leased batch delivery, compare the lease duration with the longest time a
+claimed item can wait plus its own call, including sequential items ahead of
+it. Include database checkout and settlement time after the external call.
+Lease one item at a time, extend leases, or bound the batch and its timeout
+so another dispatcher cannot claim an item still in progress. A fencing token
+protects local state; it does not stop the second external call. Increment a
+delivery-attempt counter when that item is actually attempted, not merely when
+a batch reserves it. A crash between the local counter write and the external
+call cannot be distinguished from a call whose response was lost; name the
+counter semantics (claims or confirmed outcomes) and make retry policy safe
+under that uncertainty. Do not count an entire leased batch as attempted.
+Test a slow or failing first item with later items leased.
+Count, log, and expose a delivery outcome only after the lease-fenced write
+confirms it; a stale writer did not settle or reject the item.
+When a broker retry and a sweeper can both attempt the same pending record,
+compare their due timestamps and claim rules. Keep them from overlapping, or
+state the provider's verified idempotency guarantee that makes overlap safe.
+Test one order becoming due in both paths at once.
 
 Technical delivery states of an outbox or queue row (`PENDING`, `DELIVERED`,
 `FAILED`) belong to `db/`, not `domain/`: the rule that repositories never

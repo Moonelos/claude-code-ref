@@ -32,7 +32,10 @@ _spec = importlib.util.spec_from_file_location("audit_service", SCRIPT)
 assert _spec is not None and _spec.loader is not None
 audit_service = importlib.util.module_from_spec(_spec)
 sys.modules["audit_service"] = audit_service  # dataclasses resolve their module by name
-_spec.loader.exec_module(audit_service)
+_spec.loader.exec_module(audit_service)  # also puts scripts/ on sys.path
+
+from service_audit import rules as rules_module  # noqa: E402
+from service_audit.rules import REQUIRED_CONTRACTS  # noqa: E402
 
 
 class AuditCase(unittest.TestCase):
@@ -689,6 +692,31 @@ class ProtocolTests(AuditCase):
             "REVIEW", "adapters/fetch.py", "Protocol Fetcher has one implementation"
         )
 
+    def test_prescribed_worker_inbox_is_not_a_single_implementation_notice(self) -> None:
+        self.pkg(
+            "workers/inbox.py",
+            """
+            from typing import Protocol
+
+            class Inbox(Protocol):
+                async def receive(self) -> list[str]: ...
+                async def settle(self, message: str) -> None: ...
+            """,
+        )
+        self.pkg(
+            "adapters/sqs_inbox.py",
+            """
+            class SqsInbox:
+                async def receive(self) -> list[str]:
+                    return []
+
+                async def settle(self, message: str) -> None:
+                    return None
+            """,
+        )
+        rendered = self.findings()
+        self.assertFalse(any("Protocol Inbox has one implementation" in line for line in rendered), rendered)
+
     def test_non_port_protocol_with_test_double_is_fine(self) -> None:
         self.pkg(
             "adapters/fetch.py",
@@ -884,9 +912,7 @@ class ArchitectureContractTests(AuditCase):
             f"\n[importlinter:contract:{index}]\ntype = forbidden\n"
             f"source_modules =\n{''.join(f'    my_service.{s}.**' + chr(10) for s in sources)}"
             f"forbidden_modules =\n{''.join(f'    my_service.{t}' + chr(10) for t in targets)}"
-            for index, (_, sources, targets) in enumerate(
-                audit_service.REQUIRED_CONTRACTS
-            )
+            for index, (_, sources, targets) in enumerate(REQUIRED_CONTRACTS)
         )
         (self.member / ".importlinter").write_text(
             "[importlinter]\nroot_packages =\n    my_service\n    billing\n" + contracts
@@ -1140,7 +1166,7 @@ class RuleCitationTests(unittest.TestCase):
     def test_every_cited_section_exists(self) -> None:
         rules = {
             value
-            for name, value in vars(audit_service).items()
+            for name, value in vars(rules_module).items()
             if name.startswith("R_") and isinstance(value, str)
         }
         self.assertTrue(rules)

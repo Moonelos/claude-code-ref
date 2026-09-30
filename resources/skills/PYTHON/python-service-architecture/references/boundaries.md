@@ -187,7 +187,37 @@ that row as a per-item failure (`Corrupt(row_id=...)` in the result union) so
 the rest of the batch proceeds ([errors.md](errors.md#handling-boundaries)). A
 corrupt row is almost always our own defect (validation tightened in a deploy):
 log it at error and leave the record unchanged for an operator; never move it to
-a terminal business state.
+a terminal business state. When the batch is a cursor page, advance the cursor
+past every inspected row, including corrupt rows. An empty page of valid items
+must still expose a next cursor when later rows exist; otherwise one corrupt
+page can end pagination or repeat the same row forever.
+
+Validate values against the storage contract before writing, including
+characters or lengths the database rejects even when the wire type is valid.
+Also validate every outbound representation the value will enter. A value may
+fit a text column and JSON body but fail a URL or HTTP header character set or
+length limit. Check this before committing a record that the delivery path
+cannot encode; turn an item-specific encoding failure into the port's named
+integrity/rejection outcome, not an uncaught process exception or an endless
+dependency retry. Test non-ASCII, control characters, and length boundaries
+where an identifier becomes an outbound header or URL component.
+Database constraints remain the final guard; translate a per-record data or
+constraint failure to the port's integrity error with the record identity. A
+consumer gives that poison record a named per-item outcome so it cannot crash
+the process on every redelivery.
+
+When an adapter returns a domain or port value built from external data, use
+the same domain predicate or constructor that protects the value; do not add a
+weaker copy of its validation to the wire schema. Translate an invalid success
+payload at the adapter boundary before a domain invariant can escape as a
+programming error. For an external write, apply
+[Uncertain external writes](persistence.md#uncertain-external-writes) to a bad
+success response.
+For optional HTTP or SDK response headers, bound every conversion from
+untrusted text. Syntax checks such as `str.isdigit()` are not enough: they
+accept Unicode digits and unbounded numbers that `int()` or a duration type
+can reject. A malformed hint is ignored or translated at the adapter boundary;
+it never escapes as a programming exception.
 
 Pydantic validates at construction only: `model_copy(update=...)` does not
 revalidate. Rebuild with `model_validate` for untrusted input, arithmetic that
