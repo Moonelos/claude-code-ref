@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from typing import Literal
 
-
 Severity = Literal["VIOLATION", "REVIEW"]
 MethodKey = tuple[str, tuple[str, ...]]
 
@@ -41,12 +40,15 @@ R_LIB_KINDS = f"{ARCH}/shared-libraries.md#Library kinds and importers"
 R_LIB_RULES = f"{ARCH}/shared-libraries.md#Library rules"
 R_LIB_FLAT = f"{ARCH}/shared-libraries.md#Flat first"
 R_LIB_API = f"{ARCH}/shared-libraries.md#Public API and compatibility"
+R_LIB_EXCEPTION = f"{ARCH}/shared-libraries.md#Database-runtime exception"
+R_LIB_CONFIG = f"{ARCH}/shared-libraries.md#Configuration mechanics"
 R_LIB_ENFORCEMENT = f"{ARCH}/shared-libraries.md#Enforcement"
 
 LIBRARY_KINDS = (
     "contract",
     "client",
     "persistence",
+    "configuration",
     "observability",
     "genai",
     "testing",
@@ -232,7 +234,16 @@ SHARED_LITERAL_MODULES = 3
 STANDARD_TOKENS = {"utf-8", "utf-16", "us-ascii", "iso-8859-1"}
 IDENTIFIER_LITERAL = re.compile(r"^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)+$")
 LIFECYCLE_NAMES = {"aclose", "close", "dispose", "shutdown"}
-STATE_METHODS = {"add", "append", "clear", "discard", "extend", "pop", "remove", "update"}
+STATE_METHODS = {
+    "add",
+    "append",
+    "clear",
+    "discard",
+    "extend",
+    "pop",
+    "remove",
+    "update",
+}
 IMPLEMENTATION_OWNERS = {"adapters", "db", "genai"}
 SKIPPED_DIRS = {
     ".git",

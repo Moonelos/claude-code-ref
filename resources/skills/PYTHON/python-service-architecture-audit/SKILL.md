@@ -216,14 +216,14 @@ For a member under `libs/` or `packages/`, read
 service references, decide the library's one kind, and run library mode:
 
 ```bash
-python scripts/audit_service.py libs/<lib>/src/<package> --library <contract|client|persistence|observability|genai|testing> --workspace path/to/repo [--service-package PACKAGE ...]
+python scripts/audit_service.py libs/<lib>/src/<package> --library <contract|client|persistence|configuration|observability|genai|testing> --workspace path/to/repo [--service-package PACKAGE ...]
 ```
 
 The workspace supplies the service packages (`services/*/src/*`) that the
 independence contract must forbid, and the consumers checked for imports of
 `_`-prefixed library names. The script checks the rules marked (checked) in
-`shared-libraries.md`: service imports, environment and `pydantic_settings`
-reads, logging configuration, imports the kind forbids, generic names,
+`shared-libraries.md`: service imports, environment reads, kind-specific `pydantic_settings`
+imports, logging configuration, imports the kind forbids, generic names,
 `py.typed`, service shells, speculative packages, and the independence
 contract. It does not run the service checks.
 
@@ -236,8 +236,14 @@ Then check semantically, each against `shared-libraries.md`:
   importer contract for it.
 - The library translates every failure into its own errors, and each consumer
   translates those once into port errors.
-- No resource the library was given is closed by it, and exactly one layer
-  retries.
+- Borrowed resources are not closed by the library; review explicit ownership
+  transfer against the lifecycle rule. Exactly one layer retries.
+
+For a database runtime, follow the scoped exception declaration and semantic
+checks in `shared-libraries.md#database-runtime-exception`; run `--library
+persistence`. The audit reports its exception as REVIEW, not general taxonomy
+admission. Configuration and exception import placement are checked with
+`--workspace`; importer contract coverage still needs semantic verification.
 
 Classify, report, and route library findings like service findings.
 
@@ -260,8 +266,7 @@ code that differs in meaning, lifecycle, or dependencies stays local.
 For each candidate, report the source paths and consumers, shared operational
 meaning, actual differences, minimal public inputs, service-local policy,
 dependency and lifecycle costs, and the smallest consumer-by-consumer
-migration. Environment, YAML, secrets, and service settings stay service-owned
-and are mapped by bootstrap. Do not recommend generic shared dumping grounds or
+migration. See `shared-libraries.md#configuration-mechanics` for configuration ownership. Do not recommend generic shared dumping grounds or
 wrappers that merely rename SDK calls. Textual similarity alone cannot
 establish semantic reuse.
 

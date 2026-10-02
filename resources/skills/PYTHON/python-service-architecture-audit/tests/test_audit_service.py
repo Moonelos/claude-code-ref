@@ -147,7 +147,9 @@ class ImportDirectionTests(AuditCase):
         self.pkg("application/logs.py", "import structlog\n")
         self.assertClean()
         self.pkg("domain/logs.py", "import structlog\n")
-        self.assertFinding("VIOLATION", "domain/logs.py", "external technology structlog")
+        self.assertFinding(
+            "VIOLATION", "domain/logs.py", "external technology structlog"
+        )
 
     def test_workers_do_not_import_concrete_integrations(self) -> None:
         self.pkg(
@@ -158,7 +160,9 @@ class ImportDirectionTests(AuditCase):
 
     def test_application_does_not_import_workers(self) -> None:
         self.pkg("application/bad.py", "from my_service.workers import runtime\n")
-        self.assertFinding("VIOLATION", "application/bad.py", "application imports workers")
+        self.assertFinding(
+            "VIOLATION", "application/bad.py", "application imports workers"
+        )
 
     def test_bootstrap_binding_an_action_is_reviewed(self) -> None:
         self.pkg(
@@ -172,7 +176,9 @@ class ImportDirectionTests(AuditCase):
             """,
         )
         self.assertFinding(
-            "REVIEW", "bootstrap/supervisor.py", "binds application action submit_investigation"
+            "REVIEW",
+            "bootstrap/supervisor.py",
+            "binds application action submit_investigation",
         )
 
     def test_method_guarding_private_state_is_not_forwarding(self) -> None:
@@ -660,7 +666,9 @@ class ProtocolTests(AuditCase):
             """,
         )
         rendered = self.findings()
-        self.assertFalse(any("only declares __call__" in line for line in rendered), rendered)
+        self.assertFalse(
+            any("only declares __call__" in line for line in rendered), rendered
+        )
 
     def test_callable_protocol_outside_ports_is_review(self) -> None:
         self.pkg(
@@ -692,7 +700,9 @@ class ProtocolTests(AuditCase):
             "REVIEW", "adapters/fetch.py", "Protocol Fetcher has one implementation"
         )
 
-    def test_prescribed_worker_inbox_is_not_a_single_implementation_notice(self) -> None:
+    def test_prescribed_worker_inbox_is_not_a_single_implementation_notice(
+        self,
+    ) -> None:
         self.pkg(
             "workers/inbox.py",
             """
@@ -715,7 +725,10 @@ class ProtocolTests(AuditCase):
             """,
         )
         rendered = self.findings()
-        self.assertFalse(any("Protocol Inbox has one implementation" in line for line in rendered), rendered)
+        self.assertFalse(
+            any("Protocol Inbox has one implementation" in line for line in rendered),
+            rendered,
+        )
 
     def test_non_port_protocol_with_test_double_is_fine(self) -> None:
         self.pkg(
@@ -776,10 +789,12 @@ class DuplicationTests(AuditCase):
 
     def test_same_named_private_helpers_with_different_bodies(self) -> None:
         self.pkg(
-            "adapters/one.py", "def _clean(x: str) -> str:\n    return x.strip() or \"-\"\n"
+            "adapters/one.py",
+            'def _clean(x: str) -> str:\n    return x.strip() or "-"\n',
         )
         self.pkg(
-            "adapters/two.py", "def _clean(x: str) -> str:\n    return x.lower() or \"-\"\n"
+            "adapters/two.py",
+            'def _clean(x: str) -> str:\n    return x.lower() or "-"\n',
         )
         self.assertClean()
 
@@ -846,7 +861,8 @@ class ArchitectureContractTests(AuditCase):
             with self.subTest(edge=edge):
                 self.assertFinding("VIOLATION", "(repository)", edge)
         self.assertEqual(
-            sum(line.startswith("VIOLATION (repository)") for line in self.findings()), 1
+            sum(line.startswith("VIOLATION (repository)") for line in self.findings()),
+            1,
         )
 
     def test_contract_missing_only_an_absent_boundary_is_review(self) -> None:
@@ -1089,6 +1105,209 @@ class LibraryRuleTests(LibraryCase):
     def test_relative_import(self) -> None:
         self.lib("extra.py", "from .models import Document\n")
         self.assertFinding("VIOLATION", "extra.py", "relative import")
+
+
+class ConfigurationLibraryTests(LibraryCase):
+    def setUp(self) -> None:
+        super().setUp()
+        for name in ("client.py", "models.py", "errors.py"):
+            (self.package / name).unlink()
+        self.lib("__init__.py", "")
+        pyproject = self.member / "pyproject.toml"
+        pyproject.write_text(pyproject.read_text().replace(', "pydantic_settings"', ""))
+        self.lib(
+            "sources.py",
+            """
+            from pathlib import Path
+            from pydantic_settings import BaseSettings, YamlConfigSettingsSource
+
+            def yaml_source(settings_cls: type[BaseSettings], path: Path) -> YamlConfigSettingsSource:
+                return YamlConfigSettingsSource(settings_cls, yaml_file=path)
+        """,
+        )
+
+    def test_source_construction_and_service_import_are_allowed(self) -> None:
+        consumer = (
+            self.workspace / "services/my-service/src/my_service/config/loading.py"
+        )
+        consumer.write_text("from edm_client import yaml_source\n")
+        self.assertClean("configuration")
+
+    def test_cli_configuration_kind(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                str(self.package),
+                "--library",
+                "configuration",
+                "--workspace",
+                str(self.workspace),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("static checks passed", result.stdout)
+
+    def test_configuration_still_forbids_environment_and_service_imports(self) -> None:
+        self.lib(
+            "bad.py",
+            "import os\nfrom my_service.config.settings import Settings\nVALUE = os.getenv('SECRET')\n",
+        )
+        self.assertFinding(
+            "VIOLATION", "bad.py", "reads the environment", "configuration"
+        )
+        self.assertFinding(
+            "VIOLATION", "bad.py", "imports service package", "configuration"
+        )
+
+    def test_settings_schema_is_forbidden_including_aliases(self) -> None:
+        for source in (
+            "from pydantic_settings import BaseSettings\nclass Settings(BaseSettings): pass\n",
+            "from pydantic_settings import BaseSettings as BS\nclass Settings(BS): pass\n",
+            "import pydantic_settings as ps\nclass Settings(ps.BaseSettings): pass\n",
+        ):
+            with self.subTest(source=source):
+                self.lib("settings.py", source)
+                self.assertFinding(
+                    "VIOLATION",
+                    "settings.py",
+                    "defines a service settings schema",
+                    "configuration",
+                )
+
+    def test_wrong_importer_including_boundary_init_is_forbidden(self) -> None:
+        for layer in ("db", "application"):
+            consumer = (
+                self.workspace
+                / f"services/my-service/src/my_service/{layer}/__init__.py"
+            )
+            consumer.write_text("from edm_client import yaml_source\n")
+            self.assertFinding(
+                "VIOLATION",
+                str(consumer.relative_to(self.workspace)),
+                "outside allowed layers",
+                "configuration",
+            )
+
+    def test_service_independence_contract_is_still_required(self) -> None:
+        pyproject = self.member / "pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text().replace('"my_service"', '"other_service"')
+        )
+        self.assertFinding(
+            "VIOLATION", "(repository)", "edm_client → my_service", "configuration"
+        )
+
+
+class DatabaseRuntimeExceptionTests(LibraryCase):
+    def setUp(self) -> None:
+        super().setUp()
+        other = self.workspace / "services/other/src/other_service"
+        other.mkdir(parents=True)
+        (other / "__init__.py").write_text("")
+        pyproject = self.member / "pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text().replace(
+                '"my_service",', '"my_service", "other_service",'
+            )
+        )
+        self.lib(
+            "engine.py", "from sqlalchemy.ext.asyncio import create_async_engine\n"
+        )
+
+    def declare(
+        self,
+        *,
+        package: str = "edm_client",
+        consumers: str = '["my_service", "other_service"]',
+    ) -> None:
+        pyproject = self.member / "pyproject.toml"
+        with pyproject.open("a") as stream:
+            stream.write(
+                f'\n[tool.service-audit.library-exception]\npackage = "{package}"\n'
+                f'profile = "database-runtime"\nreason = "Shared transaction lifecycle"\nconsumers = {consumers}\n'
+            )
+
+    def test_exception_relaxes_engine_import_and_keeps_review(self) -> None:
+        self.declare()
+        found = self.findings("persistence")
+        self.assertFalse(any(line.startswith("VIOLATION") for line in found), found)
+        self.assertTrue(
+            any(
+                "exception applied" in line and "borrowed/owned" in line
+                for line in found
+            ),
+            found,
+        )
+
+    def test_without_exception_persistence_remains_metadata_only(self) -> None:
+        self.assertFinding("VIOLATION", "engine.py", "session or engine", "persistence")
+
+    def test_invalid_declaration_does_not_relax_engine_imports(self) -> None:
+        for consumers in (
+            '["my_service"]',
+            '["my_service", "my_service"]',
+            '["my_service", "missing_service"]',
+            "[1, 2]",
+        ):
+            with self.subTest(consumers=consumers):
+                pyproject = self.member / "pyproject.toml"
+                original = pyproject.read_text()
+                self.declare(consumers=consumers)
+                self.assertFinding(
+                    "VIOLATION",
+                    "(repository)",
+                    "invalid database-runtime",
+                    "persistence",
+                )
+                self.assertFinding(
+                    "VIOLATION", "engine.py", "session or engine", "persistence"
+                )
+                pyproject.write_text(original)
+
+    def test_exception_cannot_apply_to_another_package_or_kind(self) -> None:
+        self.declare(package="another_package")
+        self.assertFinding("VIOLATION", "engine.py", "session or engine", "persistence")
+        self.assertFinding(
+            "VIOLATION", "(repository)", "invalid database-runtime", "configuration"
+        )
+
+    def test_exception_preserves_settings_and_service_bans(self) -> None:
+        self.declare()
+        self.lib(
+            "bad.py",
+            "from pydantic_settings import BaseSettings\nfrom my_service.config import Settings\n",
+        )
+        self.assertFinding("VIOLATION", "bad.py", "pydantic_settings", "persistence")
+        self.assertFinding(
+            "VIOLATION", "bad.py", "imports service package", "persistence"
+        )
+
+    def test_exception_allows_db_and_bootstrap_but_not_application(self) -> None:
+        self.declare()
+        for layer in ("db", "bootstrap"):
+            consumer = (
+                self.workspace
+                / f"services/my-service/src/my_service/{layer}/runtime.py"
+            )
+            consumer.write_text("from edm_client import Database\n")
+        self.assertFalse(
+            any(line.startswith("VIOLATION") for line in self.findings("persistence"))
+        )
+        consumer = (
+            self.workspace
+            / "services/my-service/src/my_service/application/__init__.py"
+        )
+        consumer.write_text("from edm_client import Database\n")
+        self.assertFinding(
+            "VIOLATION",
+            str(consumer.relative_to(self.workspace)),
+            "outside allowed layers",
+            "persistence",
+        )
 
 
 class LibraryShapeTests(LibraryCase):

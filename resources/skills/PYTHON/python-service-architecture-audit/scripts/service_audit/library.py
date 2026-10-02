@@ -7,6 +7,8 @@ import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+import tomllib
+
 from service_audit.ast_helpers import dotted_name, imports
 from service_audit.cross_checks import (
     cross_member_findings,
@@ -30,7 +32,9 @@ from service_audit.rules import (
     R_ASSERT,
     R_IMPORTS,
     R_LIB_API,
+    R_LIB_CONFIG,
     R_LIB_ENFORCEMENT,
+    R_LIB_EXCEPTION,
     R_LIB_FLAT,
     R_LIB_KINDS,
     R_LIB_RULES,
@@ -42,7 +46,13 @@ from service_audit.rules import (
 
 
 def library_import_findings(
-    module: Module, package: str, kind: str, allowed: set[str], services: set[str]
+    module: Module,
+    package: str,
+    kind: str,
+    allowed: set[str],
+    services: set[str],
+    *,
+    database_runtime: bool = False,
 ) -> Iterator[Finding]:
     for name, names, level, line in imports(module.tree):
         if level:
@@ -52,7 +62,7 @@ def library_import_findings(
         if root in services:
             message = f"library imports service package {root}"
             yield violation(module, line, message, R_LIB_RULES)
-        if root == "pydantic_settings":
+        if root == "pydantic_settings" and kind != "configuration":
             message = "library imports pydantic_settings; take explicit options instead"
             yield violation(module, line, message, R_LIB_RULES)
         if name == "os" and {"environ", "getenv", "environb"} & set(names):
@@ -73,8 +83,10 @@ def library_import_findings(
         ):
             message = f"contract library imports {root}; contracts use only the stdlib and pydantic"
             yield violation(module, line, message, R_LIB_KINDS)
-        if kind == "persistence" and (
-            name.startswith(SESSION_MODULES) or SESSION_NAMES.intersection(names)
+        if (
+            kind == "persistence"
+            and not database_runtime
+            and (name.startswith(SESSION_MODULES) or SESSION_NAMES.intersection(names))
         ):
             message = "persistence library imports session or engine machinery; it owns metadata only"
             yield violation(module, line, message, R_LIB_KINDS)
@@ -161,6 +173,125 @@ def private_import_findings(
                 yield Finding(display, line, message, R_LIB_API, "REVIEW")
 
 
+def configuration_schema_findings(module: Module) -> Iterator[Finding]:
+    """Resolve direct BaseSettings bases, including import aliases."""
+    bases = {"pydantic_settings.BaseSettings"}
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "pydantic_settings":
+            bases.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == "BaseSettings"
+            )
+        elif isinstance(node, ast.Import):
+            bases.update(
+                f"{alias.asname or alias.name}.BaseSettings"
+                for alias in node.names
+                if alias.name == "pydantic_settings"
+            )
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.ClassDef) and any(
+            dotted_name(base) in bases for base in node.bases
+        ):
+            yield violation(
+                module,
+                node.lineno,
+                "configuration library defines a service settings schema",
+                R_LIB_CONFIG,
+            )
+
+
+def database_runtime_exception(
+    root: Path, package: str, kind: str, services: set[str], workspace: Path | None
+) -> tuple[bool, list[Finding]]:
+    """A member-local, named exception; invalid declarations never relax checks."""
+    member = root.parent.parent if root.parent.name == "src" else root
+    path = member / "pyproject.toml"
+    if not path.is_file():
+        return False, []
+    try:
+        config = tomllib.loads(path.read_text())
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return False, [
+            Finding(
+                "(repository)",
+                0,
+                "cannot parse member pyproject.toml; no exception applied",
+                R_LIB_EXCEPTION,
+                "VIOLATION",
+            )
+        ]
+    declaration = (
+        config.get("tool", {}).get("service-audit", {}).get("library-exception")
+    )
+    if declaration is None:
+        return False, []
+    valid = isinstance(declaration, dict)
+    if valid:
+        consumers = declaration.get("consumers")
+        reason = declaration.get("reason")
+        valid = (
+            kind == "persistence"
+            and declaration.get("package") == package
+            and declaration.get("profile") == "database-runtime"
+            and isinstance(reason, str)
+            and bool(reason.strip())
+            and isinstance(consumers, list)
+            and all(isinstance(item, str) and bool(item.strip()) for item in consumers)
+            and len(set(consumers)) >= 2
+            and (workspace is None or set(consumers) <= services)
+        )
+    if not valid:
+        return False, [
+            Finding(
+                "(repository)",
+                0,
+                "invalid database-runtime exception: require matching persistence package, "
+                "profile, reason and two current service consumers; no exception applied",
+                R_LIB_EXCEPTION,
+                "VIOLATION",
+            )
+        ]
+    return True, [
+        Finding(
+            "(repository)",
+            0,
+            "database-runtime exception applied; review admission, technical versus business "
+            "SQL, service-owned configuration, and borrowed/owned resource cleanup",
+            R_LIB_EXCEPTION,
+            "REVIEW",
+        )
+    ]
+
+
+def consumer_placement_findings(
+    package: str, workspace: Path, allowed_layers: set[str]
+) -> Iterator[Finding]:
+    """Check actual production imports, including boundary package markers."""
+    for init in sorted(workspace.glob("services/*/src/*/__init__.py")):
+        root = init.parent
+        for path in python_files(root):
+            try:
+                tree = ast.parse(path.read_text(), filename=str(path))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            relative = path.relative_to(root)
+            layer = relative.parts[0].removesuffix(".py")
+            for name, _names, level, line in imports(tree):
+                if (
+                    not level
+                    and (name == package or name.startswith(f"{package}."))
+                    and layer not in allowed_layers
+                ):
+                    yield Finding(
+                        str(path.relative_to(workspace)),
+                        line,
+                        f"{package} imported outside allowed layers: {', '.join(sorted(allowed_layers))}",
+                        R_LIB_KINDS,
+                        "VIOLATION",
+                    )
+
+
 def audit_library(
     root: Path,
     package: str,
@@ -172,6 +303,10 @@ def audit_library(
 ) -> list[Finding]:
     modules, findings = load_modules(root)
     services = (service_packages(workspace) | extra_services) - {package}
+    database_runtime, exception_findings = database_runtime_exception(
+        root, package, kind, services, workspace
+    )
+    findings.extend(exception_findings)
     if not services:
         message = (
             "no service packages known; pass --workspace (services/*/src/*) or --service-package "
@@ -182,10 +317,22 @@ def audit_library(
         )
     checks: Iterable[Iterator[Finding]] = (
         *(
-            library_import_findings(module, package, kind, allowed, services)
+            library_import_findings(
+                module,
+                package,
+                kind,
+                allowed,
+                services,
+                database_runtime=database_runtime,
+            )
             for module in modules
         ),
         *(library_body_findings(module) for module in modules),
+        *(
+            configuration_schema_findings(module)
+            for module in modules
+            if kind == "configuration"
+        ),
         *(module_shape_findings(module) for module in modules),
         *(pass_through_findings(module) for module in modules),
         library_package_findings(root, package),
@@ -193,13 +340,22 @@ def audit_library(
             root,
             package,
             workspace,
-            lambda config: missing_independence_findings(config, package, services),
+            lambda config: missing_independence_findings(
+                config, package, services, kind
+            ),
         ),
         duplicate_private_function_findings(modules),
     )
     for check in checks:
         findings.extend(check)
     if workspace is not None:
+        if kind == "configuration" or database_runtime:
+            layers = (
+                {"config", "bootstrap"}
+                if kind == "configuration"
+                else {"db", "bootstrap"}
+            )
+            findings.extend(consumer_placement_findings(package, workspace, layers))
         findings.extend(private_import_findings(package, root, workspace, tests_root))
         findings.extend(cross_member_findings(modules, root, workspace))
     return sorted(set(findings))

@@ -104,8 +104,9 @@ deployment overrides is env-only.
   `references/settings-py.md`), so a mistyped tweak is never silently ignored.
 - Discover `config/` by walking up from the settings module's file, never from
   the working directory or a fixed `parents[N]`.
-- Extract the YAML loader to a library only when two or more services copy it
-  verbatim and the copies drifted, or a shared config library already exists.
+- For shared YAML-loading mechanics, see
+  `../python-service-architecture/references/shared-libraries.md#configuration-mechanics`
+  and its extraction triggers.
   The service always owns its `Settings` schema.
 
 ## Flow into the application

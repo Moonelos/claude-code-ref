@@ -91,7 +91,8 @@ migration cost. Create one only when the code has one cohesive meaning outside
 any single deployable and there is concrete reuse: normally at least two current
 consumers, or an independently valuable protocol/client/schema boundary with a
 concrete compatibility or dependency-isolation reason. Hypothetical reuse alone
-is not enough.
+is not enough. For permitted versus mandatory extraction, see
+`../python-service-architecture/references/shared-libraries.md#extraction-triggers`.
 
 Check all of these before adding `libs/<name>`:
 

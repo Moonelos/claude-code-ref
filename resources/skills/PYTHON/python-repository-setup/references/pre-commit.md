@@ -280,6 +280,13 @@ source_modules = [
 forbidden_modules = ["edm_client"]
 ```
 
+For a configuration library, omit `pydantic_settings` from its independence
+contract and forbid its imports from every service layer except `config` and
+`bootstrap`. For the documented database-runtime exception, permit `db` and
+`bootstrap`; see the owning shared-library reference for declaration and review.
+Include each forbidden boundary root as well as its `.**` descendants so
+imports in `__init__.py` are covered.
+
 A persistence (models) library gets the same importer contract with every
 layer except `db` as a source. A contract library needs no importer contract.
 Add each new service package to every library's independence contract in the

@@ -11,7 +11,7 @@ from pathlib import Path
 import tomllib
 
 from service_audit.model import Finding
-from service_audit.rules import REQUIRED_CONTRACTS, R_CONTRACTS
+from service_audit.rules import R_CONTRACTS, REQUIRED_CONTRACTS
 
 
 @dataclass(frozen=True)
@@ -146,7 +146,9 @@ def missing_contract_findings(
 
     unforbidden = ", ".join(f"{source} → {target}" for source, target in missing)
     if any(exists(source) and exists(target) for source, target in missing):
-        message = f"import-linter contracts for {package} leave unforbidden: {unforbidden}"
+        message = (
+            f"import-linter contracts for {package} leave unforbidden: {unforbidden}"
+        )
         yield Finding("(repository)", 0, message, R_CONTRACTS, "VIOLATION")
     else:
         message = (
@@ -157,15 +159,18 @@ def missing_contract_findings(
 
 
 def missing_independence_findings(
-    config: ImportLinterConfig, package: str, services: set[str]
+    config: ImportLinterConfig, package: str, services: set[str], kind: str = "client"
 ) -> Iterator[Finding]:
-    """A library's contract must forbid every service package and pydantic_settings."""
+    """Forbid deployables, plus settings dependencies outside configuration libraries."""
     edges = [
         edge for contract in config.contracts for edge in forbidden_edges(contract)
     ]
     missing = [
         target
-        for target in (*sorted(services), "pydantic_settings")
+        for target in (
+            *sorted(services),
+            *(() if kind == "configuration" else ("pydantic_settings",)),
+        )
         if not any(
             covers_package(importers, package) and covers_package(imported, target)
             for importers, imported in edges
