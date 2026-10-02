@@ -1,4 +1,4 @@
-from sample_service.api.routes import live
+from sample_service.api.routers.health import live
 from sample_service.bootstrap.app import create_app
 
 
