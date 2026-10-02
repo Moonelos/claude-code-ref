@@ -30,6 +30,9 @@ from service_audit.rules import (
     IO_CALL_ROOTS,
     IO_METHODS,
     LIFECYCLE_NAMES,
+    MODEL_FACTORIES,
+    MODEL_ID_KEYWORDS,
+    MODEL_TUNING_KEYWORDS,
     NONDETERMINISTIC_CALLS,
     PURE_BOUNDARIES,
     REPOSITORY_METHOD_LINES,
@@ -41,6 +44,7 @@ from service_audit.rules import (
     R_CONFIG,
     R_CONSTRUCTOR_CONTRACTS,
     R_DIRECTION,
+    R_GENAI_OWNERSHIP,
     R_ESCAPE,
     R_IMPORTS,
     R_NONDETERMINISM,
@@ -514,6 +518,41 @@ def bootstrap_binding_findings(module: Module, package: str) -> Iterator[Finding
             yield review(module, node.lineno, message, R_WORKERS)
 
 
+def is_literal(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and not isinstance(node.value, bool | type(None))
+
+
+def genai_construction_findings(module: Module) -> Iterator[Finding]:
+    """Literal model ids and tuning values, and SDK clients built by hand, in genai/."""
+    for node in ast.walk(module.tree):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = dotted_name(node.func).split(".")[-1]
+        for keyword in node.keywords:
+            name = keyword.arg or ""
+            tuned = name in MODEL_TUNING_KEYWORDS or name.endswith("effort")
+            model_id = name in MODEL_ID_KEYWORDS and (
+                callee in MODEL_FACTORIES or callee.startswith(("Chat", "Bedrock"))
+            )
+            if (tuned or model_id) and is_literal(keyword.value):
+                message = (
+                    f"{name}={ast.unparse(keyword.value)} is hardcoded; take it from the "
+                    "task's settings slice (default in settings)"
+                )
+                yield review(module, node.lineno, message, R_GENAI_OWNERSHIP)
+        if callee in MODEL_FACTORIES and node.args and is_literal(node.args[0]):
+            message = f"{callee}() model id is hardcoded; take it from settings"
+            yield review(module, node.lineno, message, R_GENAI_OWNERSHIP)
+        if callee == "client" or any(
+            dotted_name(arg).endswith(".client") for arg in node.args
+        ):
+            message = (
+                "SDK client built by hand in genai/; pass timeouts, retries, and region to "
+                "init_chat_model and let the integration build its clients"
+            )
+            yield review(module, node.lineno, message, R_GENAI_OWNERSHIP)
+
+
 def audit_module(module: Module, package: str, allowed: set[str]) -> Iterator[Finding]:
     yield from import_findings(module, package, allowed)
     yield from bootstrap_binding_findings(module, package)
@@ -523,6 +562,8 @@ def audit_module(module: Module, package: str, allowed: set[str]) -> Iterator[Fi
         )
     if module.owner == "application":
         yield from application_lifecycle_findings(module)
+    if module.owner == "genai":
+        yield from genai_construction_findings(module)
     yield from transport_contract_findings(module)
     yield from port_findings(module)
     yield from domain_io_findings(module)

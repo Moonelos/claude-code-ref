@@ -11,11 +11,14 @@ description: >-
 
 # Python Service Architecture
 
-Services use **strict hexagonal architecture with no forwarding layers**. Every
-feature has the same fixed shape, so an agent always knows where new code goes
-and a reviewer always knows where to look. `application/` reads as the catalog
-of everything the service does. Import rules are enforced by tools; ownership
-rules by review and tests.
+A service's **business core uses strict hexagonal architecture with no
+forwarding layers**. Every business feature has the same fixed shape, so an
+agent always knows where new code goes and a reviewer always knows where to
+look. `application/` reads as the catalog of everything the service does.
+Code that is not a business operation (the internals of a GenAI capability,
+technical maintenance jobs, provider setup) takes the direct shape in
+[Where the hexagon applies](#where-the-hexagon-applies). Import rules are
+enforced by tools; ownership rules by review and tests.
 
 Non-deployable packages use the lighter shared-library structure
 ([shared-libraries.md](references/shared-libraries.md)); never copy a service
@@ -36,14 +39,35 @@ A request travels `entry point → action → implementation`. The worked exampl
 [templates.md](references/templates.md#canonical-feature), and an executable
 version is in [`assets/canonical_service/`](assets/canonical_service/).
 
+## Where the hexagon applies
+
+Decide the shape per piece of code before placing it. The full feature shape
+pays for itself where a fake port tests real orchestration and the action
+catalog answers "what does this service do?"; elsewhere it only adds hops.
+
+| Code | Shape | Why |
+| --- | --- | --- |
+| Business operation: reached by a route, worker, or CLI, or changes business state (turns, conversations, feedback, submissions) | Full: entry point → action → port → implementation | The catalog and the faked port in action tests earn their cost here |
+| Internals of a GenAI capability: retrieval, query rewrite, embeddings, read-only tools, middleware | Direct: classes and functions in the agent's folder or a capability folder (`genai/retrieval/`), with the fixed file names of [ai.md](references/ai.md#standard-agent-shape), called directly; no action, no application port ([ai.md](references/ai.md#when-a-tool-calls-an-action)) | Only the agent reaches them; the capability's own port (`AnswerAgent`) is already the boundary tests fake |
+| Technical maintenance job (retention purge, cleanup sweep) whose rule no other entry point needs | Direct: one function in the integration that owns the data (`db/retention.py`) run by the supervisor; no `domain/`, port, or action ([api-and-workers.md](references/api-and-workers.md#technical-jobs)) | Nothing else calls it, and its tests need the real database anyway |
+| Provider or SDK client setup | Inside the agent's `llms.py` or the adapter constructor ([ai.md](references/ai.md#ownership-inside-genaitask)) | Construction policy, not a capability |
+
+Promote direct code to the full shape when a trigger holds **today**: a second
+entry point needs it, it starts making business decisions or writes, or an
+action test must fake it. "It does I/O" alone is not a trigger.
+
 ## Core rules and why
 
 1. **Every business operation is one action in `application/`, even a one-line
-   read.** *Why:* the catalog stays complete, so "what does this service do?"
-   has one answer, and a new entry point has an obvious thing to call.
-2. **Every entry point calls exactly one action.** Routes live in `api/`; loops
-   and queue consumers in `workers/`; agent tools in `genai/`. Health, readiness,
-   metrics, and version endpoints are technical and call none. *Why:* business
+   read.** A step that only an agent tool reaches is not a business operation
+   ([Where the hexagon applies](#where-the-hexagon-applies)). *Why:* the
+   catalog stays complete, so "what does this service do?" has one answer, and
+   a new entry point has an obvious thing to call.
+2. **Every business entry point calls exactly one action.** Routes live in
+   `api/`; loops and queue consumers in `workers/`. Health, readiness, metrics,
+   version endpoints, and technical jobs call none. An agent tool calls an
+   action only when it triggers a business operation
+   ([ai.md](references/ai.md#when-a-tool-calls-an-action)). *Why:* business
    logic in an entry point is invisible to every other entry point, and gets
    duplicated or skipped.
 3. **Dependencies point inward** ([boundaries.md](references/boundaries.md#the-core-rule)).
@@ -52,8 +76,10 @@ version is in [`assets/canonical_service/`](assets/canonical_service/).
    *Why:* business rules can then be read, tested, and changed without a
    database, SDK, or framework in the room.
 4. **Every I/O capability an action uses is a port, one per capability**
-   (`SubmissionStore`, not a Protocol per table). *Why:* the action states what
-   it needs in business terms, and tests can fake exactly that.
+   (`SubmissionStore`, not a Protocol per table, nor one store for every table
+   the service owns; see [boundaries.md](references/boundaries.md#application-ports)).
+   *Why:* the action states what it needs in business terms, and tests can fake
+   exactly that.
 5. **Pure logic is never behind a Protocol.** Decisions, validation, parsing,
    and calculations live in `domain/` and are imported directly
    ([domain.md](references/domain.md)). *Why:* a Protocol around a pure function

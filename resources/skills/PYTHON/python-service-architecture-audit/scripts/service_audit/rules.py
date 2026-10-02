@@ -16,6 +16,8 @@ R_CONFIG = f"{ARCH}/boundaries.md#config/"
 R_TELEMETRY = f"{ARCH}/boundaries.md#observability/"
 R_PORTS = f"{ARCH}/boundaries.md#When a port earns its cost"
 R_APPLICATION_PORTS = f"{ARCH}/boundaries.md#Application ports"
+R_TOOL_ACTION = f"{ARCH}/ai.md#When a tool calls an action"
+R_GENAI_OWNERSHIP = f"{ARCH}/ai.md#Ownership inside genai/<task>/"
 R_FLAT = f"{ARCH}/boundaries.md#Flat-first growth across boundaries"
 R_OWNERSHIP = f"{ARCH}/boundaries.md#Errors and constants follow ownership"
 R_ADAPTERS = f"{ARCH}/boundaries.md#Adapters and their placement"
@@ -65,6 +67,17 @@ SPECULATIVE_LIBRARY_PACKAGES = {
 ENVIRONMENT_READS = {"os.environ", "os.getenv", "os.environb"}
 LOGGING_CONFIG_CALLS = {"basicConfig", "dictConfig", "fileConfig"}
 LANGCHAIN_ROOTS = ("langchain", "langgraph")
+# Model-call keywords that tune behavior or cost; a literal value belongs in settings.
+MODEL_TUNING_KEYWORDS = {
+    "dimensions",
+    "max_output_tokens",
+    "max_tokens",
+    "temperature",
+    "top_k",
+    "top_p",
+}
+MODEL_ID_KEYWORDS = {"model", "model_id", "model_name"}
+MODEL_FACTORIES = {"init_chat_model", "init_embeddings"}
 SESSION_MODULES = (
     "sqlalchemy.ext.asyncio",
     "sqlalchemy.orm.session",

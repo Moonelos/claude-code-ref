@@ -159,3 +159,62 @@ Scheduled deletes and updates:
 - take `pg_try_advisory_lock` when several replicas run the job, and
   invalidate the connection if unlock fails;
 - are backed by the partial index the delete predicate implies.
+
+### Choose the lightest coordination
+
+Pick the first rung that holds; climb only when the rung below provably does
+not. Every rung above 0 needs a sentence in the code saying why the lower one
+fails.
+
+| Rung | Mechanism | Use when |
+| --- | --- | --- |
+| 0 | None: one bounded, idempotent statement per batch | Two replicas running it at once do no harm (a time-based `DELETE ... LIMIT`) |
+| 1 | `pg_try_advisory_xact_lock(hashtext(:job))` | The whole pass fits in one transaction |
+| 2 | `pg_try_advisory_lock` on a dedicated connection, idempotent steps | The pass spans several transactions or calls outside this database (deleting a LangGraph thread, then the row). A crash drops the connection and releases the lock |
+| 3 | `FOR UPDATE SKIP LOCKED` row claiming ([Work claiming and leases](#work-claiming-and-leases)) | Several workers share items in parallel |
+| 4 | Lease row with owner, expiry, and fencing token | Work must outlive one connection **and** a step is not idempotent, so a stalled former holder's writes must be rejected |
+
+- **No schedule table for a time-based predicate.** `last_activity_at < now()
+  - :retention` catches up by itself after downtime; run the pass on a short
+  cadence (hourly) and let an empty batch be the idle case. A `last_success_at`
+  row is justified only when the job's *due time*, not the data, decides what
+  to process.
+- **Session locks need a session.** Behind PgBouncer in transaction pooling,
+  rung 2 silently does not lock; use rung 1 per batch or rung 3 instead.
+- **An external scheduler removes the rung.** A Kubernetes `CronJob` with
+  `concurrencyPolicy: Forbid`, or a single-target scheduled task, runs one
+  instance; the job then needs rung 0 only.
+- A lease (rung 4) for an idempotent retention or cleanup pass is
+  over-engineering: it adds a table, fencing writes, renewals, and recovery
+  paths that protect nothing.
+
+```python
+# db/retention.py — rung 2: steps are idempotent, one replica works at a time
+async def run_once(self) -> bool:
+    async with self.engine.connect() as lock_conn:
+        locked = await lock_conn.scalar(
+            text("SELECT pg_try_advisory_lock(hashtext(:job))"), {"job": JOB}
+        )
+        if not locked:
+            return False
+        try:
+            ids = await self._expired_batch()      # own short transaction
+            for conversation_id in ids:
+                await self.checkpoints.adelete_thread(str(conversation_id))
+                await self._delete(conversation_id)  # own short transaction
+            return len(ids) == self.batch_size
+        finally:
+            try:
+                await lock_conn.execute(
+                    text("SELECT pg_advisory_unlock(hashtext(:job))"), {"job": JOB}
+                )
+            except BaseException:
+                # A session lock survives on a pooled connection; drop it instead.
+                await lock_conn.invalidate()
+                raise
+```
+
+Verified against PostgreSQL 17: of six replicas started together exactly one
+acquires the lock; expired rows and their LangGraph threads are deleted while
+live ones stay; the lock is released after normal completion and after
+cancellation mid-pass.

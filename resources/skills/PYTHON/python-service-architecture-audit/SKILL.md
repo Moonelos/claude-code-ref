@@ -94,15 +94,19 @@ checked statically.
   code (script and import-linter contract) — The core rule.
 - `api/`, `workers/`, `adapters/`, `db/`, and `genai/` never import
   `bootstrap/` (script); bootstrap is the composition root.
-- Every business entry point (route, worker, consumer, agent tool, CLI) lives in
-  `api/`, `workers/`, `genai/` (tools), or `main.py`, never in `bootstrap/` or
-  `adapters/`, and calls exactly one application action and holds no business
-  logic, including simple reads; port
+- Every business entry point (route, worker, consumer, business agent tool, CLI)
+  lives in `api/`, `workers/`, `genai/` (tools), or `main.py`, never in
+  `bootstrap/` or `adapters/`, and calls exactly one application action and
+  holds no business logic, including simple reads; port
   implementations depend inward on their ports — Application ports;
   `application/`. Technical endpoints (liveness, readiness, metrics, version)
-  call no action and are not findings; one that reports business facts is a
-  business entry point. A one-call action follows
-  Action boundaries: a deliberate cost; confirm it is a real public operation.
+  and technical jobs call no action and are not findings; one that reports
+  business facts is a business entry point (`api-and-workers.md`, Technical
+  jobs). A read-only agent tool that serves only its agent calls its task's
+  collaborator directly and is not a finding (`ai.md`, When a tool calls an
+  action). A one-call action follows Action boundaries: a deliberate cost;
+  confirm it is a real public operation and not a step only a tool reaches
+  (script flags tool-only actions).
 - Every I/O capability an action uses is one port per capability, implemented
   directly by a class in `db/`, `adapters/`, or `genai/` (script flags ports
   without an implementation). Ports never model deterministic parsers,
@@ -120,6 +124,11 @@ checked statically.
   bootstrap calls GenAI factories with resolved configuration, and GenAI modules
   construct no runtime handles and read no settings at import time — `ai.md`,
   Factories and bootstrap wiring.
+- Model ids and call parameters that tune behavior or cost (`reasoning_effort`,
+  `max_tokens`, `temperature`, `dimensions`) come from settings, never literals
+  in `genai/`; chat models are built with `init_chat_model` and the integration
+  builds its own SDK clients (script flags literals and hand-built clients) —
+  `ai.md`, Ownership inside `genai/<task>/`.
 - No generic root or `core/` constants or errors module mixes unrelated owners;
   deployment-varying values live in `config/` — Errors and constants follow
   ownership (script flags the generic filenames).
@@ -160,8 +169,10 @@ owning rule:
 | **Pass-through wrappers:** confirm static forwarding candidates have no boundary or behavior of their own; distinguish public actions from extra helpers | `boundaries.md` No forwarding layers |
 | **Atomicity:** identify the transaction owner, concurrency guard, and DB/external-effect recovery contract; every committed intermediate state has a named exit; verify behavior with tests | `persistence.md` (load only for relevant writes) |
 | Package depth and abstractions are justified by current ownership, change, or test pressure | `boundaries.md` Flat-first growth across boundaries |
-| **Tool failures:** every error an agent tool's action can raise becomes a tool message or a task abort that the capability translates once; none escapes the capability's port | `ai.md` Tools and MCP |
-| **Scope:** behavioral machinery (intermediate states, sweepers, outboxes, idempotency keys, extra loops) is required by the brief or by a rule whose trigger actually holds; machinery added for a trigger that does not hold is an Improvement to remove | SKILL.md Decisions that look ambiguous |
+| **Tool failures:** every error an agent tool's action or collaborator can raise becomes a tool message or a task abort that the capability translates once; none escapes the capability's port | `ai.md` Tools and MCP |
+| **Over-structure:** for each feature, count the modules on the path from entry point to SQL or external call. A read-only path over ~3 hops, or a feature spread over more than ~5 modules, is a candidate; name each hop and the trigger that justifies it. Tool-only actions, ports with one implementation and no double, `domain/` + port + action stacks around a technical job, and process-lifetime collaborators carried in per-invocation context are Improvements to remove | SKILL.md Where the hexagon applies; `ai.md` When a tool calls an action, What a tool receives; `api-and-workers.md` Technical jobs |
+| **Port size:** a port or store with more than ~12 methods, an implementation over ~400 lines, or a sibling `db/` module importing its private helpers is split by aggregate or lifecycle | `boundaries.md` Application ports |
+| **Scope:** behavioral machinery (intermediate states, sweepers, outboxes, idempotency keys, extra loops, leases, schedule tables) is required by the brief or by a rule whose trigger actually holds; machinery added for a trigger that does not hold is an Improvement to remove. Example: a lease row with owner, generation, and fencing around an idempotent retention purge, where an advisory lock suffices | SKILL.md Decisions that look ambiguous; `python-sqlmodel-alembic` `work-queues.md` Choose the lightest coordination |
 
 Procedure notes the rules do not cover:
 
@@ -206,7 +217,8 @@ a risk with evidence.
 
 Summarize the semantic pass with a compact ownership matrix containing, as
 applicable: action, business decision, boundary input, port, concrete
-implementation, hop chain, state-transition owner, and lifecycle owner. Label
+implementation, hop chain with its module count, state-transition owner, and
+lifecycle owner. Label
 static-script findings separately from semantic findings.
 
 ## Library audit
@@ -286,7 +298,15 @@ Classify every finding as:
 - **Preference:** cosmetic difference without architectural consequence.
 
 Do not present preferences as violations. Recommend removing layers as readily
-as adding them; an audit that only ever adds structure is incomplete.
+as adding them; an audit that only ever adds structure is incomplete. Report
+over-structure findings in the same list as missing structure, with the same
+evidence standard.
+
+When the service's shape is one that `python-service-architecture` text
+explicitly prescribes, it is not a finding against the service, even if it
+looks wrong. Record it as a gap in `SKILL-GAPS-<date>.md`
+([Skill-gap cross-validation](#skill-gap-cross-validation)), so the audit and
+the architecture skill never contradict each other.
 
 A service without the import-linter contract from `python-repository-setup`
 ("Architecture contracts") in pre-commit and CI has a Violation: agents write

@@ -25,6 +25,7 @@ from service_audit.cross_checks import (  # noqa: E402
     protocol_findings,
     shared_literal_findings,
     single_module_adapter_findings,
+    tool_only_findings,
     unused_port_findings,
 )
 from service_audit.import_linter import contract_findings  # noqa: E402
@@ -53,6 +54,7 @@ def audit(
         *(audit_module(module, package, allowed) for module in modules),
         contract_findings(root, package, workspace),
         unused_port_findings(modules, package),
+        tool_only_findings(modules, package),
         protocol_findings(modules, tests),
         single_module_adapter_findings(root),
         duplicate_llm_findings(modules),

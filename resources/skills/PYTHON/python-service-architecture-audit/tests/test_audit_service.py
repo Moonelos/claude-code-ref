@@ -1408,5 +1408,123 @@ class RuleCitationTests(unittest.TestCase):
                     )
 
 
+class ToolOnlyTests(AuditCase):
+    def write_search(self) -> None:
+        self.pkg(
+            "ports/retrieval.py",
+            """
+            from typing import Protocol
+
+            class EvidenceIndex(Protocol):
+                async def search(self, *, query: str) -> tuple[str, ...]: ...
+            """,
+        )
+        self.pkg(
+            "application/search_documents.py",
+            """
+            from my_service.ports.retrieval import EvidenceIndex
+
+            async def search_documents(*, index: EvidenceIndex, query: str) -> tuple[str, ...]:
+                return await index.search(query=query)
+            """,
+        )
+        self.pkg(
+            "db/retrieval.py",
+            """
+            class PgvectorIndex:
+                async def search(self, *, query: str) -> tuple[str, ...]:
+                    return ()
+            """,
+        )
+        self.pkg(
+            "genai/tools.py",
+            """
+            from my_service.application.search_documents import search_documents
+            from my_service.ports.retrieval import EvidenceIndex
+
+            async def rag_search(*, index: EvidenceIndex, query: str) -> str:
+                hits = await search_documents(index=index, query=query)
+                return ",".join(hits)
+            """,
+        )
+
+    def test_action_imported_only_by_genai(self) -> None:
+        self.write_search()
+        self.assertFinding(
+            "REVIEW", "application/search_documents.py", "imported only by genai/"
+        )
+        self.assertFinding(
+            "REVIEW", "ports/retrieval.py", "used only by tool-only actions"
+        )
+
+    def test_action_with_route_is_not_tool_only(self) -> None:
+        self.write_search()
+        self.pkg(
+            "api/search.py",
+            """
+            from my_service.application.search_documents import search_documents
+
+            async def search(*, index, query: str) -> tuple[str, ...]:
+                return await search_documents(index=index, query=query)
+            """,
+        )
+        rendered = self.findings()
+        self.assertFalse(
+            [line for line in rendered if "tool" in line and "only" in line],
+            "\n".join(rendered),
+        )
+
+
+class GenaiConstructionTests(AuditCase):
+    def test_literal_tuning_and_model_id(self) -> None:
+        self.pkg(
+            "genai/factory.py",
+            """
+            from langchain.chat_models import init_chat_model
+
+            def build(*, region: str):
+                return init_chat_model(
+                    "anthropic.claude", region_name=region, reasoning_effort="low", max_tokens=512
+                )
+            """,
+        )
+        self.assertFinding("REVIEW", "genai/factory.py", "reasoning_effort='low' is hardcoded")
+        self.assertFinding("REVIEW", "genai/factory.py", "max_tokens=512 is hardcoded")
+        self.assertFinding("REVIEW", "genai/factory.py", "init_chat_model() model id is hardcoded")
+
+    def test_hand_built_sdk_client(self) -> None:
+        self.pkg(
+            "genai/clients.py",
+            """
+            import asyncio
+
+            async def open_client(*, session):
+                return await asyncio.to_thread(session.client, "bedrock-runtime")
+            """,
+        )
+        self.assertFinding("REVIEW", "genai/clients.py", "SDK client built by hand")
+
+    def test_settings_driven_factory_is_clean(self) -> None:
+        self.pkg(
+            "genai/factory.py",
+            """
+            from langchain.chat_models import init_chat_model
+
+            def build(*, settings):
+                return init_chat_model(
+                    settings.model_id,
+                    model_provider="bedrock_converse",
+                    reasoning_effort=settings.reasoning_effort,
+                    max_tokens=settings.max_output_tokens,
+                    disable_streaming=True,
+                )
+            """,
+        )
+        rendered = self.findings()
+        self.assertFalse(
+            [line for line in rendered if "genai/factory.py" in line], "\n".join(rendered)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

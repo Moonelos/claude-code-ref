@@ -19,19 +19,32 @@ add artificial orchestration.
 
 ## Ownership inside `genai/<task>/`
 
-Keep model construction, prompts, schemas, tools, and behavior-changing
-middleware under `genai/<task>/`.
+Keep model construction, prompts, schemas, tools, middleware, memory, and
+invocation under `genai/<task>/`, in the fixed files of
+[Standard agent shape](#standard-agent-shape).
 
-- Build the model in a factory function. A one-line binding such as
-  `model.with_structured_output(Schema)` happens in the capability's
-  constructor; a task-level `llm.py` exists only when binding takes several
-  steps (tools plus task-only parameters or fallbacks).
+- Build every model of the task in its `llms.py` factory functions. A one-line
+  binding such as `model.with_structured_output(Schema)` happens in the
+  runner's constructor.
 - Provider construction policy (timeouts, disabled SDK retries, client
-  validation, callbacks) lives once: in the task's factory while one task uses
-  the provider, moved to `genai/shared/<provider>.py::build_chat_model(options)`
+  validation, callbacks) lives once: in the task's `llms.py` while one task
+  uses the provider, moved to `genai/shared/llms.py::build_chat_model(settings=...)`
   when a second task needs the same policy.
-- Name other modules after what they contain (`runner.py`, `embedder.py`). Never
-  name model construction `model.py` or `models/`; those read as domain entities.
+- Build chat models with `init_chat_model(...)` and let the integration build
+  its own SDK clients from the settings you pass (region, timeouts, retries,
+  credentials; `config=botocore.config.Config(...)` for Bedrock). Never create
+  boto3 or HTTP clients yourself to hand to a model, and no `resources.py` for
+  them. Own a client only when the integration cannot accept a setting you
+  need; record which one in a comment
+  ([Factories and bootstrap wiring](#factories-and-bootstrap-wiring)).
+- Every call parameter that tunes behavior or cost (`reasoning_effort`,
+  `max_tokens`, `temperature`, embedding `dimensions`) comes from the task's
+  settings slice, with its default in settings, never as a literal in the
+  factory. A value with another owner (vector dimensions fixed by the schema)
+  is imported from that owner, not repeated.
+- Use the fixed file names of [Standard agent shape](#standard-agent-shape).
+  Never name model construction `model.py` or `models/`; those read as domain
+  entities.
 - No module whose body is only a re-export.
 - Reuse a sibling task's factory through `genai/shared/`, never by reaching into
   the sibling.
@@ -52,25 +65,77 @@ provider factory, not per task.
 
 ## Standard agent shape
 
+Every agent gets one folder under `genai/` with a **closed vocabulary of
+files**. The same names in every agent, in `shared/`, and in every service
+mean an agent or a reviewer always knows where a piece lives.
+
 ```text
-genai/pricing_agent/
-├── schemas.py              # Agent input/output and response schemas
-├── prompts.py              # Prompt text and PROMPT_VERSION, when owned
-├── tools.py                # A few cohesive tools, when used
-├── middleware.py           # Behavior/policy middleware, when used
-├── agent.py                # Harness factory or assembler class
-└── pricer.py               # Pricer port implementation
+genai/
+├── <agent>/                 # one folder per agent: answer_agent/, pricing_agent/
+│   ├── llms.py              # init_chat_model / embeddings factories, values from settings
+│   ├── prompts.py           # prompt text and PROMPT_VERSION
+│   ├── schemas.py           # structured output, context_schema, custom agent state
+│   ├── tools.py             # the agent's tools
+│   ├── middleware.py        # guardrails, budgets, retries, fallbacks, summarization
+│   ├── memory.py            # short- and long-term memory: checkpointer, store, LangMem, memory tools
+│   ├── agent.py             # create_agent(...): assembles the harness only
+│   └── runner.py            # implements the capability port: invoke, stream, translate
+├── retrieval/               # a capability several agents may use (not an agent)
+│   ├── retriever.py         # rewrite + embed + search; private EvidenceIndex Protocol
+│   ├── prompts.py           # query-rewrite prompt and PROMPT_VERSION
+│   └── llms.py              # rewrite model and embeddings factories
+└── shared/                  # same file names, only for pieces a second agent reuses
+    ├── llms.py
+    └── middleware.py
 ```
 
-A simple structured-output capability is `schemas.py`, `prompts.py`, and
-`classifier.py`, with no `llm.py`. Create
-`prompts.py`, `tools.py`, and `middleware.py` only when those responsibilities
-exist. A few cohesive tools may share `tools.py`; split to `tools/<tool>.py` when
-tools gain their own schemas. Add `graph/` (state, nodes, routing) only when the
-task explicitly defines LangGraph state or edges; `create_agent()` alone does not
-justify it. `checkpointer.py` and `mcp.py` appear only when graph persistence or
-MCP tools exist. Multi-agent services repeat this shape per task and add
-`genai/shared/` slices (prompts, tools, retrieval) only for demonstrated reuse.
+**What goes where.**
+
+| File | Holds | Never holds |
+| --- | --- | --- |
+| `llms.py` | Model and embeddings factories; provider policy (timeouts, SDK retries off) | Literal model ids or tuning values; hand-built SDK clients |
+| `prompts.py` | Prompt text, `PROMPT_VERSION`, constants the prompt states | Runtime context lookups |
+| `schemas.py` | Structured-output models, the `context_schema`, custom `AgentState` fields, middleware `state_schema` | Business contracts (those live in `ports/` or `domain/`) |
+| `tools.py` | `@tool` builders ([Tools and MCP](#tools-and-mcp)) | SQL, repositories, retry policy |
+| `middleware.py` | Every behavior or policy hook: input guardrails, call and attempt budgets (including a budget-enforcing callback), retries, model fallbacks, summarization, final-answer phases | Tracing, metrics, or logging-only hooks (`observability/genai.py`) |
+| `memory.py` | Every agent-memory implementation: the checkpointer (short-term, per thread), the long-term store and its namespaces, memory managers and memory tools (LangMem `create_manage_memory_tool`, `create_search_memory_tool`, background extractors), and memory recall or write helpers that middleware or the runner call | Pools and connections (bootstrap owns them and passes them in); extraction models (built in `llms.py`, passed in); thread deletion behind a port (`db/`) |
+| `agent.py` | `create_agent(...)` with models, tools, middleware, checkpointer; the typed graph alias | Model construction, invocation, outcome assembly |
+| `runner.py` | The capability port implementation: builds input and context, invokes or streams the graph, validates output, translates errors once | Business decisions, persistence, retries across turns |
+
+**Rules.**
+
+- Create a file only when its responsibility exists: an agent without tools has
+  no `tools.py`, one without persistence no `memory.py`. Never create empty
+  files to complete the set.
+- The vocabulary is closed. A new file name (`attempt.py`, `budget.py`,
+  `context.py`, `resources.py`, `retries.py`) is a defect unless no row above
+  can hold it; then the reason is written in the module docstring. Most such
+  files are a row above: a budget, retry, or fallback is `middleware.py`; a
+  context or state type is `schemas.py`; graph input building is `runner.py`.
+- **A file grows into a folder of the same name** once it passes roughly 250
+  lines or holds three or more independent classes: `middleware.py` becomes
+  `middleware/guardrail.py`, `middleware/budget.py`, `middleware/fallbacks.py`;
+  `tools.py` becomes `tools/<tool>.py` when tools gain their own schemas;
+  `memory.py` becomes `memory/` when memory grows several implementations
+  (`memory/checkpointer.py`, `memory/store.py`, `memory/langmem.py`).
+  Memory tools are built in `memory.py` and handed to `agent.py` beside the
+  tools from `tools.py`; a hook that recalls or writes memory around a turn is
+  middleware that calls `memory.py`. Promote only the file that grew. No `__init__.py`
+  that re-exports; callers import the submodule.
+- Add `graph/` (state, nodes, routing) only when the task defines LangGraph
+  state or edges itself; `create_agent()` alone does not justify it. `mcp.py`
+  appears only when MCP tools exist.
+- **`shared/` is earned by reuse.** A piece moves to `genai/shared/<same
+  file>.py` when a second agent needs it with identical semantics, never
+  earlier. Similar wording is not reuse. No `shared/utils.py`, `common.py`, or
+  `helpers.py`.
+- **A capability that is not an agent** (retrieval, a classifier several
+  agents call) gets its own sibling folder with the same vocabulary when it has
+  its own model calls (rewrite, embeddings, reranking). A tool stays in the
+  agent's `tools.py`, because citation markers and evidence limits are the
+  agent's policy, and calls the capability's class directly.
+- A simple structured-output capability (one call, no agent) is `llms.py`,
+  `prompts.py`, `schemas.py`, and `runner.py`.
 
 Keep a Pydantic model used only by one tool beside that tool; agent-level
 contracts stay in `schemas.py`, business contracts in `ports/` or `domain/`.
@@ -92,30 +157,62 @@ expose unrestricted provider, API-key, or base-URL overrides to untrusted caller
   invokes the agent, or assembles outcomes.
 
 ```python
-# genai/shared/openai.py
-from dataclasses import dataclass
+# config/settings.py: the task's settings slice; defaults live here
+from typing import Literal
 
+from pydantic import BaseModel, PositiveFloat, PositiveInt
+
+
+class ChatModelSettings(BaseModel):
+    model_id: str
+    region: str
+    reasoning_effort: Literal["none", "low", "medium", "high"] = "low"
+    max_output_tokens: PositiveInt = 4096
+    connect_timeout_seconds: PositiveFloat = 5
+    read_timeout_seconds: PositiveFloat = 60
+```
+
+```python
+# genai/answer_agent/llms.py
+from botocore.config import Config
+from langchain.chat_models import init_chat_model
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_openai import ChatOpenAI
+
+from my_service.config.settings import ChatModelSettings
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ChatModelOptions:
-    model_name: str
-    temperature: float
-    timeout_seconds: float
-
-
-def build_chat_model(*, options: ChatModelOptions) -> BaseChatModel:
-    # One call is one audited attempt; the capability adapter owns retries.
-    # Field names, not the `model=`/`timeout=` aliases, which mypy rejects.
-    return ChatOpenAI(
-        model_name=options.model_name,
-        temperature=options.temperature,
-        request_timeout=options.timeout_seconds,
-        max_retries=0,
+def build_chat_model(
+    *,
+    settings: ChatModelSettings,
+    streaming: bool,
+    callbacks: list[BaseCallbackHandler],
+) -> BaseChatModel:
+    # The integration builds its runtime and control-plane clients from this
+    # config. SDK retries are off: one call is one attempt, and the agent's
+    # retry middleware owns retries.
+    return init_chat_model(
+        settings.model_id,
+        model_provider="bedrock_converse",
+        region_name=settings.region,
+        config=Config(
+            connect_timeout=settings.connect_timeout_seconds,
+            read_timeout=settings.read_timeout_seconds,
+            retries={"total_max_attempts": 1},
+        ),
+        reasoning_effort=settings.reasoning_effort,
+        max_tokens=settings.max_output_tokens,
+        disable_streaming=not streaming,
+        callbacks=callbacks,
     )
 ```
+
+Credentials come from the default AWS chain (role, profile, environment).
+Pass `aws_access_key_id`/`aws_secret_access_key` from secrets only when the
+deployment cannot use the chain. Two roles of the same model (a buffered
+decision model and a streaming final model) are two calls to this factory with
+different arguments, not two factories. A role whose tuning differs (a cheap
+utility model with `reasoning_effort="none"`) gets its own settings slice.
 
 ```python
 # genai/pricing_agent/agent.py
@@ -169,11 +266,10 @@ bootstrap injects static ingredients into an assembler class in `agent.py`
 
 ## Invocation and error translation
 
-A capability-named port implementation (`classifier.py`, `pricer.py`,
-`resolver.py`) invokes the configured handle, validates the provider response,
-translates it into the port's typed result, and translates failures. Do not name
-it `adapter.py` or `service.py` unless that is an established repository
-convention. It may:
+The port implementation in `runner.py` (a class named for the capability:
+`LLMPricer`, `AnswerAgentRunner`) invokes the configured handle, validates the
+provider response, translates it into the port's typed result, and translates
+failures. Never name it `adapter.py` or `service.py`. It may:
 
 - assemble provider input from typed business data;
 - select the GenAI-owned prompt, sending data as a separate untrusted user
@@ -236,18 +332,32 @@ their semantics; similar wording is not enough.
 
 ## Tools and MCP
 
-An agent tool is an entry point: the model triggers a business operation
-through it, the way a client does through a route. Like any entry point it
-calls exactly one public application action, which may be a one-call action
-([boundaries.md](boundaries.md#action-boundaries-a-deliberate-cost)):
+### When a tool calls an action
+
+A tool that **triggers a business operation** is an entry point, the way a
+route is, and calls exactly one public application action, which may be a
+one-call action ([boundaries.md](boundaries.md#action-boundaries-a-deliberate-cost)).
+That holds when the tool writes or changes business state (creates a ticket,
+sends an email, records a decision), or when the same operation is also
+reached by a route, worker, or CLI.
+
+A **read-only tool that serves only its agent** (knowledge search, lookup,
+calculation over evidence) is part of the GenAI capability. It calls its task's
+collaborator directly (`genai/retrieval/retriever.py`), with no action and no
+application port. The capability's port is the boundary that application code
+and tests see. Promote it to an action when a second entry point needs the same
+read.
+
+### Tool rules
 
 - keep each `@tool` closure thin: validate, call one collaborator, return;
   bookkeeping goes in module functions, and tool builders return `BaseTool`;
 - apply explicit authorization from application context; never let an agent
   construct trusted identity from its prompt;
-- call one application action, never a port, a repository, or the database;
+- never reach a repository or the database directly: a business tool calls
+  its action, a read-only tool its task's collaborator;
 - expose bounded behavior and safe error messages;
-- catch every error the called action can raise and return it to the model as a
+- catch every error the called action or collaborator can raise and return it to the model as a
   safe tool message, or, when the whole run must stop, raise the task's own
   private abort error. The capability implementation translates that abort
   once into its port's errors; it never imports another port's errors, and no
@@ -257,30 +367,66 @@ A tool that runs model-authored SQL follows the untrusted-SQL rules in
 `python-sqlmodel-alembic` (fallback:
 `../../python-sqlmodel-alembic/references/external-read-databases.md`).
 
-When the framework offers no explicit context channel, `ContextVar`s may carry
-per-invocation context to tools. Declare them at module level in the owning
-GenAI module (never in bootstrap), bind them all in one context manager inside
-`invoke()`, and make readers fail loudly when nothing is bound.
+### What a tool receives, and how
+
+Separate a tool's inputs by lifetime:
+
+| Input | Lifetime | Channel |
+| --- | --- | --- |
+| Collaborators and limits (retriever, index, policy, model handles) | Process | Passed to the tool builder and captured by the closure: `build_search_tool(retriever=..., policy=...)` |
+| Trusted per-invocation values (subject, tenant, original input) | One invocation, immutable | The framework's context channel: `create_agent(context_schema=Context)`, `agent.ainvoke(..., context=Context(...))`, read through `runtime: ToolRuntime` (`from langchain.tools import ToolRuntime`) |
+| Per-invocation accumulators (call counters, collected evidence) | One invocation, mutable | Agent state through middleware `state_schema` when the graph or the final answer reads it |
+
+Never put process-lifetime collaborators in per-invocation context. Use
+`ContextVar`s only when the framework offers no channel for the value (a
+provider callback that receives no runtime): declare them at module level in
+the owning GenAI module (never in bootstrap), bind them all in one context
+manager inside `invoke()`, and make readers fail loudly when nothing is bound.
 
 `mcp.py` loads and adapts MCP tools for one agent; tool discovery never broadens
 the permissions granted by the calling application.
 
 ## Retrieval and RAG
 
-RAG is a collaboration of owned responsibilities, not a top-level folder. A
-knowledge-search tool stays in its agent's `tools.py` and calls an application
-action (which uses the retrieval port), not a vector database. Model-specific embedding,
-reranking, and context assembly stay in the owning task. Ingestion and
-index-refresh workflows stay in `application/`, index contracts in `ports/`, and
-index persistence in `db/` or the concrete integration boundary. A standalone
-retrieval capability with its own port becomes a sibling task such as
-`genai/knowledge_retrieval/`.
+RAG is a collaboration of owned responsibilities, not a top-level folder. Query
+time and ingestion are shaped differently:
+
+- **Query time, reached only by agents:** a GenAI capability
+  ([When a tool calls an action](#when-a-tool-calls-an-action)) in
+  `genai/retrieval/` ([Standard agent shape](#standard-agent-shape)). The
+  agent's search tool in `tools.py` calls `Retriever` in
+  `genai/retrieval/retriever.py`, which owns query rewrite, embedding,
+  reranking, and evidence assembly. The vector search SQL stays in `db/` as a
+  plain class; the retriever types it with a Protocol declared in
+  `retriever.py` (a package that may not import its implementation,
+  [When a port earns its cost](boundaries.md#when-a-port-earns-its-cost)), and
+  bootstrap injects it. Hit types both sides share live in `domain/`. No
+  `ports/retrieval.py`, no `application/search_*.py`.
+- **Ingestion and index refresh:** business workflows with their own entry
+  points; actions in `application/`, index contracts in `ports/`, persistence in
+  `db/`.
+- **Retrieval also reached by a route or worker:** it becomes a business
+  operation; add an action and a port in front of the same `genai/retrieval/`
+  code.
+
+```text
+genai/
+├── answer_agent/
+│   └── tools.py        # rag_search: validates, calls Retriever.search, assigns citation markers
+└── retrieval/
+    ├── retriever.py    # Retriever (rewrite + embed + search) and the private EvidenceIndex Protocol
+    ├── prompts.py      # query-rewrite prompt
+    └── llms.py         # rewrite model and embeddings from settings
+db/
+└── retrieval.py        # PgvectorEvidenceIndex: authorized vector query, returns domain SearchHit
+```
 
 ## Middleware and observability
 
 Classify middleware by purpose, not by the hook it uses. Middleware that changes
-behavior or policy (attempt budgets, timeout, fallback, summarization, token
-limits, tool execution policy) belongs to the owning `genai/` task. A callback or
+behavior or policy (attempt budgets, timeout, retries, model fallbacks,
+summarization, token limits, tool execution policy) belongs to the owning
+agent's `middleware.py`, including a callback handler that enforces a budget. A callback or
 wrapper whose only effect is tracing, metrics, logging, or correlation belongs in
 `observability/` ([boundaries.md](boundaries.md#observability)). Keep such callbacks, tool-tracing middleware, and
 usage parsers in a precise module (`observability/genai.py`) even though it

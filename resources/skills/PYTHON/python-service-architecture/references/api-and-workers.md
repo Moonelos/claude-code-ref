@@ -259,6 +259,44 @@ A scheduled batch or CLI that runs once has no supervisor: `main.py` enters the
 runtime, calls one worker function or action once, maps the outcome to an exit
 code, and exits non-zero on failure.
 
+### Technical jobs
+
+A technical job keeps the process's own data healthy (retention purge,
+orphan cleanup, expired-lease sweep) and has no business entry point besides
+its loop. It is not an action and gets no `domain/` module, port, or
+`application/` file. It is one class in the integration that owns the data
+(`db/retention.py`), built once in `runtime()`, whose method runs one pass and
+returns whether more work is due:
+
+```python
+# db/retention.py
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConversationRetention:
+    engine: AsyncEngine
+    checkpoints: AsyncPostgresSaver
+    retention_days: int
+    batch_size: int
+
+    async def run_once(self) -> bool:
+        """Purge one batch of expired conversations; True when a full batch was purged."""
+        ...
+```
+
+`main.py` (or the lifespan owner) adds it to the loop list like any worker
+(`iteration=lambda: job_iteration(runtime.retention.run_once)`, where
+`job_iteration` in `workers/runtime.py` maps the `bool` to `Iteration`). The
+job logs its own one-line summary, because no caller interprets it. The
+supervisor still owns cadence, failure policy, and shutdown. Replica
+coordination uses the lightest rung that holds (`python-sqlmodel-alembic`,
+fallback: `../../python-sqlmodel-alembic/references/work-queues.md`, "Choose
+the lightest coordination"); a lease with fencing around an idempotent purge is
+over-engineering.
+
+It becomes a business operation, with an action and a port, when a trigger
+holds today: another entry point runs it (an admin "purge now" route, a
+per-user deletion), it chooses business outcomes (statuses, notices), or its
+rule must be tested without the database.
+
 ## SQS, Kafka, or another broker
 
 A consumer splits into two owners. The **inbox adapter** in `adapters/` owns the

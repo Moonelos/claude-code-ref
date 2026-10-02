@@ -29,6 +29,7 @@ from service_audit.rules import (
     R_ONE_OWNER,
     R_PORTS,
     R_SHARED,
+    R_TOOL_ACTION,
     SHARED_LITERAL_MODULES,
     STANDARD_TOKENS,
 )
@@ -210,6 +211,55 @@ def single_module_adapter_findings(root: Path) -> Iterator[Finding]:
             display = str(members[0].relative_to(root))
             message = f"one-module adapter subpackage {directory.name}/; keep it flat"
             yield Finding(display, 1, message, R_FLAT, "REVIEW")
+
+
+def module_name(module: Module, package: str) -> str:
+    return f"{package}." + module.display.removesuffix(".py").replace("/", ".").removesuffix(
+        ".__init__"
+    )
+
+
+def tool_only_findings(modules: list[Module], package: str) -> Iterator[Finding]:
+    """Public actions imported only by genai/, and ports imported only by such actions."""
+    names = {module_name(module, package): module for module in modules}
+    importers: dict[str, set[str]] = defaultdict(set)
+    for module in modules:
+        importer = module_name(module, package)
+        for name, symbols, level, _line in imports(module.tree):
+            if level:
+                continue
+            for target in (name, *(f"{name}.{symbol}" for symbol in symbols)):
+                if target in names and target != importer:
+                    importers[target].add(importer)
+
+    def owner(name: str) -> str | None:
+        return names[name].owner
+
+    tool_only: set[str] = set()
+    for name, module in names.items():
+        if (
+            module.owner != "application"
+            or module.path.name.startswith("_")
+            or not importers[name]
+        ):
+            continue
+        if all(owner(importer) == "genai" for importer in importers[name]):
+            tool_only.add(name)
+            message = (
+                "action is imported only by genai/; if only a read-only agent tool calls "
+                "it, the tool should call its task's collaborator directly"
+            )
+            yield review(module, 1, message, R_TOOL_ACTION)
+    for name, module in names.items():
+        if module.owner != "ports" or module.path.name == "__init__.py":
+            continue
+        users = {item for item in importers[name] if owner(item) == "application"}
+        if users and users <= tool_only:
+            message = (
+                "port is used only by tool-only actions; it is a GenAI internal, not an "
+                "application port"
+            )
+            yield review(module, 1, message, R_TOOL_ACTION)
 
 
 def normalized_body(module: Module) -> str:

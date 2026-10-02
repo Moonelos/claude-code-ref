@@ -23,7 +23,7 @@ api / workers ───>  │ application ──> domain                  │
 | `ports/` | `domain/`, `core/` | everything else |
 | `application/` | `domain/`, `ports/`, sibling actions, `core/`, `observability/` | `api/`, `workers/`, `bootstrap/`, `config/`, `db/`, `adapters/`, `genai/` |
 | `api/`, `workers/` | `application/`, `domain/`, `ports/` types, `observability/` | `bootstrap/`, `config/`, `db/`, `adapters/`, `genai/` |
-| `db/`, `adapters/`, `genai/` | the ports they implement, `domain/` types they return; a GenAI tool also imports the action it calls and the port *types* that action takes (never their errors, see [ai.md](ai.md#tools-and-mcp)) | `bootstrap/`, `api/`, `workers/`; each other only through a port |
+| `db/`, `adapters/`, `genai/` | the ports they implement, `domain/` types they return; a GenAI tool also imports the action it calls and the port *types* that action takes (never their errors, see [ai.md](ai.md#tools-and-mcp)) | `bootstrap/`, `api/`, `workers/`; each other only through a port, or through a Protocol private to the consumer ([ai.md](ai.md#retrieval-and-rag)) |
 | `bootstrap/` | everything | — |
 
 - Third-party code: `domain/` and `ports/` use only the standard library and
@@ -61,7 +61,13 @@ storage, identity providers, LLMs. Name it after what the action needs
 (`SqlServerRepository`, `BedrockClient`).
 
 - **One port per capability**, not per repository, table, or SDK client. A port
-  whose methods span several tables is normal.
+  whose methods span several tables is normal. A capability is **one aggregate
+  or lifecycle** (conversations, the runs that answer them, feedback on
+  answers), not "everything the main action touches". Signals to split a port
+  and its implementation: more than ~12 methods, an implementation over ~400
+  lines, or method groups that no single action uses together. Shared table
+  handles go to `db/tables.py`; another `db/` module never imports a sibling
+  store's private helpers.
 - **Implemented directly** by a class in `db/`, `adapters/`, or `genai/`.
   Additional implementations and behavior-owning decorators are fine; a class
   that only renames the same call is not.
@@ -74,9 +80,12 @@ storage, identity providers, LLMs. Name it after what the action needs
 
 Root `ports/` holds only contracts that `application/` imports. Readiness may
 call a `ping()` on a port that actions already use (never a port only readiness
-uses), and an agent tool reaches I/O through an action, never a port
-([ai.md](ai.md#tools-and-mcp)). Actions depend on sibling actions concretely,
-not through a Protocol.
+uses). An agent tool that triggers a business operation reaches I/O through an
+action, never a port; a read-only tool calls its GenAI task's own collaborators
+directly ([ai.md](ai.md#when-a-tool-calls-an-action)). A port whose only
+consumer is an action that only an agent tool calls is a GenAI internal, not
+an application port. Actions depend on sibling actions concretely, not through
+a Protocol.
 
 ## When a port earns its cost
 
@@ -94,6 +103,12 @@ or around a collaborator) is introduced only when one of these holds **today**:
 "We may switch provider someday" is not a reason. Place such a Protocol beside
 its single consumer, not in `ports/`. A private Protocol narrowing a
 third-party SDK surface for fakes belongs in the adapter module.
+
+Membership in `ports/` does not exempt a Protocol from this test. A port with
+one implementation, one consuming action, no test double, and no entry point
+other than an agent tool is a GenAI internal: move the Protocol beside its
+consumer in `genai/<task>/` (trigger 4 usually holds, since `genai/` may not
+import `db/`) and delete the action.
 
 **Tests of ports.** Fake a port to test an action's orchestration. A mock whose
 assertions only inspect values computed by pure logic is a defect: test the
