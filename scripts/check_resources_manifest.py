@@ -14,13 +14,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES_DIR = REPO_ROOT / "resources"
 MANIFEST_PATH = REPO_ROOT / "scripts" / "resources_manifest.txt"
 IGNORED_NAMES = {".DS_Store"}
+IGNORED_DIRS = {"__pycache__"}
 
 
 def collect_current_files() -> set[str]:
     files = set()
     for path in RESOURCES_DIR.rglob("*"):
-        if path.is_file() and path.name not in IGNORED_NAMES:
-            files.add(str(path.relative_to(RESOURCES_DIR)))
+        if not path.is_file() or path.name in IGNORED_NAMES:
+            continue
+        if IGNORED_DIRS.intersection(path.relative_to(RESOURCES_DIR).parts):
+            continue
+        files.add(str(path.relative_to(RESOURCES_DIR)))
     return files
 
 
