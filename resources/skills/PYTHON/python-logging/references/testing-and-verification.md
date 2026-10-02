@@ -32,14 +32,17 @@ import logging
 
 import pytest
 
-from app.logging_setup import configure_logging  # the service's logging owner
+from app.logging_setup import LoggingConfig, configure_logging  # the service's logging owner
 
 logger = logging.getLogger(__name__)
 CANARY = "sk-canary-7f3a9c"
 
 
 def test_canary_secret_never_serialized(capsys: pytest.CaptureFixture[str]) -> None:
-    configure_logging()
+    # Full detail is the harder case: the exception message and traceback are rendered.
+    configure_logging(
+        LoggingConfig(service_name="canary-test", level="INFO", log_full_exception_trace=True)
+    )
     headers = {"Authorization": f"Bearer {CANARY}"}
     logger.warning("provider_call_failed", extra={"headers": headers, "url": f"https://x.test/?api_key={CANARY}"})
     try:

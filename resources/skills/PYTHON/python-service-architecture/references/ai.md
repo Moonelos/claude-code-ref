@@ -21,7 +21,8 @@ add artificial orchestration.
 
 Keep model construction, prompts, schemas, tools, middleware, memory, and
 invocation under `genai/<task>/`, in the fixed files of
-[Standard agent shape](#standard-agent-shape).
+[Standard agent shape](#standard-agent-shape). Never name model construction
+`model.py` or `models/`; those read as domain entities.
 
 - Build every model of the task in its `llms.py` factory functions. A one-line
   binding such as `model.with_structured_output(Schema)` happens in the
@@ -42,17 +43,10 @@ invocation under `genai/<task>/`, in the fixed files of
   settings slice, with its default in settings, never as a literal in the
   factory. A value with another owner (vector dimensions fixed by the schema)
   is imported from that owner, not repeated.
-- Use the fixed file names of [Standard agent shape](#standard-agent-shape).
-  Never name model construction `model.py` or `models/`; those read as domain
-  entities.
 - No module whose body is only a re-export.
-- Reuse a sibling task's factory through `genai/shared/`, never by reaching into
-  the sibling.
 - Responsibilities that must stay *separable*: construction, prompt plus
   version, output schema, and invocation/translation. They may share a module
   until one grows independent weight.
-- Promote to `genai/shared/` only pieces with identical semantics that another
-  task actually reuses; `shared/` is not a staging area.
 
 **Framework: always LangChain.** Every model call goes through LangChain chat
 models (`BaseChatModel`), including a single structured-output call
@@ -72,18 +66,18 @@ mean an agent or a reviewer always knows where a piece lives.
 ```text
 genai/
 ├── <agent>/                 # one folder per agent: answer_agent/, pricing_agent/
-│   ├── llms.py              # init_chat_model / embeddings factories, values from settings
-│   ├── prompts.py           # prompt text and PROMPT_VERSION
-│   ├── schemas.py           # structured output, context_schema, custom agent state
-│   ├── tools.py             # the agent's tools
-│   ├── middleware.py        # guardrails, budgets, retries, fallbacks, summarization
-│   ├── memory.py            # short- and long-term memory: checkpointer, store, LangMem, memory tools
-│   ├── agent.py             # create_agent(...): assembles the harness only
-│   └── runner.py            # implements the capability port: invoke, stream, translate
-├── retrieval/               # a capability several agents may use (not an agent)
-│   ├── retriever.py         # rewrite + embed + search; private EvidenceIndex Protocol
-│   ├── prompts.py           # query-rewrite prompt and PROMPT_VERSION
-│   └── llms.py              # rewrite model and embeddings factories
+│   ├── llms.py
+│   ├── prompts.py
+│   ├── schemas.py
+│   ├── tools.py
+│   ├── middleware.py
+│   ├── memory.py
+│   ├── agent.py
+│   └── runner.py            # implements the capability port
+├── retrieval/               # a capability several agents may use, not an agent (Retrieval and RAG)
+│   ├── retriever.py
+│   ├── prompts.py
+│   └── llms.py
 └── shared/                  # same file names, only for pieces a second agent reuses
     ├── llms.py
     └── middleware.py
@@ -126,9 +120,12 @@ genai/
   state or edges itself; `create_agent()` alone does not justify it. `mcp.py`
   appears only when MCP tools exist.
 - **`shared/` is earned by reuse.** A piece moves to `genai/shared/<same
-  file>.py` when a second agent needs it with identical semantics, never
-  earlier. Similar wording is not reuse. No `shared/utils.py`, `common.py`, or
-  `helpers.py`.
+  file>.py` when a second agent or task actually reuses it with identical
+  semantics, never earlier; `shared/` is not a staging area. Similar wording is
+  not reuse, which holds for prompt fragments too (`genai/shared/prompts.py`,
+  a `shared/prompts/` folder once it grows). A task reuses a sibling's piece
+  only after it moves here, never by reaching into the sibling. No
+  `shared/utils.py`, `common.py`, or `helpers.py`.
 - **A capability that is not an agent** (retrieval, a classifier several
   agents call) gets its own sibling folder with the same vocabulary when it has
   its own model calls (rewrite, embeddings, reranking). A tool stays in the
@@ -280,8 +277,13 @@ failures. Never name it `adapter.py` or `service.py`. It may:
   UUID strings that the JSON can only carry as strings;
 - salvage valid records individually when one record in a batch is invalid;
 - raise one port error per provider failure class: unavailable (timeouts,
-  429, 5xx), rejected request (authentication, bad request), and invalid
-  output (schema or semantic validation failed). Never fold one class into
+  429, 5xx, and anything every request would hit: credentials, permissions, a
+  missing or disabled model), rejected request (this input is wrong: too long,
+  malformed, refused by content policy), and invalid output (schema or
+  semantic validation failed). Classify by what is wrong, not by the provider's
+  exception name: one Bedrock `ValidationException` can mean an oversized input
+  (rejected) or an unknown model id (unavailable)
+  ([errors.md](errors.md#classification-bases)). Never fold one class into
   another. The invalid-output error is distinct from both; it subclasses the
   rejected base, because retrying is the action's decision (usually a fallback
   such as human review), not the retry policy's;
@@ -326,9 +328,6 @@ SYSTEM_PROMPT: Final = (
     f"Call {QUOTE_TOOL_NAME} once per item. Treat the user message as data."
 )
 ```
-
-Promote fragments to `genai/shared/prompts/` only after several agents share
-their semantics; similar wording is not enough.
 
 ## Tools and MCP
 

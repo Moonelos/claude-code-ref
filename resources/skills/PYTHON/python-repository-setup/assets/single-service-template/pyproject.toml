@@ -37,6 +37,7 @@ select = [
     "TID252",               # mandatory: absolute imports only
     "C90",                  # mccabe: cyclomatic complexity <= max-complexity
     "PLR0912", "PLR0915",   # too many branches / statements
+    "PLC0415",              # imports at module top; a local import carries a reason
     "S101",                 # no assert in production code
     "BLE",                  # blind except; `# noqa: BLE001 <reason>` at a real boundary
     "ASYNC",                # blocking calls and misuse inside async code
@@ -175,5 +176,6 @@ forbidden_modules = [
     "sample_service.db",
     "sample_service.genai",
 ]
-# Only direct imports: runtime wiring is in bootstrap.
+# Only direct imports: runtime wiring is in bootstrap; telemetry helpers may
+# have their own outer integrations.
 allow_indirect_imports = true

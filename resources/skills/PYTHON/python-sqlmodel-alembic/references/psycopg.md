@@ -1,9 +1,14 @@
 # Direct psycopg and `psycopg_pool`
 
 For services that talk to PostgreSQL through psycopg 3 directly, including a
-LangGraph `AsyncPostgresSaver` checkpointer. Everything in `SKILL.md` about
-transaction ownership, the failure contract, raw SQL safety, work queues and
-per-transaction limits applies unchanged; this file covers only what differs.
+LangGraph `AsyncPostgresSaver` checkpointer. These rules apply unchanged; this
+file covers only what differs:
+
+- transaction ownership: [engine-and-session.md](engine-and-session.md#transactions-and-the-unit-of-work);
+- the failure contract: [engine-and-session.md](engine-and-session.md#db-failure-contract);
+- raw SQL safety: [repositories-and-queries.md](repositories-and-queries.md#raw-sql-safety);
+- work queues: [work-queues.md](work-queues.md#work-claiming-and-leases);
+- per-transaction limits: [engine-and-session.md](engine-and-session.md#per-transaction-limits).
 
 ## Pools
 

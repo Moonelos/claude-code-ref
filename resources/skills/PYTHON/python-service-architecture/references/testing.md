@@ -167,6 +167,6 @@ production port:
   pytest plugin, not in copies per member.
 - Omit `tests/__init__.py`; the support package has its own `__init__.py`.
   mypy then needs `explicit_package_bases` with the member's `src` and `tests`
-  as bases, one run per member (`python-repository-setup`, "Lint, Type, And
-  Test Baseline").
+  as bases, one run per member
+  ([`python-repository-setup` quality-tooling.md, mypy](../../python-repository-setup/references/quality-tooling.md#mypy)).
 - Environment variables are read inside fixtures, never at import time.

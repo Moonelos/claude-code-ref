@@ -36,16 +36,18 @@ Bootstrap order: `configure_observability(...)`, then
 `configure_logging(logging_config(settings), correlation=[add_otel_trace_context])`.
 The processor must run before the renderer.
 
-`trace_id` is 32 lowercase hex characters, `span_id` is 16. If they are missing
-entirely, the call happened outside an active span. If they are all zeros, the
-span context is invalid — usually a background task lost context
-(`../tracing/worker_runtime.md`).
+`trace_id` is 32 lowercase hex characters, `span_id` is 16. The enricher writes
+them only for a valid span context, so they never appear as zeros: they are
+either correct or absent. Absent means the call happened outside an active
+span — or, when only logs from a background task, thread, or executor lack them
+while the request's own logs have them, that task lost context when it was
+scheduled (`../tracing/worker_runtime.md`).
 
 Do **not** add `trace_sampled` to logs when the Collector owns tail sampling.
 The W3C sampled bit records the SDK's head decision; with the `AlwaysOn`
 sampler required by `../setup/sdk_bootstrap.md` it is always true, even for a
-trace the Collector later drops. Measure retention at the Collector/backend
-(`../tracing/production_policy.md`).
+trace the Collector later drops, so never read it as effective retention.
+Measure retention with Collector/backend counts (`../tracing/production_policy.md`).
 
 ### `LoggingInstrumentor`
 
@@ -132,6 +134,11 @@ only: prompts and outputs reach it as span attributes, never as log records.
 - A log emitted outside any span has no `trace_id` field (not zeros).
 - For a new trace with a link, worker logs carry the worker trace ID, never the
   linked producer trace ID; `workflow_run_id` finds the complete durable run.
+- Durable workflow boundary logs and transition spans share the documented
+  `workflow_run_id` / `app.workflow.run.id` value; the ID appears on no metric.
+- With a GenAI projection, a log's trace ID finds the operation in both trace
+  backends; a log from a span the projection omitted is expected to have no
+  observation-level `span_id` match there.
 - A stdlib library record carries the same correlation fields as an
   application record.
 - Each record reaches the log backend exactly once.

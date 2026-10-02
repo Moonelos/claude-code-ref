@@ -75,8 +75,8 @@ pool, lock, or other loop-bound object created by the test.
 
 Make the whole test async when it needs app-adjacent async resources.
 
-- Follow the repository's chosen plugin and module-level marker
-  (`pytest.mark.anyio` or pytest-asyncio), not both auto modes.
+- Follow the repository's async plugin, marker, and loop-scope setup
+  ([core-principles.md](core-principles.md#async-tests)).
 - Use the compatible ASGI transport/client for the installed FastAPI and
   Starlette versions and give the client a test base URL.
 - HTTPX `ASGITransport` does not start lifespan. Wrap the app in a compatible
@@ -85,13 +85,6 @@ Make the whole test async when it needs app-adjacent async resources.
 - Create the app's async clients and pools inside lifespan or async fixtures on
   the same loop that serves requests.
 - Bound every async wait and clean up spawned tasks before fixture teardown.
-
-AnyIO's default test backend behavior may exercise more than asyncio. If the
-application intentionally supports only asyncio, configure that explicitly. If
-multiple backends are supported, treat the matrix as a deliberate contract.
-Align higher-scope async fixtures with the backend/event-loop scope supported by
-the installed plugin; old recipes that replace a global `event_loop` fixture may
-no longer be valid.
 
 ## High-value HTTP behaviors
 
@@ -155,52 +148,15 @@ Test the protocol consumed by the client, not incidental chunk boundaries.
 
 ## Database-backed tests
 
-### Match production semantics
-
-- Use the production database family for repository, constraint, transaction,
-  migration, locking, and concurrency tests. SQLite is not a PostgreSQL or MySQL
-  compatibility layer.
-- Start from an explicitly disposable target; the guard against ordinary
-  service databases is owned by `$python-sqlmodel-alembic`
-  (`../../python-sqlmodel-alembic/SKILL.md`).
-- Apply actual Alembic migrations to an empty database in CI. Also check that
-  the current database is at all configured heads and that model changes do not
-  require an uncommitted migration.
-- Test downgrade only when operational rollback is supported; do not add a
-  ceremonial downgrade test for a one-way migration policy.
-
-### Transaction isolation fixture
-
-For same-connection SQLAlchemy tests, the SQLAlchemy 2.x external-transaction
-recipe can bind a session with `join_transaction_mode="create_savepoint"` to a
-connection inside an outer transaction. Application code may commit or roll
-back its session, while teardown rolls back the outer transaction.
-
-This is not a universal isolation mechanism:
-
-- another connection, process, or worker cannot see uncommitted fixture data;
-- commits made on another connection are outside the outer rollback;
-- rollback-only tests can hide commit visibility, locking, and race defects;
-- sharing a session across threads or an `AsyncSession` across tasks is unsafe.
-
-Use committed setup and a unique database/schema/tenant or explicit reset for
-multi-connection, worker, concurrency, and outbox tests. Stop dependent workers
-before cleanup. Re-query final state through a fresh session where caching could
-mask reality.
-
-### Minimum database confidence
-
-Cover only the semantics the application relies on:
-
-- mapped types and serialization;
-- unique, foreign-key, check, and exclusion constraints;
-- representative queries, ordering, pagination, and null behavior;
-- commit, rollback, and no partial state after failure;
-- optimistic or pessimistic locking and important race outcomes;
-- idempotency/deduplication under separate concurrent connections;
-- migration from blank to head and from each operationally supported prior
-  release snapshot;
-- application transaction plus outbox/enqueue timing.
+Database rules (production dialect, the disposable-target guard, the
+same-connection transaction fixture and its limits, minimum database
+confidence) are framework-neutral and owned by
+[integration-boundaries.md](integration-boundaries.md#databases); migrations in
+CI are owned by `$python-sqlmodel-alembic`
+([schema-verification.md](../../python-sqlmodel-alembic/references/schema-verification.md#the-standing-harness-a-database-contract-ci-job)).
+Through FastAPI, inject the test session or UoW factory through the owned
+session-provider dependency, and verify through a separate fresh session
+([example](examples-fastapi.md#async-client-with-explicit-lifespan)).
 
 ## Primary references
 

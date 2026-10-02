@@ -254,16 +254,18 @@ Two attributes that pass that check by eye and are still wrong:
 Read the service's business logic and add the small number of metrics that would actually be watched. Examples of the shape:
 
 ```
-app.exceptions_processed     Counter,   by app.outcome
-app.exceptions_resolved      Counter,   by resolution category
+app.exception.reviews        Counter,   by app.outcome
+app.exception.resolutions    Counter,   by resolution category
 app.pricing.updates          Counter
 app.pricing.product_count    Histogram, per run
-app.retrieval.document_count Histogram, per query
-app.queue_items_processed    Counter,   by app.outcome
+app.worker.batch.items       Counter,   by app.outcome
 ```
 
-No `.count` on the counters, and `.count`/`.result_count` only where the
-measured quantity really is "how many", per `../conventions/naming.md`.
+Every name follows `app.<domain>.<noun>` (above). No `.count` on the counters,
+and `.count`/`.result_count` only where the measured quantity really is "how
+many", per `../conventions/naming.md`. Documents returned per retrieval query is
+`app.retrieval.result_count`, owned by `genai.md`; do not add a second name for
+it.
 
 Each one needs a stated purpose before you add it:
 
@@ -289,7 +291,9 @@ below apply to either output.
 
 Confirm:
 
-- the metric exists, with the expected unit suffix;
+- the metric exists under its unsuffixed name with the expected UCUM unit
+  (a Prometheus-compatible backend may append a unit or `_total` suffix on
+  ingest; see the note below);
 - label values are the bounded ones you intended — no IDs;
 - the counter increments on **both** success and failure;
 - histogram buckets actually contain your values, rather than everything in `+Inf`;

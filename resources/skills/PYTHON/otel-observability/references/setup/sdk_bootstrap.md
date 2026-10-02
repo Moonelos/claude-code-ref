@@ -239,7 +239,7 @@ boundary with no error.
 
 When discovery selects Collector tail sampling, use **100% head recording with an explicit `AlwaysOn` sampler** in the application, which means no head-side dropping. Head sampling cannot know that a request will fail or be slow, which is exactly the trace you want to keep. Do not omit the sampler from a code-owned `TracerProvider`: omission allows `OTEL_TRACES_SAMPLER` to change the policy implicitly.
 
-The W3C sampled flag carries this upstream recording/propagation decision. It does **not** carry the later keep/drop result from a tail sampler. Under `AlwaysOn` it is true even for traces the Collector eventually drops, so do not publish it as `trace_sampled` in logs or interpret it as effective retention. Use Collector/backend counts to measure retained traces.
+The W3C sampled flag carries only this upstream decision, not the tail sampler's later keep/drop; why it never goes into logs as `trace_sampled` or counts as retention is in `../logging/correlation.md`.
 
 If discovery instead selects head sampling, do **not** keep the hardcoded `ALWAYS_ON`. A code-owned provider receives the selected sampler explicitly, with the measured ratio coming from typed settings:
 
@@ -265,22 +265,9 @@ Sampling is never a privacy control. Content capture and redaction must be corre
 
 ## Verifying the bootstrap
 
-Before writing any instrumentation, prove the pipeline works. Temporarily add a console exporter:
-
-```python
-from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
-
-tracer_provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-```
-
-Start the service and hit it once. You should see a span printed with your `service.name` and a non-zero trace ID. If nothing prints, the provider was configured after the work ran, or the code path never executed. If spans print but the backend is empty, the problem is the endpoint, protocol, or Collector pipeline — not the instrumentation.
-
-Remove the console exporter before committing.
-
-Also export metrics once over OTLP and inspect the histogram boundaries in the
-backend: client duration must include `81.92`, workflow duration `7200`, and
-token usage `67108864`. If only generic SDK boundaries appear, the instrument
-was created without `explicit_bucket_boundaries_advisory`.
+Before writing any instrumentation, prove the pipeline works with the temporary
+console exporter in `../verification.md` §1, and check exported histogram
+boundaries per `../verification.md` §7.
 
 ---
 

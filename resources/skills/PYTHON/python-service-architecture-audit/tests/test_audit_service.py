@@ -236,6 +236,26 @@ class ImportDirectionTests(AuditCase):
                     "VIOLATION", "api/direct.py", f"api imports {boundary}"
                 )
 
+    def test_entry_points_reject_config(self) -> None:
+        for boundary in ("api", "workers"):
+            with self.subTest(boundary=boundary):
+                self.pkg(f"{boundary}/settings_reader.py", "from my_service import config\n")
+                self.assertFinding(
+                    "VIOLATION", f"{boundary}/settings_reader.py", f"{boundary} imports config"
+                )
+
+    def test_adapters_reach_other_integrations_only_through_ports(self) -> None:
+        for boundary in ("db", "genai", "application"):
+            with self.subTest(boundary=boundary):
+                self.pkg("adapters/reach.py", f"from my_service import {boundary}\n")
+                self.assertFinding(
+                    "VIOLATION", "adapters/reach.py", f"adapters imports {boundary}"
+                )
+
+    def test_adapters_may_import_ports_domain_and_worker_inbox(self) -> None:
+        self.pkg("adapters/fine.py", "from my_service import domain, ports, workers\n")
+        self.assertClean()
+
     def test_application_siblings_core_and_observability_allowed(self) -> None:
         self.pkg(
             "application/allowed.py",
@@ -422,16 +442,19 @@ class SmellTests(AuditCase):
 
 
 class SizeAndShapeTests(AuditCase):
-    def test_long_bootstrap_function(self) -> None:
-        body = "".join(f"    x{i} = {i}\n" for i in range(85))
+    def test_bootstrap_function_building_many_collaborators(self) -> None:
+        body = "".join(f"    x{i} = Store{i}(engine=build_engine{i}())\n" for i in range(5))
         self.pkg("bootstrap/big.py", f"def build() -> None:\n{body}")
         self.assertFinding(
-            "REVIEW", "bootstrap/big.py", "bootstrap function build spans"
+            "REVIEW", "bootstrap/big.py", "bootstrap function build constructs 10 collaborators"
         )
 
-    def test_bootstrap_function_under_threshold(self) -> None:
-        body = "".join(f"    x{i} = {i}\n" for i in range(70))
-        self.pkg("bootstrap/medium.py", f"def build() -> None:\n{body}")
+    def test_long_bootstrap_function_with_few_collaborators_is_clean(self) -> None:
+        # runtime() stays one flat function, however long, below ~10 collaborators.
+        body = "".join(f"    x{i} = {i}\n" for i in range(120))
+        body += "".join(f"    s{i} = Store{i}()\n" for i in range(9))
+        body += "    return Runtime(a=s0, b=s1)\n"
+        self.pkg("bootstrap/medium.py", f"def build() -> Runtime:\n{body}")
         self.assertClean()
 
     def test_long_repository_method(self) -> None:
@@ -772,9 +795,9 @@ class ProtocolTests(AuditCase):
 class DuplicationTests(AuditCase):
     def test_identical_llm_modules(self) -> None:
         source = "def build():\n    return object()\n"
-        self.pkg("genai/a/llm.py", source)
-        self.pkg("genai/b/llm.py", source)
-        self.assertFinding("REVIEW", "genai/a/llm.py", "identical genai llm.py bodies")
+        self.pkg("genai/a/llms.py", source)
+        self.pkg("genai/b/llms.py", source)
+        self.assertFinding("REVIEW", "genai/a/llms.py", "identical genai llms.py bodies")
 
     def test_duplicate_private_helper(self) -> None:
         self.pkg(
@@ -945,16 +968,16 @@ class ArchitectureContractTests(AuditCase):
 
 class LibraryCase(unittest.TestCase):
     """A temporary workspace: `services/my-service` (the canonical service) and
-    `libs/edm-client` (the canonical client library)."""
+    `libs/docstore-client` (the canonical client library)."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.workspace = Path(tmp.name)
         shutil.copytree(FIXTURE, self.workspace / "services/my-service")
-        self.member = self.workspace / "libs/edm-client"
+        self.member = self.workspace / "libs/docstore-client"
         shutil.copytree(LIBRARY_FIXTURE, self.member)
-        self.package = self.member / "src/edm_client"
+        self.package = self.member / "src/docstore_client"
 
     def lib(self, relative: str, source: str) -> None:
         path = self.package / relative
@@ -964,7 +987,7 @@ class LibraryCase(unittest.TestCase):
     def findings(self, kind: str = "client", *, workspace: bool = True) -> list[str]:
         found = audit_service.audit_library(
             self.package,
-            "edm_client",
+            "docstore_client",
             kind,
             self.workspace if workspace else None,
             None,
@@ -1018,23 +1041,21 @@ class CanonicalLibraryTests(LibraryCase):
             any("no service packages known" in line for line in rendered), rendered
         )
 
-    def test_documented_example_matches_fixture(self) -> None:
-        """The client library in shared-libraries.md is this fixture, so the two cannot drift."""
+    def test_documented_example_links_fixture(self) -> None:
+        """shared-libraries.md documents this fixture by linking each module, not copying it."""
         doc = (
             SKILLS / "python-service-architecture/references/shared-libraries.md"
         ).read_text()
-        blocks = re.findall(
-            r"```python\n# libs/edm-client/src/edm_client/(\S+)\n(.*?)```",
-            doc,
-            re.DOTALL,
+        linked = re.findall(
+            r"\]\(\.\./assets/canonical_library/src/docstore_client/([^)\s]+)\)", doc
         )
         self.assertEqual(
-            sorted(name for name, _ in blocks),
-            ["__init__.py", "client.py", "errors.py", "models.py"],
+            sorted(set(linked)), ["__init__.py", "client.py", "errors.py", "models.py"]
         )
-        for name, body in blocks:
+        for name in linked:
             with self.subTest(module=name):
-                self.assertEqual(body, (self.package / name).read_text())
+                self.assertTrue((self.package / name).is_file())
+        self.assertNotIn("# libs/docstore-client/src/docstore_client/", doc)
 
 
 class LibraryRuleTests(LibraryCase):
@@ -1046,7 +1067,7 @@ class LibraryRuleTests(LibraryCase):
 
     def test_reads_environment(self) -> None:
         for source in (
-            "import os\nURL = os.environ['EDM_URL']\n",
+            "import os\nURL = os.environ['DOCSTORE_URL']\n",
             "from os import getenv\n",
         ):
             with self.subTest(source=source):
@@ -1066,7 +1087,7 @@ class LibraryRuleTests(LibraryCase):
             "log.py",
             """
             import logging
-            logging.getLogger("edm_client").addHandler(logging.StreamHandler())
+            logging.getLogger("docstore_client").addHandler(logging.StreamHandler())
             """,
         )
         self.assertFinding("VIOLATION", "log.py", "adds a logging handler")
@@ -1076,7 +1097,7 @@ class LibraryRuleTests(LibraryCase):
             "log.py",
             """
             import logging
-            logging.getLogger("edm_client").addHandler(logging.NullHandler())
+            logging.getLogger("docstore_client").addHandler(logging.NullHandler())
             """,
         )
         self.assertClean()
@@ -1130,7 +1151,7 @@ class ConfigurationLibraryTests(LibraryCase):
         consumer = (
             self.workspace / "services/my-service/src/my_service/config/loading.py"
         )
-        consumer.write_text("from edm_client import yaml_source\n")
+        consumer.write_text("from docstore_client import yaml_source\n")
         self.assertClean("configuration")
 
     def test_cli_configuration_kind(self) -> None:
@@ -1184,7 +1205,7 @@ class ConfigurationLibraryTests(LibraryCase):
                 self.workspace
                 / f"services/my-service/src/my_service/{layer}/__init__.py"
             )
-            consumer.write_text("from edm_client import yaml_source\n")
+            consumer.write_text("from docstore_client import yaml_source\n")
             self.assertFinding(
                 "VIOLATION",
                 str(consumer.relative_to(self.workspace)),
@@ -1198,7 +1219,7 @@ class ConfigurationLibraryTests(LibraryCase):
             pyproject.read_text().replace('"my_service"', '"other_service"')
         )
         self.assertFinding(
-            "VIOLATION", "(repository)", "edm_client → my_service", "configuration"
+            "VIOLATION", "(repository)", "docstore_client → my_service", "configuration"
         )
 
 
@@ -1221,7 +1242,7 @@ class DatabaseRuntimeExceptionTests(LibraryCase):
     def declare(
         self,
         *,
-        package: str = "edm_client",
+        package: str = "docstore_client",
         consumers: str = '["my_service", "other_service"]',
     ) -> None:
         pyproject = self.member / "pyproject.toml"
@@ -1293,7 +1314,7 @@ class DatabaseRuntimeExceptionTests(LibraryCase):
                 self.workspace
                 / f"services/my-service/src/my_service/{layer}/runtime.py"
             )
-            consumer.write_text("from edm_client import Database\n")
+            consumer.write_text("from docstore_client import Database\n")
         self.assertFalse(
             any(line.startswith("VIOLATION") for line in self.findings("persistence"))
         )
@@ -1301,7 +1322,7 @@ class DatabaseRuntimeExceptionTests(LibraryCase):
             self.workspace
             / "services/my-service/src/my_service/application/__init__.py"
         )
-        consumer.write_text("from edm_client import Database\n")
+        consumer.write_text("from docstore_client import Database\n")
         self.assertFinding(
             "VIOLATION",
             str(consumer.relative_to(self.workspace)),
@@ -1339,15 +1360,15 @@ class LibraryShapeTests(LibraryCase):
 
 class LibraryConsumerTests(LibraryCase):
     def test_consumer_imports_private_name(self) -> None:
-        consumer = self.workspace / "services/my-service/src/my_service/db/edm.py"
-        consumer.write_text("from edm_client.client import _retry_after\n")
+        consumer = self.workspace / "services/my-service/src/my_service/db/docstore.py"
+        consumer.write_text("from docstore_client.client import _retry_after\n")
         self.assertFinding(
-            "REVIEW", "services/my-service/src/my_service/db/edm.py", "_retry_after"
+            "REVIEW", "services/my-service/src/my_service/db/docstore.py", "_retry_after"
         )
 
     def test_consumer_imports_public_root(self) -> None:
-        consumer = self.workspace / "services/my-service/src/my_service/db/edm.py"
-        consumer.write_text("from edm_client import EdmClient\n")
+        consumer = self.workspace / "services/my-service/src/my_service/db/docstore.py"
+        consumer.write_text("from docstore_client import DocstoreClient\n")
         self.assertClean()
 
 
@@ -1355,17 +1376,17 @@ class LibraryContractTests(LibraryCase):
     def test_contract_missing_service(self) -> None:
         pyproject = self.member / "pyproject.toml"
         pyproject.write_text(pyproject.read_text().replace('"my_service", ', ""))
-        self.assertFinding("VIOLATION", "(repository)", "edm_client → my_service")
+        self.assertFinding("VIOLATION", "(repository)", "docstore_client → my_service")
 
     def test_contract_missing_pydantic_settings(self) -> None:
         pyproject = self.member / "pyproject.toml"
         pyproject.write_text(pyproject.read_text().replace(', "pydantic_settings"', ""))
         self.assertFinding(
-            "VIOLATION", "(repository)", "edm_client → pydantic_settings"
+            "VIOLATION", "(repository)", "docstore_client → pydantic_settings"
         )
 
     def test_no_contracts(self) -> None:
-        (self.member / "pyproject.toml").write_text('[project]\nname = "edm-client"\n')
+        (self.member / "pyproject.toml").write_text('[project]\nname = "docstore-client"\n')
         self.assertFinding("VIOLATION", "(repository)", "no import-linter contracts")
 
 

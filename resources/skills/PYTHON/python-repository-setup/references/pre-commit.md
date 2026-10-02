@@ -85,62 +85,24 @@ unrelated revisions without checking compatibility and corresponding pins.
 
 ## Canonical shape
 
-Adapt roots, versions, exclusions, and domain-specific hooks to the repository:
+Copy the template's file and adapt roots, versions, exclusions, and
+domain-specific hooks to the repository:
+[workspace](../assets/workspace-template/.pre-commit-config.yaml),
+[single service](../assets/single-service-template/.pre-commit-config.yaml).
+Both install both stages (`default_install_hook_types: [pre-commit, pre-push]`)
+and run, in order: `pre-commit-hooks` sanity checks, `ruff-check --fix` and
+`ruff-format`, `uv-lock`, then local hooks for import-linter (pre-commit
+stage), mypy and non-live pytest (`-m "not live and not integration and not e2e"`,
+pre-push stage). The two files differ only in the mypy hook: the workspace
+entry is `scripts/mypy-members.sh` (one mypy run per member; see
+[quality-tooling.md](quality-tooling.md#mypy)), the single service runs
+`uv run --locked mypy src tests`.
 
-```yaml
-default_install_hook_types: [pre-commit, pre-push]
-
-repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-toml
-      - id: check-json
-      - id: check-added-large-files
-      - id: check-case-conflict
-      - id: check-merge-conflict
-      - id: debug-statements
-      - id: mixed-line-ending
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.3
-    hooks:
-      - id: ruff-check
-        args: [--fix]
-      - id: ruff-format
-
-  - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.12.7
-    hooks:
-      - id: uv-lock
-
-  - repo: local
-    hooks:
-      - id: mypy
-        name: mypy (workspace)
-        entry: scripts/mypy-members.sh  # one mypy run per member (SKILL.md)
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
-
-      - id: pytest
-        name: pytest (non-live)
-        entry: uv run --locked pytest -m "not live and not integration and not e2e"
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-push]
-```
-
-The example roots are placeholders. If the repository uses `apps/`,
+The template roots are placeholders. If the repository uses `apps/`,
 `components/`, `packages/`, Lambda roots, top-level contract tests, or other
 owned Python trees, derive the mypy/pytest scope from the real configuration and
-CI. Do not rename the repository or introduce parallel roots to fit this
-example.
+CI. Do not rename the repository or introduce parallel roots to fit the
+template.
 
 `ruff-check --fix` intentionally modifies files locally. In CI the same hook
 runs against a clean checkout and fails when it would make a change. If the
@@ -153,88 +115,32 @@ Services follow the hexagonal shape in `python-service-architecture` (fallback:
 `../../python-service-architecture/SKILL.md`). Agents write most of the code, so
 its dependency rules are enforced by a tool on every commit, not only described.
 Add `import-linter` to the root `dev` dependency group and declare one set of
-contracts per service in the root `pyproject.toml`:
+contracts per service in the root `pyproject.toml`. The four service contracts
+are in the template's root `pyproject.toml` ([workspace](../assets/workspace-template/pyproject.toml), service
+`sample_api`; [single service](../assets/single-service-template/pyproject.toml),
+`sample_service`), under `[tool.importlinter]` with
+`include_external_packages = true`:
 
-```toml
-[tool.importlinter]
-root_packages = ["orchestrator", "worker"]
-include_external_packages = true
-
-[[tool.importlinter.contracts]]
-name = "orchestrator: application uses only admitted inner dependencies"
-type = "forbidden"
-source_modules = ["orchestrator.application.**"]
-forbidden_modules = [
-    "orchestrator.adapters",
-    "orchestrator.api",
-    "orchestrator.bootstrap",
-    "orchestrator.config",
-    "orchestrator.db",
-    "orchestrator.genai",
-    "orchestrator.workers",
-    "boto3",
-    "fastapi",
-    "httpx",
-    "langchain_core",
-    "opentelemetry",
-    "sqlalchemy",
-    "sqlmodel",
-]
-# application -> observability -> opentelemetry is the allowed telemetry path.
-allow_indirect_imports = true
-
-[[tool.importlinter.contracts]]
-name = "orchestrator: domain and ports are pure"
-type = "forbidden"
-source_modules = ["orchestrator.domain.**", "orchestrator.ports.**"]
-forbidden_modules = [
-    "orchestrator.adapters",
-    "orchestrator.api",
-    "orchestrator.application",
-    "orchestrator.bootstrap",
-    "orchestrator.config",
-    "orchestrator.db",
-    "orchestrator.genai",
-    "orchestrator.observability",
-    "orchestrator.workers",
-    "boto3",
-    "fastapi",
-    "httpx",
-    "langchain_core",
-    "opentelemetry",
-    "sqlalchemy",
-    "sqlmodel",
-]
-
-[[tool.importlinter.contracts]]
-name = "orchestrator: only entry points import bootstrap"
-type = "forbidden"
-source_modules = [
-    "orchestrator.adapters.**",
-    "orchestrator.api.**",
-    "orchestrator.db.**",
-    "orchestrator.genai.**",
-    "orchestrator.workers.**",
-]
-forbidden_modules = ["orchestrator.bootstrap"]
-
-[[tool.importlinter.contracts]]
-name = "orchestrator: entry points use actions and contracts, not concrete integrations"
-type = "forbidden"
-source_modules = ["orchestrator.api.**", "orchestrator.workers.**"]
-forbidden_modules = [
-    "orchestrator.adapters",
-    "orchestrator.config",
-    "orchestrator.db",
-    "orchestrator.genai",
-]
-# Only direct imports: runtime wiring is in bootstrap; telemetry helpers may
-# have their own outer integrations.
-allow_indirect_imports = true
-```
+1. **application uses only admitted inner dependencies:** sources
+   `<svc>.application.**`; forbids `adapters`, `api`, `bootstrap`, `config`,
+   `db`, `genai`, `workers`, and the external list.
+   `allow_indirect_imports = true`, because application → observability →
+   opentelemetry is the allowed telemetry path.
+2. **domain and ports are pure:** sources `<svc>.domain.**` and
+   `<svc>.ports.**`; forbids every other boundary, including `application`
+   and `observability`, and the external list.
+3. **only entry points import bootstrap:** sources `adapters`, `api`, `db`,
+   `genai`, and `workers` (each `.**`); forbids `<svc>.bootstrap`.
+4. **entry points use actions and contracts, not concrete integrations:**
+   sources `<svc>.api.**` and `<svc>.workers.**`; forbids `adapters`, `config`,
+   `db`, and `genai`. `allow_indirect_imports = true`: only direct imports are
+   forbidden, because runtime wiring is in bootstrap and telemetry helpers may
+   have their own outer integrations.
 
 The external list names the SDKs and frameworks the service depends on; extend
-it when a dependency is added. `include_external_packages` is required for
+it when a dependency is added. The template lists `fastapi` and
+`opentelemetry`; a service with more integrations adds, for example, `boto3`,
+`httpx`, `langchain_core`, `sqlalchemy`, and `sqlmodel`. `include_external_packages` is required for
 those entries. import-linter can only forbid what is listed, so this list is a
 floor: `python-service-architecture-audit` checks the inverse, flagging any
 third-party import in those packages outside a small allow-list.
@@ -247,7 +153,11 @@ current tree. Commit the contracts with the service, before its boundaries exist
 *forbidden* module is ignored, but a missing *source* module is an error, so
 sources use the `package.**` form, which matches nothing until the package has
 modules. `.**` matches descendants only, not the package's own `__init__.py`;
-those files stay empty package markers.
+those files stay empty package markers (`python-code-conventions`, "Imports and
+package markers"), so `.**` alone is the one rule for service-layer sources.
+A library's root package always exists and its `__init__.py` holds the public
+API, so a library's independence contract names the root itself, which
+import-linter treats as a package covering every descendant.
 
 Repeat the four contracts for each service.
 
@@ -259,14 +169,15 @@ kinds and importers"). List the library in `root_packages`:
 
 ```toml
 [[tool.importlinter.contracts]]
-name = "edm_client: independent of every service"
+name = "docstore_client: independent of every service"
 type = "forbidden"
-source_modules = ["edm_client", "edm_client.**"]
+source_modules = ["docstore_client"]
 forbidden_modules = ["orchestrator", "worker", "pydantic_settings"]
 
-# A client library: only the port implementations and bootstrap import it.
+# A client library: only the port implementations (adapters, genai) and
+# bootstrap import it.
 [[tool.importlinter.contracts]]
-name = "orchestrator: edm_client only in adapters and bootstrap"
+name = "orchestrator: docstore_client only in adapters, genai, and bootstrap"
 type = "forbidden"
 source_modules = [
     "orchestrator.api.**",
@@ -276,34 +187,26 @@ source_modules = [
     "orchestrator.domain.**",
     "orchestrator.observability.**",
     "orchestrator.ports.**",
+    "orchestrator.workers.**",
 ]
-forbidden_modules = ["edm_client"]
+forbidden_modules = ["docstore_client"]
 ```
 
 For a configuration library, omit `pydantic_settings` from its independence
 contract and forbid its imports from every service layer except `config` and
-`bootstrap`. For the documented database-runtime exception, permit `db` and
-`bootstrap`; see the owning shared-library reference for declaration and review.
-Include each forbidden boundary root as well as its `.**` descendants so
-imports in `__init__.py` are covered.
+`bootstrap`. For a genai library, permit `genai` and `bootstrap` (bootstrap
+constructs only its input types; review, not the contract, checks that). For
+the documented database-runtime exception, permit `db` and `bootstrap`; see the
+owning shared-library reference for declaration and review.
 
 A persistence (models) library gets the same importer contract with every
 layer except `db` as a source. A contract library needs no importer contract.
 Add each new service package to every library's independence contract in the
 same change that creates the service.
 
-Run it in the `pre-commit` stage; it analyzes the whole import graph in seconds:
-
-```yaml
-  - repo: local
-    hooks:
-      - id: import-linter
-        name: architecture contracts
-        entry: uv run --locked lint-imports
-        language: system
-        pass_filenames: false
-        always_run: true
-```
+Run it in the `pre-commit` stage; it analyzes the whole import graph in
+seconds. The templates' `import-linter` hook (`uv run --locked lint-imports`,
+`pass_filenames: false`, `always_run: true`) does this.
 
 CI runs the same `uv run --locked lint-imports`. A broken contract is fixed in
 the code, never by editing the contract to match.
@@ -317,7 +220,10 @@ equivalent for another CI system when the service is created, not later:
   what developers run (Ruff, `uv-lock`, import-linter contracts, per-member
   mypy, the fast test suite);
 - **integration:** a disposable PostgreSQL service and every non-live profile,
-  with coverage reported. The job sets `REQUIRE_INTEGRATION=1`, so a missing
+  with coverage reported. Tests reach it through `INTEGRATION_APP_DATABASE_URL`
+  pointing at a `test_`-prefixed database, never the service `DATABASE_URL`
+  (contract owner: `../../python-sqlmodel-alembic/references/schema-verification.md#disposable-test-databases`).
+  The job sets `REQUIRE_INTEGRATION=1`, so a missing
   database URL fails instead of skipping and a job that lost its database
   cannot pass (`../../pytest/references/examples-core.md`, "Profile
   prerequisites").
@@ -354,8 +260,9 @@ or renamed:
 3. update only affected scopes—do not broaden unrelated domain hooks;
 4. run the fast stage against all files and the relevant pre-push/CI-equivalent
    checks;
-5. verify a package-scoped install still exposes dependency leakage that the
-   shared developer environment might hide.
+5. run a package-scoped install for each affected member: the shared developer
+   environment hides dependency leakage
+   ([workspace-rationale.md](workspace-rationale.md#the-shared-dev-environment-is-not-a-dependency-firewall)).
 
 Do not exclude a new member from lint/type/test hooks simply to make the hook
 pass. Fix its configuration, give it an explicit justified profile, or report
@@ -363,22 +270,6 @@ the incompatible boundary.
 
 ## Verification
 
-Run from the workspace root:
-
-```bash
-uv lock --check
-uv run --locked pre-commit validate-config
-uv run --locked pre-commit run --all-files --hook-stage pre-commit
-uv run --locked pre-commit run --all-files --hook-stage pre-push
-```
-
-Then run the repository's CI-equivalent commands that are not owned by those
-stages. Confirm:
-
-- repeated runs are clean and do not keep modifying files;
-- hook revisions match the selected uv/Ruff versions;
-- local hooks resolve through the locked workspace environment;
-- every current Python root is covered by the intended lint/type/test scope;
-- skipped integration/live/deployment checks have a separate enforced CI owner;
-- a fresh checkout can run the hooks without undeclared developer-global tools,
-  except explicitly documented `language: system` prerequisites.
+Run the hook-stage commands and the confirmation checklist in
+[verification.md](verification.md#environment-and-quality-gate), including
+`pre-commit validate-config`.

@@ -24,6 +24,13 @@ class ToolArgs(StrictModel):
     limit: int = Field(default=10, ge=1, le=50, description="Server clamps to 50.")
 ```
 
+## Keyword construction
+
+```python
+batch = Batch("orders", 50, True, None)                              # bad
+batch = Batch(queue="orders", size=50, dry_run=True, deadline=None)  # good
+```
+
 ## Closed vocabularies
 
 ```python
@@ -156,6 +163,8 @@ class ReportHandler:                                              # bad: forward
     async def handle(self, report_id: str) -> Report:
         return await self._service.build(report_id)
 
+report = await report_service.build(report_id)                    # good: callers use the service
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RetryPolicy:                                                # good: scalars consumed together
     max_attempts: int
@@ -166,6 +175,15 @@ class RetryPolicy:                                                # good: scalar
         if self.base_delay_seconds > self.max_delay_seconds:
             raise InvalidRetryPolicyError(self.base_delay_seconds, self.max_delay_seconds)
 
+```
+
+## One owner per semantics
+
+```python
+# bad: billing/adapters/export.py keeps a second, drifted copy
+def _canonical_hash(payload: Mapping[str, object]) -> str: ...
+
+from orders.domain.fingerprint import canonical_hash              # good: import the one owner
 ```
 
 ## Imports and package markers

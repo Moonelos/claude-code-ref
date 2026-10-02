@@ -11,7 +11,8 @@ internal modules, public API, errors, lifecycle, and tests.
 
 Every rule below marked **(checked)** is enforced by an import-linter contract
 or by `python-service-architecture-audit --library <kind>`
-([Enforcement](#enforcement)). The rest is review guidance.
+([Enforcement](#enforcement)). The rest is review guidance; **(review)** marks
+an importer rule no contract or audit check enforces, so a reviewer confirms it.
 
 ## A library is not a smaller service
 
@@ -48,6 +49,7 @@ that matches; a new library must also pass the admission check in
 | The code differs in meaning, lifecycle, or dependencies between members | Stays local, even if it looks similar |
 | A module is identical (apart from package name) in **three or more** deployables | **Violation**: extract it |
 | **Two** copies meant to be the same have diverged semantically | **Violation**: extract, or comment in each copy why the semantics differ |
+| **Two** copies enforce one rule both sides must agree on (an authentication or signature check, or a format one member writes and another reads: wire, storage, or embedding parameters), so changing one copy without the other is itself a defect | **Violation**: extract it, into an existing library of the right kind or a new one. Leave consumer-specific policy and error mapping in each member |
 | An identical non-business helper in two members, and a library of the right [kind](#library-kinds-and-importers) is already a dependency of both | Move it into that library now; no new library |
 | Identical in two deployables, no suitable existing library | May extract when both consumers intend the behavior to remain identical and workspace admission passes; otherwise keep local until a third copy |
 | One consumer, but an independently valuable wire contract, schema, or vendor client with a concrete compatibility or dependency-isolation reason | May be a library; state the reason in its `README` or module docstring |
@@ -58,8 +60,10 @@ identical function names. An implicit shared storage layout (a prefix one
 service writes and another purges) is a contract with one named owner. Apply
 the same table to YAML-loading mechanics; there is no separate reuse threshold.
 Each service always owns its `Settings` schema. Two consumers permit extraction;
-three identical copies require it. Permission is not a requirement to create a
-new package.
+three identical copies require it, and so do two when they must agree. The
+test is the cost of divergence, not similarity: if the copies disagreeing
+would be a bug, a second copy is already the defect. Permission is not a
+requirement to create a new package.
 
 ## Library kinds and importers
 
@@ -76,8 +80,8 @@ split by kind, because otherwise pure layers inherit I/O dependencies.
 | **client** | A typed async client for one external system: its models, errors, auth, transport | Business policy, service port types, retries the consumer also performs | `adapters/` or `genai/` (the class implementing a port), and `bootstrap/` to construct it **(checked by service contract)** |
 | **persistence** | SQLModel/SQLAlchemy table metadata and shared column types | Queries, sessions, engines, migrations of one service **(checked: session machinery)** | `db/` and migrations only **(checked by service contract)** |
 | **configuration** | File discovery and settings-source construction from explicit caller inputs; may import `pydantic_settings` | Service settings schemas, ambient environment/secret lookup, final settings instantiation, caching, startup policy | `config/` and `bootstrap/` **(checked with workspace)** |
-| **observability** | Provider lifecycle, span helpers, propagation, logging processors, redaction | Business span names, metrics, log events | `observability/` and `bootstrap/` |
-| **genai** | Chat-model factories, shared middleware, provider construction policy | Business prompts, task schemas | `genai/` only |
+| **observability** | Provider lifecycle, span helpers, propagation, logging processors, redaction | Business span names, metrics, log events | `observability/` and `bootstrap/` **(review)** |
+| **genai** | Chat-model factories, shared middleware, provider construction policy | Business prompts, task schemas | `genai/`, and `bootstrap/` to construct its connection and configuration input types (never its factories, middleware, or handles) **(review)** |
 | **testing** | Pytest plugins, disposable-infrastructure lifecycle, test-DB guards | Production code | Tests only, as a dev dependency |
 
 Only an observability library imports `opentelemetry.sdk`; every other kind uses
@@ -90,7 +94,7 @@ library may import a contract library for column types; the reverse is
 forbidden. Observability specifics are owned by `otel-observability`
 (fallback: `../../otel-observability/references/setup/shared_library.md`).
 
-Name the library after its capability (`edm_client`, `workflow_contracts`,
+Name the library after its capability (`docstore_client`, `workflow_contracts`,
 `db_models`, `company_observability`). A distribution or import package named
 only `common`, `shared`, `utils`, `helpers`, `core`, or `base` is a
 **Violation (checked)**.
@@ -142,134 +146,33 @@ and owned cleanup separately. Silent ownership transfer is a violation.
 ## Canonical client library
 
 A client library for an external document API, and the service adapter that
-uses it. Every client library has this shape and these rules.
+uses it. Every client library has this shape and these rules. The executable
+library is [`assets/canonical_library/`](../assets/canonical_library/), with its
+independence contract in `pyproject.toml`:
 
-```python
-# libs/edm-client/src/edm_client/errors.py
-from datetime import timedelta
-
-
-class EdmError(Exception):
-    """Base for every failure this library raises."""
-
-
-class EdmUnavailableError(EdmError):
-    """Timeout, connection failure, 429, or 5xx: the same call may succeed later."""
-
-    def __init__(self, message: str, *, retry_after: timedelta | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
-class EdmRejectedError(EdmError):
-    """A 4xx other than 404 and 429: repeating the call fails the same way."""
-
-
-class EdmProtocolError(EdmError):
-    """The response did not match the documented contract."""
-```
-
-```python
-# libs/edm-client/src/edm_client/models.py
-from pydantic import BaseModel, ConfigDict
-
-
-class Document(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    document_id: str
-    title: str
-    version: int
-```
-
-```python
-# libs/edm-client/src/edm_client/client.py
-from dataclasses import dataclass, field
-from datetime import timedelta
-
-import httpx
-from pydantic import ValidationError
-
-from edm_client.errors import EdmProtocolError, EdmRejectedError, EdmUnavailableError
-from edm_client.models import Document
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class EdmOptions:
-    base_url: str
-    api_token: str = field(repr=False)
-
-
-class EdmClient:
-    """Async EDM client. One call is one attempt; the caller owns `http` and retries."""
-
-    def __init__(self, *, http: httpx.AsyncClient, options: EdmOptions) -> None:
-        self._http = http
-        self._options = options
-
-    async def find_document(self, document_id: str) -> Document | None:
-        response = await self._get(f"/documents/{document_id}")
-        if response.status_code == httpx.codes.NOT_FOUND:
-            return None
-        try:
-            return Document.model_validate_json(response.content)
-        except ValidationError as exc:
-            raise EdmProtocolError(f"document {document_id}: unexpected body") from exc
-
-    async def _get(self, path: str) -> httpx.Response:
-        try:
-            response = await self._http.get(
-                f"{self._options.base_url}{path}",
-                headers={"Authorization": f"Bearer {self._options.api_token}"},
-            )
-        except httpx.TransportError as exc:
-            raise EdmUnavailableError(f"GET {path}: {type(exc).__name__}") from exc
-        status = response.status_code
-        if status == httpx.codes.TOO_MANY_REQUESTS or response.is_server_error:
-            raise EdmUnavailableError(
-                f"GET {path}: HTTP {status}", retry_after=_retry_after(response)
-            )
-        if response.is_client_error and status != httpx.codes.NOT_FOUND:
-            raise EdmRejectedError(f"GET {path}: HTTP {status}")
-        return response
-
-
-def _retry_after(response: httpx.Response) -> timedelta | None:
-    value = response.headers.get("Retry-After", "")
-    return timedelta(seconds=int(value)) if value.isdigit() else None
-```
-
-```python
-# libs/edm-client/src/edm_client/__init__.py
-"""Async client for the EDM document API."""
-
-from edm_client.client import EdmClient, EdmOptions
-from edm_client.errors import (
-    EdmError,
-    EdmProtocolError,
-    EdmRejectedError,
-    EdmUnavailableError,
-)
-from edm_client.models import Document
-
-__all__ = [
-    "Document",
-    "EdmClient",
-    "EdmError",
-    "EdmOptions",
-    "EdmProtocolError",
-    "EdmRejectedError",
-    "EdmUnavailableError",
-]
-```
+- [`errors.py`](../assets/canonical_library/src/docstore_client/errors.py): the
+  `DocstoreError` base and its unavailable (carrying `retry_after`), rejected, and
+  protocol subclasses.
+- [`models.py`](../assets/canonical_library/src/docstore_client/models.py): the
+  `Document` response model, frozen, with `extra="ignore"`.
+- [`client.py`](../assets/canonical_library/src/docstore_client/client.py):
+  `DocstoreOptions` (the token field has `repr=False`) and `DocstoreClient`, one attempt
+  per call over a borrowed `httpx.AsyncClient`. A 404 on the document route
+  returns `None`; 400, 409, and 422 raise rejected; transport failures, 401/403,
+  every other 4xx, 429, and 5xx raise unavailable
+  ([errors.md](errors.md#classification-bases)); an unexpected body raises the
+  protocol error. `Retry-After` is read only in its ASCII delay-seconds form
+  and capped.
+- [`__init__.py`](../assets/canonical_library/src/docstore_client/__init__.py): the
+  public API, re-exports and `__all__` only.
 
 The service's port implementation is the only place that sees the library, and
 it translates library errors into port errors once
 ([errors.md](errors.md#translate-once)):
 
 ```python
-# services/orchestrator/src/orchestrator/adapters/edm_documents.py
-from edm_client import EdmClient, EdmProtocolError, EdmRejectedError, EdmUnavailableError
+# services/orchestrator/src/orchestrator/adapters/docstore_documents.py
+from docstore_client import DocstoreClient, DocstoreProtocolError, DocstoreRejectedError, DocstoreUnavailableError
 
 from orchestrator.domain.documents import DocumentRef
 from orchestrator.ports.documents import (
@@ -279,31 +182,31 @@ from orchestrator.ports.documents import (
 )
 
 
-class EdmDocumentSource:
-    """Implements `DocumentSource` over the EDM API."""
+class DocstoreDocumentSource:
+    """Implements `DocumentSource` over the document-store API."""
 
-    def __init__(self, *, client: EdmClient) -> None:
+    def __init__(self, *, client: DocstoreClient) -> None:
         self._client = client
 
     async def fetch(self, *, ref: DocumentRef) -> SourceDocument | None:
         try:
             document = await self._client.find_document(ref.document_id)
-        except EdmUnavailableError as exc:
+        except DocstoreUnavailableError as exc:
             raise DocumentSourceUnavailableError(
-                error_code="edm_unavailable", retry_after=exc.retry_after
+                error_code="docstore_unavailable", retry_after=exc.retry_after
             ) from exc
-        except (EdmRejectedError, EdmProtocolError) as exc:
-            raise DocumentSourceRejectedError(error_code="edm_rejected") from exc
+        except (DocstoreRejectedError, DocstoreProtocolError) as exc:
+            raise DocumentSourceRejectedError(error_code="docstore_rejected") from exc
         if document is None:
             return None
         return SourceDocument(ref=ref, title=document.title, version=document.version)
 ```
 
 Bootstrap builds the `httpx.AsyncClient` with explicit timeouts inside its
-`AsyncExitStack`, maps settings and secrets to `EdmOptions`, and constructs
-`EdmDocumentSource(client=EdmClient(http=http, options=options))`
+`AsyncExitStack`, maps settings and secrets to `DocstoreOptions`, and constructs
+`DocstoreDocumentSource(client=DocstoreClient(http=http, options=options))`
 ([async-and-lifecycle.md](async-and-lifecycle.md#resource-acquisition)).
-Application actions see only the `DocumentSource` port; `edm_client` never
+Application actions see only the `DocumentSource` port; `docstore_client` never
 appears in `application/`, `domain/`, or `ports/`.
 
 **Do not mirror library types.** A port type that mirrors a technology-neutral
@@ -320,11 +223,13 @@ Secret fields use
 `field(repr=False)`. The service resolves environment, secrets, and YAML and
 maps them to the options at bootstrap.
 
-**Errors.** One base error per library (`EdmError`), and subclasses that tell
+**Errors.** One base error per library (`DocstoreError`), and subclasses that tell
 the consumer whether retrying can help (`...UnavailableError` with an optional
 `retry_after`, `...RejectedError`) plus a protocol error for malformed
-responses. Every SDK, transport, and validation failure is translated once,
-`from exc`. The library never imports a service's classification bases; the
+responses. Classify by what is wrong, not by status code
+([errors.md](errors.md#classification-bases)): credentials, permissions, and a
+wrong route or method are unavailable. Every SDK, transport, and validation
+failure is translated once, `from exc`. The library never imports a service's classification bases; the
 consumer's adapter maps library errors to its port errors. An expected absence
 is a return value (`Document | None`), not an exception.
 
@@ -332,7 +237,7 @@ is a return value (`Document | None`), not an exception.
 sessions, SDK clients). Injected resources are borrowed by default; ownership
 transfer needs a distinct explicit API, never an implicit constructor convention.
 When it must create one itself, it exposes an async
-context manager factory (`open_edm_client(options)`), never `launch()`/`close()`
+context manager factory (`open_docstore_client(options)`), never `launch()`/`close()`
 pairs. No import-time side effects and no mutable module-global state. The
 exception is process-singleton SDK state behind idempotent configure/shutdown
 functions with a test reset hook.
@@ -370,10 +275,12 @@ helper stays with its owner; do not create one file per class.
 
 Introduce a nested package only when one narrower slice contains several
 cohesive modules, changes for a different reason, has its own external
-dependency or test setup, or owns a distinct public sub-API. Promote only that
+dependency or test setup, owns a distinct public sub-API, or has real naming
+pressure. Promote only that
 slice (`vendor_client/auth/`, `vendor_client/transport/`). Never pre-create
 `interfaces/`, `implementations/`, `factories/`, `plugins/`, `schemas/`, or
-`types/` packages **(checked: one-module packages with these names)**.
+`types/` packages **(checked: one-module packages with these names)**, and
+never add speculative registries.
 
 ## Public API and compatibility
 
@@ -443,11 +350,19 @@ business semantics merely because the implementations now sit nearby.
 
 ## Review questions
 
+The library audit (`python-service-architecture-audit`) answers these after its
+static checks.
+
 - Which row of [Extraction triggers](#extraction-triggers) justifies this
-  library, and which single kind is it?
-- Is every importer in the service a layer the kind allows?
+  library, and which single kind is it? A library no row justifies is an
+  Improvement to inline back into its consumer; code that spans kinds is split
+  by kind.
+- Is every importer in the service a layer the kind allows, and does each
+  consuming service have the importer contract for it?
 - Does it avoid service imports, environment reads, logging configuration, and
-  resource ownership it cannot dispose?
+  resource ownership it cannot dispose? It closes no borrowed resource; review
+  any explicit ownership transfer against [Lifecycle](#library-rules).
+- Does exactly one layer retry each call?
 - Does it translate every failure into its own errors, and does each consumer
   translate those once into port errors?
 - Is the public API only what `__init__.py` exports, and do consumers use only

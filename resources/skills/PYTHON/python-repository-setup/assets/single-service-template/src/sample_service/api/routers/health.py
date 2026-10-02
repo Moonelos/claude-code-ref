@@ -1,3 +1,5 @@
+"""Liveness endpoint."""
+
 from fastapi import APIRouter, status
 
 router = APIRouter()

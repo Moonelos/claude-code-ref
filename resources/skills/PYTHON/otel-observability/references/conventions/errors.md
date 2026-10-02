@@ -97,18 +97,8 @@ def start_span(
 ```
 
 Callers add attributes and outcome to the yielded span; they never catch just
-to mark the span.
-
-```python
-def retrieve_documents(query: str, top_k: int) -> list[Document]:
-    with start_span(
-        "retrieval product_docs",
-        attributes={"gen_ai.operation.name": "retrieval", "gen_ai.request.top_k": top_k},
-    ) as span:
-        documents = vector_store.search(query, top_k=top_k)
-        span.set_attribute("app.retrieval.result_count", len(documents))
-        return documents
-```
+to mark the span. A worked caller is the retrieval span in
+`../tracing/genai/retrieval.md` ("One span per stage").
 
 ### `set_status_on_exception`
 
@@ -191,7 +181,8 @@ if children must nest under it.
 | `429` | `429 Too Many Requests for sku=ABC-123` |
 | `_OTHER` | `type(exc)` repr, or the response body |
 
-On success, omit `error.type`; `app.outcome` carries the split. Unwrap wrapper
+On success, omit `error.type`; `app.outcome` carries the split (closed value
+set: `naming.md#the-app-shape`). Unwrap wrapper
 exceptions (`RetryError` says nothing; its cause does). A business failure
 taxonomy (declined, not fulfillable, policy violation) goes in
 `app.failure.class`, not `error.type`. Cancellation is not a sentinel:

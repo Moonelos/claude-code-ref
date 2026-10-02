@@ -89,4 +89,7 @@ HEALTHCHECK \
     CMD ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
+# This launcher command owns the bind host and port (python-settings-config:
+# never a YAML key); a platform that assigns the port overrides CMD. The app
+# is built by its factory so the lifespan enters the runtime.
 CMD ["/app/.venv/bin/uvicorn", "--factory", "sample_api.bootstrap.app:create_app", "--host", "0.0.0.0", "--port", "8080"]

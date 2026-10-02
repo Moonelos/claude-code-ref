@@ -105,7 +105,7 @@ Choose by what the test must execute to expose the defect:
   provider/client conformance without claiming the live system works.
 - **Framework characterization:** a contract test that pins third-party
   behavior the application relies on; design rules are in
-  [references/core-principles.md](references/core-principles.md).
+  [references/core-principles.md](references/core-principles.md#framework-characterization).
 - **Integration:** run a concrete adapter against a real disposable
   implementation: the production database dialect, broker, filesystem,
   checkpointer, protocol endpoint, or service emulator.
@@ -121,8 +121,8 @@ real-infrastructure coverage adds distinct confidence.
 
 Directory placement, profile classification, markers, CI selection, and where
 shared test-support types live are owned by `$python-service-architecture`:
-`../python-service-architecture/references/testing.md` ("Profiles and
-markers", "Test support packages"). This skill owns test design, doubles,
+[testing.md](../python-service-architecture/references/testing.md#profiles-and-markers)
+("Profiles and markers", "Fixtures and static data", "Test support packages"). This skill owns test design, doubles,
 assertions, async, and flakiness. For telemetry tests see
 `../otel-observability/references/testing.md`; for settings tests and settings
 fixtures see `$python-settings-config` (`../python-settings-config/SKILL.md`).
@@ -134,14 +134,12 @@ task using this skill. Then read only the references relevant to the system:
 
 - Read
   [references/integration-boundaries.md](references/integration-boundaries.md)
-  for framework-neutral database or SQLAlchemy, filesystem, subprocess,
-  external-service, contract, E2E, live, skip/xfail, or CI job design. The framework
-  references below contain their specialized integration guidance; do not load
-  this one as well unless the task genuinely crosses both concerns.
+  for any database or SQLAlchemy test (it owns the database rules for every
+  framework), filesystem, subprocess, external-service, contract, E2E,
+  skip/xfail, or CI job design.
 - Read [references/fastapi.md](references/fastapi.md) for FastAPI or Starlette
   request tests, ASGI lifespan, async clients, dependency overrides, streaming,
-  WebSockets, or SQLAlchemy sessions and migrations exercised through FastAPI
-  dependencies and request paths.
+  WebSockets, or sessions injected through FastAPI dependencies.
 - Read [references/workers.md](references/workers.md) for asyncio worker loops,
   database-backed work queues, task queues such as Celery or RQ, consumers,
   schedulers, retries, acknowledgements, duplicate delivery, or worker-process
@@ -157,11 +155,10 @@ may require more than one; do not load unrelated examples:
 
 - [references/examples-core.md](references/examples-core.md) for plain Python
   units, recording fakes, typed builders, bounded waits, async fixtures,
-  parametrization, or Hypothesis;
+  parametrization, Hypothesis, the test-database engine fixture, or the async
+  and sync SQLAlchemy same-connection transaction fixtures;
 - [references/examples-fastapi.md](references/examples-fastapi.md) for FastAPI
   or async ASGI patterns;
-- [references/examples-integration.md](references/examples-integration.md) for
-  framework-neutral sync or async SQLAlchemy integration patterns;
 - [references/examples-workers.md](references/examples-workers.md) for asyncio
   worker loops, database work queues, Celery task adapters, or worker round
   trips;
@@ -181,8 +178,8 @@ the repository's APIs and installed versions.
 2. Choose the stable oracle before arranging doubles. A test with no meaningful
    oracle is not rescued by elaborate setup.
 3. Arrange only facts relevant to the behavior. Use typed builders or explicit
-   values when a fixture would hide the scenario; setup that carries no
-   scenario facts should become a fixture once it repeats.
+   values when a fixture would hide the scenario; fixture rules are in
+   [core-principles.md](references/core-principles.md#fixtures-reveal-ownership-and-cost).
 4. Perform one meaningful action. Multiple calls are appropriate when the
    behavior is inherently sequential, such as retry, idempotency, resume, or
    state-machine behavior.
@@ -213,58 +210,60 @@ contractual reason:
   control flow in the test;
 - asserts only that a mock returned what the test configured it to return;
 - locks private helper calls, incidental call order, log prose, generated IDs,
-  timestamps, token chunks, or full natural-language responses (a structured
-  log event that is an operational contract is a valid oracle; see
-  [references/core-principles.md](references/core-principles.md));
+  timestamps, token chunks, or full natural-language responses (valid
+  structured-log oracles:
+  [core-principles.md](references/core-principles.md#oracles));
 - checks a framework, Pydantic, SQLAlchemy, Celery, or LangGraph feature without
-  exercising application-owned policy or wiring, outside the framework
-  characterization profile;
+  exercising application-owned policy or wiring, outside the
+  [framework characterization](references/core-principles.md#framework-characterization)
+  profile;
 - broadens fixtures or uses distant `autouse` setup to make dependencies less
   visible;
 - shares mutable state, a fake with a call counter, a checkpointer, a database
   row, or a queue across tests without deterministic isolation;
 - silently skips because required integration infrastructure is absent
-  (prerequisites go through the one `require_env` helper, which fails when the
-  profile is required);
+  ([`require_env`](references/core-principles.md#suite-hygiene));
 - relies on retries to conceal flakiness, arbitrary sleeps, execution order, or
   an unbounded wait;
-- marks a known bug `xfail` without a narrow condition, expected failure mode,
-  owner or issue, and strict unexpected-pass behavior;
+- marks a known bug or dependency limitation `xfail` without a reason with an
+  owner or issue, a narrow condition, the expected failure type, and strict
+  unexpected-pass (XPASS) behavior;
 - duplicates a lower-level behavior matrix at a more expensive layer;
 - exists only to hit a line, branch, percentage, or test-count target.
 
 ### Mechanical checklist
 
 Grep for these in every new or reviewed test. Each is a defect unless the test
-states the contractual exception:
+states the contractual exception. The full rules are in the linked
+[core-principles.md](references/core-principles.md) sections; items without a link are stated only here.
 
-- a bare `.wait()`, `await task`, `await queue.get()`, or future await outside
-  `asyncio.timeout(...)`;
-- `while ...: await asyncio.sleep(0)` or any poll outside the one bounded
-  `wait_until` helper;
-- `time.sleep` or `asyncio.sleep` in a unit test;
-- `assert` inside a double;
-- an asserted value that no code path under test writes; an assertion on a
-  local literal, the environment (`datetime.now().year`), or `is not None` on a
-  factory that cannot return `None`;
-- an expected value computed with the production expression;
-- `pytest.raises((A, B))` unless the contract is a union and says so; a
-  rejection test without `match=` or an attribute check identifying the
-  reason, including every case of a parametrized rejection table;
-- a spec-less `Mock`/`AsyncMock` for a port, or `call_args` echoed back into
-  the expected value;
-- `SimpleNamespace` for a typed collaborator or constructible library type;
-- `cast(Any, ...)`, `object.__new__(Subject)`, or `# type: ignore` to force a
-  double to fit (general rule: `$python-code-conventions`,
-  `../python-code-conventions/SKILL.md` "Type escape hatches");
-- private `._x` access or calls, unless the test declares itself an explicit
-  white-box contract;
-- a non-trivial parameter table without `pytest.param(..., id=...)`, an unused
-  parameter, or a test body branching on a parameter (split success and
-  failure);
-- a compound `assert x is not None and x.y == ...` (narrow on its own line);
-- a fixture returning `Any`, a tuple, a module, or a class or function only so
-  tests can reach it.
+- Waits and time ([rules](references/core-principles.md#make-time-randomness-and-concurrency-observable)):
+  a bare `.wait()`, `await task`, `await queue.get()`, or future await outside
+  `asyncio.timeout(...)`; `while ...: await asyncio.sleep(0)` or any poll
+  outside the one bounded `wait_until` helper; `time.sleep` or `asyncio.sleep`
+  in a unit test.
+- Doubles ([rules](references/core-principles.md#doubles-must-be-correct)): `assert` inside a double; a
+  spec-less `Mock`/`AsyncMock` for a port, or `call_args` echoed back into the
+  expected value; `SimpleNamespace` for a typed collaborator or constructible
+  library type ([missing seam](references/core-principles.md#stop-at-a-missing-seam)); `cast(Any, ...)`,
+  `object.__new__(Subject)`, or `# type: ignore` to force a double to fit
+  (general rule: `$python-code-conventions`,
+  `../python-code-conventions/SKILL.md` "Type escape hatches").
+- Oracles: an asserted value that no code path under test writes; an assertion
+  on a local literal, the environment (`datetime.now().year`), or `is not None`
+  on a factory that cannot return `None`; an expected value computed with the
+  production expression; `pytest.raises((A, B))` unless the contract is a union
+  and says so; a rejection test without `match=` or an attribute check
+  identifying the reason, including every case of a parametrized rejection
+  table; a compound `assert x is not None and x.y == ...` (narrow on its own
+  line).
+- Private `._x` access or calls, unless the test declares itself an explicit
+  white-box contract.
+- Parameters ([rules](references/core-principles.md#parametrization)): a non-trivial parameter table
+  without `pytest.param(..., id=...)`, an unused parameter, or a test body
+  branching on a parameter (split success and failure).
+- Fixtures ([rules](references/core-principles.md#typed-fixtures-and-builders)): a fixture returning
+  `Any`, a tuple, a module, or a class or function only so tests can reach it.
 
 When the requested review or refactor explicitly includes test removal, delete
 redundant or misleading tests only when actual risk coverage is preserved or

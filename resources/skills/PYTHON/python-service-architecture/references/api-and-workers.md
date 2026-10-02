@@ -3,10 +3,9 @@
 ## FastAPI / HTTP API
 
 ```text
-src/<package>/
-├── main.py
+src/<package>/                      # no main.py: `uvicorn --factory <package>.bootstrap.app:create_app`
 ├── bootstrap/
-│   ├── app.py                      # create_app(), lifespan, ASGI app
+│   ├── app.py                      # create_app(), lifespan, ASGI app: the process owner
 │   └── runtime.py                  # Dependency graph and disposal
 ├── api/
 │   ├── dependencies.py             # ApiRuntime Protocol, get_runtime, RuntimeDep
@@ -44,25 +43,13 @@ what happens. Matching on a returned state union to build the response shape is
 translation, not a business branch.
 
 **Typed dependencies.** Store the typed runtime on `app.state` once and expose
-one dependency for it in `api/dependencies.py`:
-
-```python
-class ApiRuntime(Protocol):
-    """What routes read from the runtime; bootstrap's `Runtime` satisfies it."""
-
-    @property
-    def submission_store(self) -> SubmissionStore: ...
-    @property
-    def submission_policy(self) -> SubmissionPolicy: ...
-
-
-def get_runtime(request: Request) -> ApiRuntime:
-    runtime: ApiRuntime = request.app.state.runtime
-    return runtime
-
-
-RuntimeDep = Annotated[ApiRuntime, Depends(get_runtime)]
-```
+one dependency for it in `api/dependencies.py`: an `ApiRuntime` Protocol whose
+read-only properties are what routes read (bootstrap's `Runtime` satisfies it),
+`get_runtime(request)`, and `RuntimeDep = Annotated[ApiRuntime,
+Depends(get_runtime)]`. The executable version is
+[`api/dependencies.py`](../assets/canonical_service/src/my_service/api/dependencies.py)
+in the canonical service, beside the identity dependency a write route takes
+(`WriteIdentity`: the verified client, never a body field).
 
 Routes take `runtime: RuntimeDep` and pass its fields to the action. There is no
 provider per service: a `get_submission_store` that returns
@@ -123,6 +110,11 @@ every exception a request can raise is mapped; errors raised only at startup
   text into the response; log only status >= 500 at the handler; send
   `Cache-Control: no-store` and `Retry-After` when retry metadata exists.
 
+The canonical service's
+[`api/exception_handlers.py`](../assets/canonical_service/src/my_service/api/exception_handlers.py)
+is a complete table, and its `tests/unit/test_api.py` is the exhaustiveness
+test.
+
 ## Long-running worker
 
 Loops and queue consumers are business entry points, like routes. They live in
@@ -157,9 +149,9 @@ None of that is wiring, so it does not belong in `bootstrap/`; none of it is
 business, so it does not belong in `application/`; and the SQS client should not
 know which action handles its messages, so it does not belong in `adapters/`.
 
-`workers/` imports `application/`, `domain/`, `ports/` types, and
-`observability/`. It never imports `bootstrap/`, `config/`, `db/`, `adapters/`,
-or `genai/`: like `api/`, it reads implementations through a typed runtime view.
+Its imports follow the `api/`, `workers/` row of
+[The core rule](boundaries.md#the-core-rule): like `api/`, it reads
+implementations through a typed runtime view.
 
 ```python
 # workers/runtime.py
@@ -234,10 +226,9 @@ handlers, and awaits `supervise(loops, stop)`. `ProcessHealth` lives in
 `supervisor.py` and the runtime never needs it, so there is no import cycle.
 For a hybrid service launched through `uvicorn --factory`, the ASGI factory's
 lifespan may own this same startup/shutdown sequence instead of `main.py`; use
-one process owner, not both.
-Binding a *worker* to the runtime is wiring. Binding an *application action* in bootstrap
-(`partial(process_paid_order, store=...)`) hides an entry point and is not
-allowed.
+one process owner, not both. Binding a worker function to the runtime is
+wiring; binding an application action hides an entry point and is not allowed
+([boundaries.md](boundaries.md#bootstrap)).
 
 - **Failure policy is declared per failure class.** The usual policy, shown
   above: contain the service's unavailable base
@@ -434,8 +425,9 @@ For a worker, readiness includes progress: the supervisor records each loop's
 last successful iteration, so a stopped loop is distinguishable from an idle
 queue.
 
-These are technical endpoints, not business entry points
-([boundaries.md](boundaries.md#application)), so they call no application action:
+Liveness, readiness, metrics, and version are **technical endpoints**: they
+report on the process itself, are not business entry points, and call no
+application action. This is the one statement of that rule:
 
 | Endpoint | Reads | Calls an action? |
 | --- | --- | --- |

@@ -12,18 +12,14 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = SKILL_ROOT / "toolchain.toml"
 
 PYTHON_FILES = {
-    "SKILL.md": 3,
-    "references/docker-builds.md": 2,
+    "references/toolchain.md": 3,
     "assets/workspace-template/.python-version": 1,
     "assets/workspace-template/services/api/Dockerfile": 1,
     "assets/single-service-template/.python-version": 1,
     "assets/single-service-template/Dockerfile": 1,
 }
 UV_FILES = {
-    "SKILL.md": 2,
-    "references/docker-builds.md": 2,
-    "references/pyproject-files.md": 1,
-    "references/pre-commit.md": 1,
+    "references/toolchain.md": 3,
     "assets/workspace-template/.pre-commit-config.yaml": 1,
     "assets/workspace-template/pyproject.toml": 1,
     "assets/workspace-template/services/api/Dockerfile": 1,

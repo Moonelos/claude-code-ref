@@ -291,8 +291,6 @@ from dataclasses import dataclass
 class InvocationCounters:
     inference_calls: int = 0
     tool_calls: int = 0
-    tool_errors: int = 0
-    summarization_calls: int = 0
 
 
 _counters: ContextVar[InvocationCounters | None] = ContextVar(
@@ -326,13 +324,7 @@ def current_counters() -> InvocationCounters | None:
     return _counters.get()
 ```
 
-Three edits wire it up, and **all three are required** — with any one missing, `gen_ai.invoke_agent.inference_calls` and `.tool_calls` are simply never emitted, silently:
-
-| Where | Edit |
-| --- | --- |
-| `on_chat_model_start` in the model callback (`../tracing/genai/langchain/model_callback.md`) | `c = current_counters(); c and setattr(c, "inference_calls", c.inference_calls + 1)` |
-| the tool tracing middleware (`../tracing/genai/langchain/tools_and_middleware.md`) | the same, incrementing `tool_calls` |
-| the agent wrapper (`../tracing/genai/langchain/streaming_and_agent_span.md`) | wrap the body in `with invocation_counters() as counters:` and pass `inference_calls=counters.inference_calls, tool_calls=counters.tool_calls` to `record_agent_invocation` |
+Three call sites wire it up, and **all three are required** — with any one missing, `gen_ai.invoke_agent.inference_calls` and `.tool_calls` are simply never emitted, silently. Each already does so in its template: `on_chat_model_start` in the model callback (`../../assets/langchain/model_callback.py`) increments `inference_calls`; the tool tracing middleware (`../tracing/genai/langchain/tools_and_middleware.md`) increments `tool_calls`; the agent wrappers (`../tracing/genai/langchain/streaming_and_agent_span.md`) open the scope and pass both values to `record_agent_invocation`.
 
 The increments are guarded on `current_counters()` returning non-`None` so a model call made outside any agent invocation — a standalone summarization, a warm-up call — does not raise inside instrumentation.
 
@@ -360,6 +352,15 @@ tokens per invocation           prompt growth, retrieval bloat
 summarization calls / invocation context growing beyond the trigger
 ```
 
+Only tool calls per invocation has an instrument above (`gen_ai.invoke_agent.tool_calls`).
+The other three are trace queries by default: retries are repeated `chat` or `execute_tool`
+spans under one `invoke_agent` span, tokens are the `gen_ai.usage.*` sum over its model spans,
+and summarization calls are `chat` spans for the summarization model (distinguishable by
+`gen_ai.request.model`). When one needs a dashboard or alert, add an `app.agent.*` per-invocation
+histogram and wire it exactly like `inference_calls`: a field on `InvocationCounters`, an
+increment at the one call site that sees the event, and one observation in
+`record_agent_invocation`. Never add a counter field with no increment and no instrument.
+
 Alert on a change from baseline, not an absolute threshold — "7 model calls" is fine for one agent and pathological for another.
 
 ---
@@ -376,9 +377,9 @@ Only where a product fact has no standard equivalent:
 | `app.retrieval.result_count` | Histogram | Empty-retrieval detection |
 | `app.guardrail.decisions` | Counter, by bounded decision + policy | Safety and policy trends |
 | `app.gen_ai.estimated_cost_usd` | Histogram | Spend by workflow, model, tenant tier |
-| `app.gen_ai.client.token.cache_read.usage` | Histogram | Cached-input token subset, separate from standard totals |
-| `app.gen_ai.client.token.cache_write.usage` | Histogram | Cache-write input-token subset |
-| `app.gen_ai.client.token.reasoning.usage` | Histogram | Reasoning output-token subset |
+
+The cache-read, cache-write, and reasoning token-subset histograms are already in
+[the metrics module](#the-metrics-module), separate from the standard totals.
 
 Do not add `app.agent.tool_calls` as a counter alongside `gen_ai.invoke_agent.tool_calls` unless you specifically need an event-rate view as well as a per-invocation distribution — and if you do, document that they are not interchangeable.
 
@@ -391,7 +392,7 @@ The general lists are in `../conventions/naming.md`. Two things are specific to 
 - **Tool and agent names are model-supplied.** They are bounded only if you bound them. Normalize against a known registry before the name reaches a metric attribute — see `../tracing/genai/langchain/tools_and_middleware.md`. Model and provider names need no such treatment; they come from your own configuration.
 - **`gen_ai.response.id` is unique per call.** It sits in the same attribute group as `gen_ai.response.model`, reads like metadata, and behaves like a UUID. It belongs on the span and nowhere near a label.
 
-`gen_ai.conversation.id` is the third one, and the most expensive: one time series per conversation.
+`gen_ai.conversation.id` is the third one, and the most expensive: one time series per conversation. The rule is in `../tracing/genai/attributes.md`, "Conversation correlation".
 
 ---
 

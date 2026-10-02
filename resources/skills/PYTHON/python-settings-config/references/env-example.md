@@ -10,7 +10,10 @@ scaffolds in `settings-py.md`, `secrets-py.md` and `config-yaml.md`.
 | `services/<name>/.env.example` (or the project root for a single service) | What does this process read at startup, whatever starts it? | The complete contract, in the three sections below |
 | repository-root `.env.example` | What does the deployment tool need to start the stack? | Image pins, credential passthrough, coordinates Compose or Helm injects |
 
-The root file never replaces a service file. Keys they share must agree.
+The root file never replaces a service file. Keys they share must agree. The root
+file's contents and its explicit Compose mapping are owned by
+`python-repository-setup` (fallback
+`../../python-repository-setup/references/docker-compose.md`).
 
 ## Sections
 

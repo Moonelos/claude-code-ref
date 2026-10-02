@@ -5,13 +5,9 @@ Follows the multi-stage shape from `python-repository-setup`'s
 `.venv` copied into runtime, non-root numeric user, `tini` as the process
 entrypoint). This file only covers the one piece that's specific to running
 migrations: what the runtime stage's `ENTRYPOINT`/`CMD` should be, and how
-that differs between the two repo shapes in `references/repo-layout.md`.
-
-The two cases end up structurally different for the same reason the folder
-layout does: in a monorepo, `db-migrate` is a dedicated image that does
-*nothing but* run migrations, so running migrations is its default behavior.
-In a single-service repo there's only one image total, so migrations are a
-one-off *override* of that image's normal command, never the default.
+that differs between the two repo shapes in `references/repo-layout.md`. The
+two cases differ for the same reason the folder layout does; the table at the
+end compares them.
 
 ## Monorepo — `services/db-migrate/Dockerfile`
 
@@ -47,8 +43,7 @@ CMD ["/app/.venv/bin/alembic", "upgrade", "head"]
 
 ## Single-service repo — root `Dockerfile`
 
-One image total. Its default `CMD` runs the application; migrations are an
-override of that same image, never a separate build:
+One image total; its default `CMD` runs the application:
 
 ```dockerfile
 FROM python-base AS runtime
@@ -79,9 +74,6 @@ like the monorepo case, just at a different path.
 |---|---|---|
 | How many images | A dedicated one, only for migrations | One, shared with the app |
 | Default `CMD` | `alembic upgrade head` | the app server |
-| How a migration run happens | The default — no override needed | `CMD` override at task-run time |
+| How a migration run happens | The default — the image does nothing but run migrations | A one-off `CMD` override of the same image at task-run time, never a separate build |
+| `ENTRYPOINT` | `["tini", "--"]` | `["tini", "--"]` — only the `CMD` array ever changes |
 | Who has `alembic` installed | Only `db-migrate` | The one and only service (unavoidable — there's nothing else to keep it out of) |
-
-In both cases `ENTRYPOINT` stays `["tini", "--"]` — what changes is only ever
-the `CMD` array, whether that's the image's baked-in default (monorepo) or an
-explicit override at run time (single-service).

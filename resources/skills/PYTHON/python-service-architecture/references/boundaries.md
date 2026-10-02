@@ -26,8 +26,9 @@ api / workers ───>  │ application ──> domain                  │
 | `db/`, `adapters/`, `genai/` | the ports they implement, `domain/` types they return; a GenAI tool also imports the action it calls and the port *types* that action takes (never their errors, see [ai.md](ai.md#tools-and-mcp)) | `bootstrap/`, `api/`, `workers/`; each other only through a port, or through a Protocol private to the consumer ([ai.md](ai.md#retrieval-and-rag)) |
 | `bootstrap/` | everything | — |
 
-- Third-party code: `domain/` and `ports/` use only the standard library and
-  `pydantic`; `application/` may add `structlog` for a recorded fallback
+- Third-party code: `domain/` and `ports/` use only the standard library,
+  `pydantic`, and its typing companions `typing_extensions` and
+  `annotated_types`; `application/` may add `structlog` for a recorded fallback
   ([observability](#observability)). Admitted technology-neutral contract
   libraries are allowed in all three.
 - Entry points and implementations never import `bootstrap/`. Each declares the
@@ -137,8 +138,19 @@ async def delete_submission(*, submission_id: SubmissionId, store: SubmissionSto
 ```
 
 This exception covers public actions only. A private helper or a second name for
-the same operation earns nothing from sitting in `application/`; a step several
-actions share is private (see SKILL.md, "Steps shared by several actions").
+the same operation earns nothing from sitting in `application/`.
+
+**Steps shared by several actions.** A step that two actions both run (triage a
+ticket, ship one order) is not a catalog entry: put it in a private module
+(`application/_shipping.py`) or in the module of the action that owns it, and
+never call it from an entry point. An action that *is* a business operation in
+its own right stays public, and another action may call it. A result type the
+shared step returns and entry points read lives in `domain/` (or the public
+action's module), never in the private module; actions reuse those types in
+their own outcome unions rather than renaming them. A shared step propagates
+dependency outages; each calling action decides whether an outage is an outcome
+for it (the consumer retries this message later) or stops its batch (the
+sweeper).
 
 ## Contract ownership
 
@@ -258,8 +270,17 @@ from the runtime.
   functions. Never one factory per constructor, and no generic registry.
 - Build every implementation, including inbox adapters, once in `runtime()`.
   The runtime holds implementations and policies the entry points use, never
-  raw SDK clients, actions, or objects wrapping actions; a resource kept only
-  for disposal lives in the exit stack.
+  raw SDK clients, application actions, or objects wrapping actions
+  (`functools.partial` or a lambda over an action hides an entry point); a
+  resource kept only for disposal lives in the exit stack. Binding a *worker
+  function* to the runtime (`iteration=lambda: reattempt_stuck(runtime)`) is
+  wiring and allowed. Entry points call function actions with fields from the
+  runtime (`await sync_tickets(tickets=runtime.tickets, policy=runtime.sync_policy)`).
+- Map settings into small frozen policy objects owned by the action or adapter
+  that uses them: one named mapping function each, plain values, required
+  keyword-only fields. Never pass the whole `Settings` downstream or store
+  `Secrets` on `app.state`; a shared library's own config object and test
+  factories are exempt.
 - Substitute test doubles at **one** seam: pass fakes into the composition
   function, or use keyword parameters defaulting to the production
   constructors. Do not add `factory=`/`hooks=`/`clock=None` to every layer.
@@ -280,11 +301,23 @@ SDK or model handles go only into adapter and GenAI constructors.
 ### `config/`
 
 Python settings and secret-resolution code; it describes policy and never
-instantiates the runtime graph. Settings are *read* only by `bootstrap/`,
-`main.py`, and process entry scripts such as Alembic's `env.py`; a GenAI or
-adapter factory may import its settings-slice *type* for its signature and
-receives the value from bootstrap ([ai.md](ai.md#factories-and-bootstrap-wiring)). Everything else about
-settings is owned by `python-settings-config` (fallback:
+instantiates the runtime graph. This is the complete list of who imports it:
+
+- **The `Settings` and `Secrets` classes:** only `config/` itself,
+  `bootstrap/`, `main.py`, and process entry scripts outside the package such
+  as Alembic's `env.py`. They load the values once and pass them on; nothing
+  else reads settings, secrets, or the environment.
+- **A settings-slice type** (`ChatModelSettings`, a `BaseModel` nested in
+  `Settings`): also a GenAI or adapter factory, for its signature only; it
+  receives the value from bootstrap and never the whole `Settings`
+  ([ai.md](ai.md#factories-and-bootstrap-wiring)).
+- **Nobody else.** `db/` factories take explicit values
+  (`build_engine(dsn, pool_size=...)`). `domain/`, `ports/`, `application/`,
+  `api/`, and `workers/` never import `config/`
+  ([The core rule](#the-core-rule); checked by the import-linter contracts and
+  the audit).
+
+Everything else about settings is owned by `python-settings-config` (fallback:
 `../../python-settings-config/SKILL.md`).
 
 ### `core/`
@@ -305,11 +338,9 @@ context, calls one action, and translates the result: an HTTP response, a
 delivery settlement, a log line of the returned summary. Neither executes SQL,
 initializes clients, invokes LLM SDKs, or branches on business state.
 
-**Technical endpoints** report on the process itself (liveness, readiness,
-metrics, version) and call no action: readiness calls a port's `ping()`,
-liveness reads the supervisor's health state. One that starts reporting
-business facts (pending counts for an operator) is a business entry point and
-gets an action.
+Technical endpoints (liveness, readiness, metrics, version) report on the
+process itself and call no action
+([api-and-workers.md](api-and-workers.md#health-and-readiness)).
 
 ### `application/`
 

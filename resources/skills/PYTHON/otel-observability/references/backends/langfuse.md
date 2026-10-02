@@ -9,9 +9,9 @@ authentication, and the attribute mapping on the GenAI branch.
 ## Ingestion facts
 
 - Langfuse ingests over **OTLP/HTTP** only. An OTLP/gRPC exporter pointed at it fails.
-- Send either a complete trace or the rooted, ancestor-closed projection from
-  `../collector/genai_projection.md`. Never send only model leaves: Langfuse needs the entry
-  root and every retained span's parent chain to build a readable trace.
+- Send either a complete trace or the rooted, ancestor-closed projection (contract:
+  `../collector/genai_projection.md`), never only model leaves: Langfuse needs the entry root
+  and each retained span's parent chain to build a readable trace.
 - Langfuse is a trace and LLM-workflow backend, not a metrics backend. Operational metrics and
   alerts go to the metrics backend.
 - `langfuse.*` attributes are added in the Langfuse Collector branch by a destination-specific
@@ -79,11 +79,36 @@ processors:
 Only map what a concrete Langfuse filter needs. Mirroring every application attribute into
 `langfuse.trace.metadata.*` produces an unusable filter list.
 
-Observation input/output: when the portable `{role, parts}` envelope is valid but Langfuse needs
-its native display shape, the application emits content-gated
-`app.gen_ai.observation.input` / `output` alongside canonical `gen_ai.*`
-(`../tracing/genai/content_capture.md`, "Backend rendering is not the wire shape"). Map and
-consume them here:
+## Observation input and output
+
+When the portable `{role, parts}` envelope is valid but Langfuse needs its native display
+shape, keep two representations (`../tracing/genai/content_capture.md`, "Backend rendering
+is not the wire shape", owns the canonical side):
+
+1. `gen_ai.system_instructions`, `gen_ai.input.messages`, and
+   `gen_ai.output.messages` remain the portable OpenTelemetry source of truth.
+2. `app.gen_ai.observation.input` / `output` carry a lossless, content-gated
+   presentation. For text-only chat input, use `[{"role": ..., "content": ...}]`.
+   For one valid structured-output text response, store the decoded JSON object; for
+   ordinary single-text output, store the text scalar. Fall back to the canonical
+   envelope for multipart, tool, multimodal, or otherwise ambiguous content.
+
+Derive the second value only when the conversion is lossless. The `serialize_observation_*`
+functions in `../../assets/genai_content.py` implement these rules.
+
+If the pinned adapter sometimes emits an exactly empty normalized `reasoning` part next to one
+text part, keep it in the canonical output fixture and assert that the backend presentation
+projection omits only that empty part. A non-empty reasoning part must force canonical fallback.
+
+The application must not emit a vendor namespace: no `langfuse.*`, `openinference.*`, or
+another backend namespace in the provider callback. The Langfuse Collector branch maps the
+neutral presentation attributes to `langfuse.observation.input` /
+`langfuse.observation.output`, then deletes the neutral copies. Every other trace branch
+deletes these payload attributes with the other GenAI content keys. This preserves
+portability, prevents duplicate metadata, and keeps the capture switch and backend retention
+policy authoritative. Never deform `gen_ai.*` to satisfy one UI.
+
+Map and consume them here:
 
 ```yaml
 processors:
@@ -105,9 +130,9 @@ The branch retains canonical `gen_ai.*` for protocol fidelity and deletes the ne
 after projection so they do not also appear as metadata. General trace branches delete both
 representations. Do not rename or flatten `gen_ai.input.messages` / `gen_ai.output.messages`.
 
-Langfuse may display a JSON string inside a text part as an expandable object. That is
-presentation, not proof of the wire shape; inspect the raw exported attributes before changing
-a serializer.
+An expandable JSON object in the Langfuse UI is presentation, not proof of the wire shape;
+inspect the raw exported attributes before changing a serializer
+(`../tracing/genai/content_capture.md`, "Backend rendering is not the wire shape").
 
 ## Wiring into the GenAI branch
 
@@ -125,3 +150,10 @@ In the `traces/genai` pipeline from `../collector/production.md`, rename it
       and check the actual content — a collapsed object may show only an item count.
 - [ ] Send a text-only and a native structured-output canary and inspect the stored observation,
       not only the raw span attributes.
+- [ ] A text-only input has a role/content observation projection while the canonical input
+      still has role/parts. One valid JSON text output projects to the decoded object. An
+      exactly empty reasoning part may be omitted from that presentation projection only; an
+      ambiguous or meaningful multipart response falls back byte-for-byte to the canonical
+      envelope.
+- [ ] The Langfuse Collector path maps the neutral observation projection and removes its
+      source attributes; general trace backends receive neither copy.

@@ -84,7 +84,8 @@ semantic roles.
 
 ## Configuration modes
 
-Pick one configuration owner for the service attributes.
+Pick one configuration owner for the service attributes: the provider owner
+chosen in `sdk_bootstrap.md`.
 
 **Code-based SDK setup** — the default in this skill:
 
@@ -106,8 +107,8 @@ OTEL_SERVICE_NAME=orders-worker
 OTEL_RESOURCE_ATTRIBUTES="service.namespace=order-management,deployment.environment.name=development,service.version=<full-git-sha>,service.instance.id=<runtime-supplied-id>"
 ```
 
-Do not add an in-code `TracerProvider` or a second resource builder in this
-mode. Static deployment files may contain the static attributes, but the
+Do not add a second resource builder in this mode (one provider owner:
+`sdk_bootstrap.md`). Static deployment files may contain the static attributes, but the
 runtime ID placeholder must be resolved by the platform or startup wrapper; a
 literal `<runtime-supplied-id>` is invalid.
 

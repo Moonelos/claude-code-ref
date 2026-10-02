@@ -139,10 +139,8 @@ The database client span for the worker's `SELECT`/claim operation is transport
 detail, not the causal producer of the work. Never make processing a child of a
 polling span; use the context stored with the claimed row.
 
-Then decide parent-or-link. Default: **continue the trace** when the work is
-causally part of the producer's request and completes promptly; **new trace
-with a link** when work is durable, delayed, batched, independently retried, or
-owned by a separate lifecycle. For a long-lived state machine, also locate its
+Then decide parent-or-link per `tracing/async_handoffs.md`, "Decide
+parent-or-link first", and record the choice. For a long-lived state machine, also locate its
 stable `workflow_run_id`/job ID. Put that identifier on spans and important
 logs for end-to-end search, never on metrics.
 
@@ -179,13 +177,13 @@ If the user answers "a Collector," still ask where it forwards each signal.
 Collector-mediated routing is often useful in production, but direct OTLP export
 may also be appropriate. Confirm the intended topology in §7.
 
-Note the split that matters for GenAI services: **Langfuse is a trace and LLM-workflow backend, not a metrics backend.** Operational metrics and alerts go to a metrics backend; Langfuse receives traces, generations, scores, and cost.
+Note the split that matters for GenAI services: **Langfuse is a trace and LLM-workflow backend, not a metrics backend.** Operational metrics and alerts go to a metrics backend; Langfuse receives traces, generations, scores, and cost, as a projection of the same trace (`collector/genai_projection.md`).
 
 ---
 
 ## 7. How should telemetry be exported? — **Ask when deployment is in scope**
 
-Do not assume that a deployed service requires an OpenTelemetry Collector. Direct OTLP export and Collector-mediated export are both valid production architectures.
+Do not assume that a deployed service requires an OpenTelemetry Collector. Direct OTLP export and Collector-mediated export are both valid production architectures. Either way telemetry leaves by OTLP push: never add a Prometheus pull reader or scrape endpoint, in the application or the Collector.
 
 Preserve an established export topology when one already exists. Otherwise, when deployment manifests, credentials, exporter routing, or Collector configuration are in scope, ask the user to choose:
 
@@ -232,9 +230,9 @@ For deterministic noise, identify each candidate route or span and record:
 - whether source exclusion also suppresses useful HTTP metrics;
 - whether the rule is service- and route-specific rather than a global span-name match.
 
-For forced diagnostics, require a trusted internal control, bounded lifetime,
-auditability, and automatic removal. Never honor a caller-controlled header,
-message field, or baggage value as a force-sampling instruction.
+For forced diagnostics, record the trusted internal control that will set them;
+the requirements are in `tracing/production_policy.md`, "Critical outcomes and
+diagnostics".
 
 ---
 
@@ -249,7 +247,7 @@ Split them by signal:
 | Signal | Good candidate |
 | --- | --- |
 | Span attribute | A bounded fact describing one operation: `app.pricing.product_count`, `app.exception.rule` |
-| Metric | A rate or distribution you would alert or trend on: `app.exceptions_processed` |
+| Metric | A rate or distribution you would alert or trend on: `app.exception.reviews` |
 | Log field | A high-cardinality identifier needed to find one record later: `exception_id`, `order_id` |
 
 If the user explicitly requested particular business attributes, include them as well.

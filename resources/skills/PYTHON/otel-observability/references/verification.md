@@ -40,6 +40,13 @@ jsonl_exporter = ConsoleSpanExporter(
 tracer_provider.add_span_processor(SimpleSpanProcessor(jsonl_exporter))
 ```
 
+Run it before writing any instrumentation, to prove the pipeline works: start
+the service and hit it once. You should see a span with your `service.name` and
+a non-zero trace ID. If nothing prints, the provider was configured after the
+work ran, or the code path never executed. If spans print but the backend is
+empty, the problem is the endpoint, protocol, or Collector pipeline — not the
+instrumentation.
+
 **Collector debug exporter** — proves the export path too. See `collector/dev_staging.md`.
 
 Several checks below grep the exported spans, so send that output to a file you can search rather than watching it scroll past:
@@ -68,6 +75,7 @@ Exercise one representative operation end to end, then check the exported spans.
 - [ ] Child spans are actually **children**. Siblings where you expected nesting mean context was lost — usually at a raw-thread or non-propagating executor boundary; modern `asyncio.create_task()` and `asyncio.to_thread()` copy context.
 - [ ] There is exactly one span per logical operation. Two means automatic and manual instrumentation both own the boundary.
 - [ ] Span count is proportional to the work, and each custom span has useful bounded operation/outcome/decision/result attributes rather than copied payloads or generic implementation fields.
+- [ ] Database or ORM instrumentation in scope: run the checks in `setup/high_volume_database_tracing.md`, "Verification".
 - [ ] `service.namespace`, `service.name`, `service.instance.id`, `service.version`, and `deployment.environment.name` appear on every span.
 - [ ] Start two replicas and confirm their `service.instance.id` values differ while `service.namespace` and `service.name` remain identical.
 - [ ] `service.instance.id` remains unchanged across several operations from one process; a value that changes per request destroys instance-level analysis.
@@ -97,7 +105,7 @@ Expect zero hits in code this work added or touched.
 - [ ] Expected business HITL remains non-error and is distinguishable by status.
 - [ ] An any-span `ERROR` filter finds the failure even with an unset root; its log carries the owning span's `trace_id`/`span_id`.
 - [ ] Every `error.type` value is in the allowed set of `conventions/errors.md`; success omits it.
-- [ ] `python scripts/audit_telemetry.py <src>` reports no findings in code this work added or touched.
+- [ ] `python scripts/audit_telemetry.py <src>` reports no findings in code this work added or touched. Pass `--processor SUFFIX` (repeatable) for the path suffix of python-logging's exception-detail processor module, the one module allowed to build `exception.*` fields; otherwise its `exception-field` findings are false positives. `--self-test` checks the script itself.
 
 ## 4. Propagation (multi-service, queue, or durable DB work)
 
@@ -203,7 +211,7 @@ Query the metrics backend for the canary service's `app.*`, `gen_ai.*`, and
 
 - [ ] Counters and duration histograms increment on the **failure** path too. An error rate whose denominator excludes errors gets quieter as the service degrades.
 - [ ] Histogram values land in real buckets, not all in `+Inf`. Default buckets are tuned for sub-second HTTP calls and are wrong for a 30-second LLM histogram.
-- [ ] Exported boundaries include the configured GenAI/job values: client/tool/TTFC through `81.92`, agent through `409.6`, workflow/job through `7200`, fan-out through `128`, and token usage through `67108864`.
+- [ ] Exported boundaries include the configured GenAI/job values: client/tool/TTFC through `81.92`, agent through `409.6`, workflow/job through `7200`, fan-out through `128`, and token usage through `67108864`. If only generic SDK boundaries appear, the instrument was created without `explicit_bucket_boundaries_advisory`.
 - [ ] Units are correct — seconds, not milliseconds, in an `s` histogram.
 - [ ] `gen_ai.invoke_agent.inference_calls` records once per invocation, and its value equals the number of model spans in that trace.
 - [ ] Standard `gen_ai.client.token.usage` has only `gen_ai.token.type=input|output`; cache and reasoning subsets appear only on application-owned breakdown histograms.
@@ -217,13 +225,7 @@ Query the metrics backend for the canary service's `app.*`, `gen_ai.*`, and
 
 ## 8. Logs
 
-- [ ] A log emitted inside a span carries a 32-hex `trace_id` and a 16-hex `span_id`.
-- [ ] That trace ID finds the trace in the trace backend.
-- [ ] With a GenAI projection, that trace ID finds the operation in both trace backends; a log from an omitted operational span is expected to have no observation-level `span_id` match there.
-- [ ] For a linked worker/state-machine trace, logs carry the current worker
-  trace ID, not the producer trace ID stored in the span link.
-- [ ] Durable workflow boundary logs and transition spans share the documented
-  `workflow_run_id` / `app.workflow.run.id` value; the ID appears on no metric.
+- [ ] Log–trace correlation passes `logging/correlation.md`, "Verify" (IDs, linked traces, durable-run search key, GenAI projection, exactly-once delivery).
 - [ ] Event catalogue, redaction canary, and one-record-per-failure checks pass per the `python-logging` skill (`../../python-logging/references/testing-and-verification.md`).
 
 ## 9. Configuration
@@ -239,68 +241,21 @@ Query the metrics backend for the canary service's `app.*`, `gen_ai.*`, and
 
 ## 10. Collector (if deployed)
 
-- [ ] `otelcol validate` passes against the exact production image.
-- [ ] Receive and export counters both increase; `otelcol_exporter_send_failed_*` stays at zero.
-- [ ] Canary secrets — a fake API key, email, and authorization header — reach no backend.
-- [ ] `user.email` is deleted on every Collector path. No test or documentation treats the Collector's unsalted hash action as anonymization.
-- [ ] Exception detail is deleted on traces only. The logs pipeline preserves `exception.stacktrace` when present and never overrides the application's exception-detail setting.
-- [ ] No metrics pipeline contains a sampling processor.
-- [ ] No `# MEASURE:` placeholder value from `collector/production.md` survives in a deployed config.
-- [ ] The main trace backend receives the complete retained operation tree and contains neither canonical verbose GenAI content nor destination presentation copies.
-- [ ] The GenAI backend receives the same trace ID and only the rooted projection: entry root, GenAI workflow/agent/model/embedding/retrieval/tool spans, and meaningful business ancestors; unrelated operational siblings are absent.
-- [ ] Every retained GenAI-projection span has its complete parent chain to the root; retained trace IDs, span IDs, parent IDs, status, and timestamps match the main backend.
-- [ ] Business ancestors use `app.telemetry.category="genai"` only as projection membership; they do not carry a fabricated `gen_ai.operation.name`.
-- [ ] The health endpoint responds — and remember it proves only that the process is up, not that the backend is accepting data.
-- [ ] Collector self-metrics use a periodic OTLP reader with no pull reader or
-  metrics listener; the monitoring backend contains `otelcol_process_uptime`.
-- [ ] Each GenAI-backend exporter passes that backend's checks under `backends/` (Langfuse: `backends/langfuse.md`).
-- [ ] Destination presentation attributes are created only on the GenAI-backend branch;
-  general trace backends contain neither `app.gen_ai.observation.*` nor any vendor
-  payload copy such as `langfuse.observation.*`.
+- [ ] Development or staging: `collector/dev_staging.md`, "Verify".
+- [ ] Production: `collector/production.md`, "Before calling it done".
+- [ ] A GenAI backend view: `collector/genai_projection.md`, "Acceptance invariants".
+- [ ] Self-telemetry baseline and alerts: `collector/component.md`, "Self-telemetry is part of the deployment".
 
 ## 11. Production retention and rollout (if production or sampling changed)
 
-- [ ] The policy records measured new traces/second, average and p95 spans/trace,
-  p99 complete-trace arrival, serialized size, backend budget, and minimum useful
-  samples. Example percentages and capacities were not copied as defaults.
-- [ ] Force a failure and a slow operation: complete retained traces reach the main backend and specialized backends receive their same-trace-ID connected projections regardless of the normal-success percentage.
-- [ ] Error retention matches any `ERROR` span and keeps the entire trace; log severity alone does not satisfy this check.
-- [ ] Critical non-errors use a separate bounded-outcome policy instead of false `ERROR` status.
-- [ ] Critical routes/outcomes are matched by bounded, observed attributes. Raw
-  user, tenant, request, session, conversation, or workflow-run IDs are not
-  general sampling dimensions.
-- [ ] A release burn-in rule matches one immutable `service.version`, has an
-  owner and expiry, and is removed in a rehearsal of the cleanup path.
-- [ ] Any forced-diagnostic path is authenticated, internal, allowlisted,
-  audited, time-bounded, and cannot be activated by public headers, messages, or
-  caller-supplied baggage.
-- [ ] Successful noise and failed probes follow the declared policy. If a
-  Collector span filter is used, the matched span is a verified leaf or
-  self-contained boundary and no orphaned child spans appear.
-- [ ] `decision_wait` exceeds measured p99 complete-trace arrival plus jitter;
-  `num_traces` survives the measured burst; decision caches retain late-span
-  decisions. Exercise a deliberately late span.
-- [ ] Collector telemetry shows no early drops, unexpected late spans, policy
-  errors, or memory pressure at the expected peak. Record the actual effective
-  retained ratio rather than adding configured policy percentages.
-- [ ] One complete golden trace is searchable in the main backend and the same trace ID resolves to each expected specialized projection; reconcile application, Collector, and backend counts and document expected sampling/filtering differences.
-- [ ] The config is canaried before fleet rollout and the rollback procedure is
-  exercised. Temporary burn-in and forced-diagnostic rules have automatic or
-  mandatory expiry removal.
+- [ ] Retention, sampling capacity, forced diagnostics, and rollout checks pass: `collector/production.md`, "Before calling it done" (policy owner: `tracing/production_policy.md`).
 
 ## 12. Shutdown
 
 - [ ] A CLI job or worker exits and its final spans still arrive. Run once, then look in the backend — this is the most commonly missed step, and it fails silently.
-- [ ] If the Collector pushes self-metrics with a periodic reader, its
-  reader-level timeout is explicit, measured, and comfortably below the
-  platform termination grace period, leaving budget for application exporter
-  queues to drain.
-- [ ] Stop that Collector while the self-metrics destination accepts a TCP
-  connection but never responds. It exits before the platform deadline and
-  queued application telemetry still drains. Do not substitute an invalid
-  hostname: fast DNS failure does not exercise the hanging-export path. Record
-  the exit code separately; a failed final self-metrics export may still exit
-  non-zero even when the timeout bound works.
+- [ ] A Collector that pushes self-metrics passes the reader-timeout and
+  hanging-sink shutdown test in `collector/component.md`, "Keep the monitoring
+  path independent".
 - [ ] A Lambda invocation force-flushes within its remaining-time budget but
   keeps providers alive for a warm reuse.
 - [ ] A cancelled or disconnected streaming request still ends its spans.

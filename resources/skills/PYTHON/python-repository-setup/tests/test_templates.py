@@ -144,6 +144,27 @@ class DockerfileTests(unittest.TestCase):
                 self.assertNotIn(flag, single)
 
 
+class LocalStackTests(unittest.TestCase):
+    def test_both_modes_ship_compose_and_root_env_example(self) -> None:
+        for root in (WORKSPACE, SINGLE):
+            for name in ("compose.yaml", ".env.example"):
+                with self.subTest(file=root / name):
+                    self.assertTrue((root / name).is_file())
+
+    def test_every_deployable_env_example_starts_required_with_environment(self) -> None:
+        services = sorted(path for path in (WORKSPACE / "services").iterdir() if path.is_dir())
+        self.assertTrue(services)
+        for path in (SINGLE / ".env.example", *(service / ".env.example" for service in services)):
+            with self.subTest(file=path):
+                text = read(path)
+                self.assertIn("# REQUIRED", text)
+                assignments = [
+                    line for line in text.splitlines() if "=" in line and not line.startswith("#")
+                ]
+                self.assertTrue(assignments)
+                self.assertTrue(assignments[0].startswith("ENVIRONMENT_NAME="))
+
+
 class ToolchainTests(unittest.TestCase):
     def test_pins_are_consistent(self) -> None:
         result = subprocess.run(

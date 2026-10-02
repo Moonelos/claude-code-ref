@@ -1,9 +1,8 @@
-π
-
 # Production Docker Builds
 
 ## Contents
 
+- Single-service adaptation
 - Version contract
 - Build context and dependency metadata
 - Required multi-stage shape
@@ -41,46 +40,10 @@ from the workspace image. Validate with `docker build --pull -f Dockerfile .`.
 
 ## Version Contract
 
-Keep these version surfaces aligned:
-
-```text
-.python-version                         3.13.15
-member requires-python                  >=3.13,<3.14
-Docker ARG PYTHON_VERSION               3.13.15
-root [tool.uv] required-version         ==0.12.7
-Docker ARG UV_VERSION                   0.12.7
-```
-
-The exact Python patch belongs in `.python-version`, Docker, and CI. The member
-metadata uses a compatible minor range because it describes package
-compatibility rather than selecting an interpreter. Put the same range on
-every service and library; a virtual workspace root has no `[project]` table.
-
-Do not add mise. Locally, let uv read `.python-version`; run `uv python install`
-when the interpreter is absent. Pin uv in the root so the wrong local version
-fails immediately, and install that exact version in CI.
-
-Docker evaluates `FROM` before it can `COPY` `.python-version`. Therefore it
-cannot dynamically derive `ARG PYTHON_VERSION` from that file. Repeat the
-literal exact version and add this early builder check:
-
-```dockerfile
-ARG PYTHON_VERSION
-COPY .python-version ./
-RUN test "$(tr -d '\r\n' < .python-version)" = "${PYTHON_VERSION}"
-```
-
-When invoking Docker from a wrapper or CI shell, deriving the build argument
-from the file is also valid:
-
-```bash
-docker build \
-  --build-arg PYTHON_VERSION="$(tr -d '\r\n' < .python-version)" \
-  -f services/api/Dockerfile .
-```
-
-Keep the Dockerfile default and the in-build equality check even when the
-wrapper supplies the argument.
+The Python/uv pins, the in-build `.python-version` equality check, and the
+`--build-arg PYTHON_VERSION` wrapper form are owned by
+[toolchain.md](toolchain.md#local-ci-and-docker). Keep the `ARG` defaults and
+the check exactly as the templates have them.
 
 ## Build Context And Dependency Metadata
 
@@ -93,7 +56,8 @@ docker build --pull -f services/api/Dockerfile -t sample-api:local .
 Do not build with `services/api` as the context. uv needs the root
 `pyproject.toml`, root `uv.lock`, `.python-version`, the target member's
 metadata and source, and every internal library in its transitive dependency
-closure.
+closure. Scoping the context to the service directory is a common mistake that
+breaks the build the moment the service depends on a shared library.
 
 For the dependency layer, copy the root files and every workspace member
 `pyproject.toml` required to validate the shared lock before copying source:
@@ -155,6 +119,9 @@ uv sync --locked --no-dev --no-editable --package sample-api
 
 - `--locked`: fail if metadata and `uv.lock` disagree.
 - `--no-dev`: exclude centralized Ruff, pytest, coverage, and mypy tooling.
+  The root `dev` group is installed by default even with `--package`, so a
+  shipped build without `--no-dev` (or `--only-group <name>` for a narrower
+  selection) silently loses the lean image.
 - `--package`: include only the target service and its transitive workspace
   dependencies.
 - `--no-install-workspace`: keep source packages out of the cached dependency
@@ -183,8 +150,11 @@ Use the canonical `.dockerignore` from the bundled asset.
 ## Service Variants
 
 For a web service, keep `EXPOSE`, a cheap local `HEALTHCHECK`, and an explicit
-server command. Configure equivalent readiness/liveness checks in the actual
-orchestrator; the Docker health check does not replace them.
+server command. That launcher command owns the bind host and port; they are
+never YAML keys (`python-settings-config`, fallback
+`../../python-settings-config/SKILL.md`, Ownership). Configure equivalent
+readiness/liveness checks in the actual orchestrator; the Docker health check
+does not replace them.
 
 For a worker, remove `EXPOSE` and HTTP `HEALTHCHECK`, then use a module or
 console-script command such as:
@@ -203,27 +173,6 @@ runtime.
 
 ## Validation
 
-Run from the workspace root:
-
-```bash
-uv lock --check
-uv sync --frozen
-uv run ruff check .
-uv run ruff format --check .
-scripts/mypy-members.sh
-uv run pytest
-docker build --pull -f services/api/Dockerfile -t sample-api:local .
-docker run --rm --entrypoint python sample-api:local --version
-docker run --rm --entrypoint id sample-api:local
-docker run --rm -d --name sample-api -p 8080:8080 sample-api:local
-```
-
-Confirm the reported Python equals `.python-version`, `id` reports UID/GID
-`10001`, the container becomes healthy, and the runtime image has no uv:
-
-```bash
-docker exec sample-api sh -c 'command -v uv >/dev/null; test $? -ne 0'
-docker inspect --format '{{json .State.Health}}' sample-api
-```
-
-Stop and remove the named validation container after the check.
+Build, run, and inspect the image with the commands in
+[verification.md](verification.md#docker-image): Python matches
+`.python-version`, UID/GID `10001`, healthy, and no uv in the runtime image.

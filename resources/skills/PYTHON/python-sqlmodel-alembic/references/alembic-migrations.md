@@ -149,17 +149,15 @@ Two autogenerate artifacts to fix by hand every time:
   from comparison with an `include_object` hook and pin it with a
   schema-verification test (`schema-verification.md`) instead.
 
-Autogenerate is a diff against structure, not intent — it will not write a
-data backfill for you, and even with `compare_type`/`compare_server_default`
-on, some changes (renaming a column vs. drop+add, some enum/check-constraint
-edits) still need a hand-adjusted migration rather than the generated one
-taken as-is.
+Autogenerate is a diff against structure, not intent. Data work is written
+by hand ("Data backfills are written, never generated" below), and even with
+`compare_type`/`compare_server_default` on, some changes (renaming a column
+vs. drop+add, some enum/check-constraint edits) still need a hand-adjusted
+migration rather than the generated one taken as-is.
 
-One Alembic history serves one `target_metadata`. In a monorepo that means
-one history for the whole shared schema, living in its own dedicated
-migration-runner service that depends on the models package — not inside the
-models package itself, and not one per app service. See
-`references/repo-layout.md` for why.
+One Alembic history serves one `target_metadata`; where it lives and why it
+is never split per service is in `references/repo-layout.md` ("Why migrations
+are never split per service").
 
 Continuous proof that the history and the models actually agree — the
 database-contract CI job, `alembic check`, parity tests, and pinning the

@@ -65,6 +65,13 @@ GENAI_WORKFLOW_NAME = "gen_ai.workflow.name"
 GENAI_TOOL_NAME = "gen_ai.tool.name"
 GENAI_TOOL_TYPE = "gen_ai.tool.type"
 GENAI_TOOL_CALL_ID = "gen_ai.tool.call.id"
+APP_TOOL_REQUESTED_NAME = "app.gen_ai.tool.requested_name"  # raw name, when bucketed
+APP_TOOL_RESULT_SIZE_BYTES = "app.gen_ai.tool.result_size_bytes"
+APP_AGENT_TIME_TO_FIRST_CHUNK = "app.agent.time_to_first_chunk"  # seconds
+APP_AGENT_STEP_COUNT = "app.agent.step_count"
+
+# --- streaming ---
+APP_STREAM_CHUNK_COUNT = "app.gen_ai.stream.chunk_count"
 
 # --- conversation ---
 GENAI_CONVERSATION_ID = "gen_ai.conversation.id"
@@ -78,6 +85,9 @@ GENAI_TOOL_DEFINITIONS = "gen_ai.tool.definitions"
 GENAI_TOOL_CALL_ARGUMENTS = "gen_ai.tool.call.arguments"
 GENAI_TOOL_CALL_RESULT = "gen_ai.tool.call.result"
 APP_INPUT_CAPTURE_MODE = "app.gen_ai.input.capture_mode"  # none|full|delta|truncated
+APP_INPUT_BATCH_SIZE = "app.gen_ai.input.batch_size"  # conversations in one request
+# truncated = capture buffer cut the text; partial = the stream failed mid-response
+APP_OUTPUT_CAPTURE_MODE = "app.gen_ai.output.capture_mode"  # none|full|truncated|partial
 APP_OBSERVATION_INPUT = "app.gen_ai.observation.input"
 APP_OBSERVATION_OUTPUT = "app.gen_ai.observation.output"
 
@@ -153,7 +163,7 @@ Set the ID on the root span of each turn — the agent span, or the HTTP/worker 
 
 It is a **trace** dimension: never a metric attribute. One time series per conversation is a cardinality incident.
 
-`gen_ai.conversation.compacted=true` means the model received compacted context — summarized or trimmed history. Set it only when that actually happened, and never because telemetry was truncated; confusing those makes dashboards report context compaction that never occurred.
+`gen_ai.conversation.compacted=true` means the model received compacted context — summarized or trimmed history, for example after `SummarizationMiddleware` ran (`langchain/tools_and_middleware.md`). Set it only on the model call that actually received it, and never because telemetry was truncated or partially captured (that is `app.gen_ai.*.capture_mode`, `content_capture.md`); confusing those makes dashboards report context compaction that never occurred.
 
 ---
 

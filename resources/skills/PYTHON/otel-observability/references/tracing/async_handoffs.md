@@ -32,7 +32,8 @@ decision, not an implementation detail.
   or database spans might be current.
 - To create a new root with a link, pass `context=otel_context.Context()` at
   span creation. `context=None` means "use the current context"; it does not
-  mean "create a root."
+  mean "create a root." This is the single most common bug in linked-consumer
+  code, and it is invisible until you inspect an exported trace.
 - Treat an incoming or persisted carrier as untrusted metadata. Ignore invalid
   values and start an unlinked root rather than failing the business work.
 - Do not propagate baggage unless the user explicitly requested an allowlisted

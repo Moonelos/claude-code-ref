@@ -2,7 +2,7 @@
 
 **Do not open this file unless the task involves production retention** —
 sampling, filtering, telemetry cost, release burn-in, or an observability
-rollout. It is 180 lines of retention policy, and absorbing it during ordinary
+rollout. It is retention policy, and absorbing it during ordinary
 instrumentation work leads to proposing tail sampling for a dev service.
 
 Design the retention and operational policy before writing Collector YAML. The
@@ -226,4 +226,4 @@ Three things belong to the same policy conversation and are often missed:
 
 - Collector implementation of these decisions: `../collector/production.md`
 - capacity arithmetic: `../../scripts/estimate_trace_budget.py`
-- acceptance: `../verification.md` §11
+- acceptance: `../collector/production.md`, Before calling it done

@@ -1,3 +1,5 @@
+"""Public API of `sample_shared`."""
+
 from sample_shared import greeting
 
 

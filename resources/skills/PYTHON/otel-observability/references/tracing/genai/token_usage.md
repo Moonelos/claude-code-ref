@@ -233,6 +233,8 @@ Write the equivalent adapter from this table:
 
 Verify against the SDK version actually pinned in the project — these field names move.
 
+The span attribute name moved too: older instrumentation that follows the published opentelemetry.io conventions (v1.41) emits `gen_ai.usage.cache_creation.input_tokens`, while the pinned GenAI repository (`../../compatibility.md`) names it `gen_ai.usage.cache_write.input_tokens`. Expect the old key in existing telemetry and dashboards.
+
 ---
 
 ## Streaming: usage is opt-in at the request

@@ -16,24 +16,24 @@ comments where a value needs explanation.
 
 In a workspace, also keep `services/<name>/.env.example` beside every
 deployable. It is the authoritative runtime environment contract for that
-process, whether started by Compose, `uv run`, tests, or a deployment platform.
-List every runtime environment variable that the user must configure as an
-active assignment. List optional environment overrides of committed config
-values as commented-out assignments, with their defaults or purpose clear.
-Derive both groups from the service's actual settings and configuration; do
-not present optional overrides as setup requirements. The root file does not
-replace the service file: it contains the user-configured Compose inputs,
+process, whether started by Compose, `uv run`, tests, or a deployment platform;
+its sections (REQUIRED, OVERRIDABLE, OPTIONAL) and contents are owned by
+`python-settings-config` (fallback
+`../../python-settings-config/references/env-example.md`). The root file does
+not replace the service file: it contains the user-configured Compose inputs,
 including service values passed through Compose, and stack-only values.
 
-For a single service, the root `.env.example` serves both roles: active
-assignments for user-configured startup inputs and commented-out assignments
-for optional runtime overrides. Do not duplicate it under another directory.
+For a single service, the root `.env.example` serves both roles: it follows
+that service-file contract and also lists any Compose input the user must set.
+Do not duplicate it under another directory.
 
-For example, in a workspace with an API service whose committed config defaults
-to port `8080`:
+For example, in a workspace with an API service whose launcher command binds
+container port `8080` (ports are never YAML keys; see `python-settings-config`,
+Ownership):
 
 ```dotenv
 # <repo-root>/.env.example: values to configure for the local stack
+API_ENVIRONMENT_NAME=local
 API_OPENAI_API_KEY=replace-me
 API_RESPONSE_MODEL_ID=replace-me
 ```
@@ -42,25 +42,22 @@ API_RESPONSE_MODEL_ID=replace-me
 # compose.yaml: explicit mapping and a safe local default
 services:
   api:
+    ports:
+      - "${API_HOST_PORT:-8080}:8080"
     environment:
+      ENVIRONMENT_NAME: ${API_ENVIRONMENT_NAME:?set API_ENVIRONMENT_NAME}
       OPENAI_API_KEY: ${API_OPENAI_API_KEY:?set API_OPENAI_API_KEY}
       RESPONSE_MODEL_ID: ${API_RESPONSE_MODEL_ID:?set API_RESPONSE_MODEL_ID}
-      APP_PORT: ${API_APP_PORT:-8080}
 ```
 
-```dotenv
-# services/api/.env.example: complete runtime environment contract
-OPENAI_API_KEY=replace-me
-RESPONSE_MODEL_ID=replace-me
+`services/api/.env.example` lists `ENVIRONMENT_NAME`, `RESPONSE_MODEL_ID`, and
+`OPENAI_API_KEY` under REQUIRED, in the env-example.md layout.
 
-# Optional override; committed config defaults to 8080.
-# APP_PORT=8080
-```
-
-`API_APP_PORT` is omitted from the root example because the local stack has a
-safe default. Add it there only when choosing a different port is part of the
-intended setup. Service settings that Compose does not pass through still belong
-in the service example when they are required at runtime or supported overrides.
+`API_HOST_PORT` is omitted from the root example because the local stack has a
+safe default. Add it there only when choosing a different host port is part of
+the intended setup. Service settings that Compose does not pass through still
+belong in the service example when they are required at runtime or supported
+overrides.
 
 ## Explicit per-service mapping
 
@@ -77,7 +74,8 @@ services:
       ENVIRONMENT_NAME: ${API_ENVIRONMENT_NAME:?set API_ENVIRONMENT_NAME}
       DATABASE_URL: ${API_DATABASE_URL:?set API_DATABASE_URL}
       OPENAI_API_KEY: ${API_OPENAI_API_KEY:?set API_OPENAI_API_KEY}
-      APP_PORT: ${API_APP_PORT:-8080}
+    ports:
+      - "${API_HOST_PORT:-8080}:8080"
 
   worker:
     build:
@@ -112,13 +110,5 @@ Runtime secrets may enter local containers through explicit `environment:`
 mapping, but never through Dockerfile `ARG` or build-time `ENV`. Production uses
 an orchestrator or secret provider rather than a committed dotenv file.
 
-Run from the repository root:
-
-```bash
-docker compose config --quiet
-docker compose up --build
-```
-
-Verify missing substitutions fail, required variables reach the intended
-container, unrelated service secrets remain absent, and startup validation
-succeeds. Do not print secret values during validation.
+Validate the resolved model and the running stack with the commands and checks
+in [verification.md](verification.md#compose-stack).

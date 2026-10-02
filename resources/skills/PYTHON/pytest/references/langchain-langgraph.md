@@ -62,8 +62,9 @@ errors, and basic streaming. `GenericFakeChatModel` does not support
 For those, use one canonical scripted tool-calling model per member, a
 `BaseChatModel` subclass whose `bind_tools` returns `self` and records the tools
 and `tool_choice`, which mints fresh message and tool-call IDs per call, records
-the messages it saw, and fails when its script is exhausted (see the examples
-reference).
+the messages it saw, and fails when its script is exhausted
+([exhaustion rule](core-principles.md#doubles-must-be-correct);
+[example](examples-langchain-langgraph.md#canonical-scripted-tool-calling-model)).
 
 - Derive retry/resume-safe fake responses from received messages or state where
   possible. A fake that returns "tool call on invocation 1, answer on invocation
@@ -232,32 +233,14 @@ not be tuned until CI turns green.
 
 ## Live-provider checks
 
-- Mark and exclude them from the default suite. Run them in an explicit
-  scheduled, pre-release, or provider-compatibility job.
-- Inject secrets through the approved CI mechanism and bound calls, tokens,
-  concurrency, latency, and spend.
+Selection, secrets, budgets, and cassettes follow
+[core-principles.md](core-principles.md#live-checks). Model-specific additions:
+
 - Maintain only the capability matrix the product supports: tool calling,
   structured output, streaming, and relevant error mapping by provider/model
   family.
 - Assert types, schema, allowed tool names and arguments, non-empty content,
   termination, and defensible latency—not exact natural-language wording.
-- A cassette improves repeatability but proves the recorded response, not the
-  current provider. Redact it, version it when schemas change, and retain a tiny
-  uncached smoke when live compatibility matters.
-
-## Review failures specific to agents
-
-Reject tests that rely on:
-
-- exact live-model prose or one stochastic judge result;
-- strict trajectories where several paths are valid;
-- shared stateful model fakes, stores, or checkpointers;
-- only `InMemorySaver` while claiming production persistence;
-- exact token chunks, generated IDs, timestamps, or incidental checkpoint
-  counts;
-- mocks of LangGraph scheduling/runtime internals;
-- a direct node test presented as compiled graph, persistence, or stream proof;
-- an eval score in place of deterministic authorization or side-effect checks.
 
 ## Primary references
 

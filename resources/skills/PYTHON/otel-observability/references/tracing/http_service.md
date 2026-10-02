@@ -34,19 +34,15 @@ Auto-instrumentation gives you the first, third, and fifth lines. You write the 
 
 If FastAPI instrumentation is active, it already extracts inbound trace context and starts the `SERVER` span. Do not call `propagate.extract()` in a handler and do not open another root span — you would detach the trace from its caller.
 
-A manual span inside the handler automatically becomes a child of the server span, because the server span is current:
+A manual span inside the handler automatically becomes a child of the server span, because the server span is current. Open it with the shared `start_span` helper (`../conventions/errors.md`), which sets `ERROR` and `error.type` on failure:
 
 ```python
-from opentelemetry import trace
-
-tracer = trace.get_tracer(__name__)
+from observability.spans import start_span
 
 
 @app.post("/orders")
 async def create_order(body: OrderRequest) -> OrderResponse:
-    with tracer.start_as_current_span(
-        "validate order", record_exception=False
-    ) as span:
+    with start_span("validate order") as span:
         span.set_attribute("app.order.line_count", len(body.lines))
         validate(body)
     ...
@@ -176,7 +172,7 @@ span.set_attribute("app.response.time_to_first_chunk", first_chunk_at - started)
 
 `app.response.time_to_first_chunk` is the API's own first byte and belongs to the server span. It is **not** the model's first chunk, and on a GenAI endpoint it is not the agent's either — three different numbers, tabulated in `genai/attributes.md`. Confusing them hides where the latency actually is.
 
-Make sure the span ends when the stream ends, including on client disconnect. A generator that is never fully consumed can leave a span open until the process exits.
+Make sure the span ends when the stream ends, including on client disconnect: a generator that is never fully consumed can leave a span open until the process exits. The rule and the guard are in `genai/provider_sdk.md`, "The generator must always finish"; never hold a span current across the generator's `yield` (same file, "Why the span is never current across a `yield`").
 
 ---
 

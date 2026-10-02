@@ -100,6 +100,13 @@ statement timeouts or cancellation as unavailable and data or constraint errors
 as integrity, inspecting the wrapped driver error where the dialect uses one
 broad wrapper (SQLAlchemy's `DBAPIError`).
 
+**Integrity** is not a third base. A port adds an integrity error for a fault in
+data it owns: a constraint it did not expect to hit, or a stored row that no
+longer decodes ([boundaries.md](boundaries.md#validate-external-structure)). It
+subclasses the rejected base, because repeating the request fails the same way,
+and it is named for its port (`SubmissionStoreIntegrityError`). It is almost
+always our own defect, so it surfaces as a server error, never as the client's.
+
 The bases describe a failing dependency only. An expected business outcome of
 a port call (not found, a stale revision, already processed) is a named result
 or a domain error, never a subclass of either base; otherwise a retry policy

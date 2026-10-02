@@ -1,3 +1,5 @@
+"""Liveness router and its registration in the app."""
+
 from sample_service.api.routers.health import live
 from sample_service.bootstrap.app import create_app
 

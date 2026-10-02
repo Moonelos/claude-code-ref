@@ -47,7 +47,7 @@ actual model invocation
 OTelModelCallback          <- fires here, once per physical attempt
 ```
 
-So retries need no retry-specific tracing code. Attempt one, attempt two, and attempt three each produce their own model span, with their own duration, status, and token counts, for free.
+So retries need no retry-specific tracing code, and `ModelRetryMiddleware` needs no tracing-specific configuration. Attempt one, attempt two, and attempt three each produce their own model span, with their own duration, status, and token counts, for free. This diagram is the one the other `langchain/` files refer to.
 
 The callback also sees the summarization model, if you attach it there — see `tools_and_middleware.md`.
 
@@ -107,7 +107,7 @@ observability/
     genai_usage.py           set_usage_attributes()
     genai_content.py         message and payload serializers
     agent_counters.py        invocation_counters() / current_counters(), if not in metrics.py
-    genai.py                 OTelModelCallback, trace_tool_call, and agent
+    genai.py                 OTelModelCallback, build_trace_tool_call, and agent
                              invocation wrappers; may import LangChain
 ```
 
@@ -121,52 +121,11 @@ independent change, lifecycle/test needs, or demonstrated import pressure.
 
 ## Wiring it together
 
-```python
-# agents/support_agent.py
-from langchain.agents import create_agent
-from langchain.agents.middleware import (
-    ModelRetryMiddleware,
-    SummarizationMiddleware,
-    ToolRetryMiddleware,
-)
-from langchain.chat_models import init_chat_model
-
-from observability.genai import OTelModelCallback, trace_tool_call
-
-# Built in bootstrap from the settings slice; one instance is enough (state is keyed by run_id).
-otel_model_callback = OTelModelCallback(capture_content=settings.capture_ai_content)
-
-main_model = init_chat_model("openai:gpt-5", streaming=False).with_config(
-    callbacks=[otel_model_callback],
-)
-
-# The summarization model gets the SAME callback, so its calls appear as
-# ordinary model spans instead of vanishing into the middleware.
-summary_model = init_chat_model("openai:gpt-5-mini", streaming=False).with_config(
-    callbacks=[otel_model_callback],
-)
-
-agent = create_agent(
-    model=main_model,
-    tools=tools,
-    middleware=[
-        # Order matters — see tools_and_middleware.md. Earlier = outer.
-        ModelRetryMiddleware(max_retries=2),
-        ToolRetryMiddleware(
-            max_retries=2,
-            retry_on=(TimeoutError, ConnectionError),
-        ),
-        trace_tool_call,          # inside the retry wrapper: one span per attempt
-        SummarizationMiddleware(
-            model=summary_model,
-            trigger=("tokens", 100_000),
-            keep=("messages", 20),
-        ),
-    ],
-)
-```
-
-Attach the callback to the **model** (`with_config(callbacks=[...])`), not only to the invocation config. A callback passed at invoke time still reaches model calls, but attaching it to the model means every path that uses that model — including middleware-owned paths — is instrumented without the caller remembering.
+The complete wiring — one model callback on the main and summarization models, retry
+middleware, the tool tracing middleware, and their order — is in
+`tools_and_middleware.md`, "Complete middleware stack". How many callback instances to
+build, and why the callback attaches to the model rather than the invocation config:
+`model_callback.md`, "How to attach it".
 
 ---
 

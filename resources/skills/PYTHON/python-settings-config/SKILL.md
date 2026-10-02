@@ -2,7 +2,8 @@
 name: python-settings-config
 description: >
   Create, extend, or review typed configuration for a Python service. Use for
-  Pydantic settings, YAML application baselines, environment contracts,
+  Pydantic settings and `BaseSettings` classes, environment variables, YAML
+  application baselines and other config files, environment contracts,
   `.env.example`, secret models, and local or remote secret-provider integration.
 ---
 
@@ -44,10 +45,10 @@ Fixed cases the questions don't settle:
   first line of REQUIRED; it selects the environment YAML layer.
 - GenAI runtime (model IDs, provider deployments, endpoints, API versions):
   env-only, bare annotation, no default, REQUIRED.
-- `log_full_exception_trace`: YAML, with the safe value in `base.yaml` and
-  overrides per environment; never derived from `ENVIRONMENT_NAME` in code.
-  Exception detail is owned by `python-logging`
-  (`../python-logging/references/errors-and-security.md`, Exception detail).
+- `log_full_exception_trace`: YAML with no Python default, the safe value
+  (`false`) in `base.yaml` and overrides per environment; never derived from
+  `ENVIRONMENT_NAME` in code. What it controls is owned by `python-logging`
+  (`../python-logging/references/errors-and-security.md#exception-detail`).
 - Secrets are injected as env vars by the platform by default. Only a service
   that fetches secrets itself adds `secret_provider` (YAML) and secret source
   variables (`references/secrets-py.md`, "Variant: the service fetches secrets
@@ -57,7 +58,7 @@ Fixed cases the questions don't settle:
   everywhere (`capture_content: bool = False`), and the telemetry endpoint
   (`AnyHttpUrl | None = None`; unset disables export).
 - Listener bind host/port belong to the launcher command; if the process binds
-  itself, they are env-only.
+  itself, they are env-only. Never a YAML key.
 - The config-dir escape hatch is read before `Settings` and is not a field.
 
 A bucket is topology; the key prefix the application owns inside it is policy.
@@ -67,12 +68,9 @@ deployment overrides is env-only.
 
 ## Declaring fields
 
-- A bare annotation declares a field: `x: int` is required, `x: int = 5` has a
-  default. Never write `Field(...)` or `Field(default=...)` with nothing else.
-- Use `Field` only for behaviour or information: a constraint, a differing alias,
-  `default_factory`, `exclude`/`repr=False`, or a `description` saying what the
-  name, type and default don't (what `None` does, why a bound exists). Units go
-  in names (`timeout_seconds`); the env contract is documented in `.env.example`.
+- Bare annotations and when `Field(...)` is allowed follow `python-code-conventions`
+  (`../python-code-conventions/SKILL.md#data-containers`). For settings, the env
+  contract is documented in `.env.example`, not in `Field` descriptions.
 - Use the narrowest type and the aliases in `references/settings-py.md`: durations
   and ratios reject `inf`/`nan`; "disabled" is `X | None`; upper bounds only for
   real limits. See `python-code-conventions`
@@ -87,7 +85,9 @@ deployment overrides is env-only.
 
 ## Sources and layout
 
-- Precedence: constructor kwargs, process env, `.env`, merged YAML, class defaults.
+- Precedence: constructor kwargs, process env, `.env`, merged YAML, file secrets
+  (`secrets_dir`), class defaults (`settings_customise_sources` in
+  `references/settings-py.md`).
 - `src/<package>/config/` holds Python modules (`settings.py`, `secrets.py`),
   never YAML. YAML lives in `config/` at the project root; in a multi-service
   repository, one shared `config/` at the repository root. A per-service
@@ -111,12 +111,13 @@ deployment overrides is env-only.
 
 ## Flow into the application
 
-- Only `config/`, `bootstrap/` and `main.py` import `Settings` or `Secrets`.
+- Who may import `Settings`, `Secrets` and settings-slice types is owned by
+  `python-service-architecture`
+  (`../python-service-architecture/references/boundaries.md#config`).
   Bootstrap calls `load_settings()` and `load_secrets()` once, then builds clients.
-- Bootstrap maps settings into small frozen policy objects owned by the action or
-  adapter (one named mapping function each, plain values, required keyword-only
-  fields). Never pass the whole `Settings` downstream or store `Secrets` on
-  `app.state`. A shared library's own config object and test factories are exempt.
+- Bootstrap maps settings into small frozen policy objects and never passes the
+  whole `Settings` downstream; the rule is owned by
+  `../python-service-architecture/references/boundaries.md#bootstrap`.
 - Probes, admin CLIs and diagnostics reuse the service's loaders and add only
   their own fields; a separate one-shot job with three or fewer inputs may parse
   an injected `Mapping[str, str]`, still masking secrets.

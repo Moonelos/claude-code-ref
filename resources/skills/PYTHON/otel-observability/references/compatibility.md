@@ -24,44 +24,17 @@ These are compatibility bounds for the templates, not a demand to downgrade a se
 
 ## Deliberate compatibility choices
 
-- Standard `gen_ai.client.token.usage` observations use only `gen_ai.token.type=input` and `output`. Cache and reasoning subsets use application-owned instruments.
-- The standard cache-write span attribute is `gen_ai.usage.cache_write.input_tokens`; `cache_creation` remains only as a raw provider/LangChain field accepted by the adapter. Usage-breakdown attributes are emitted only when reported — an explicit zero is preserved, but an unavailable split is not fabricated as zero. Audio input/output details are projected to their standard per-modality attributes.
-- Messaging spans follow the 1.44 schema: `messaging.operation.name` is
-  required and supplies the span-name prefix (`send pricing-jobs`, `process
-  pricing-jobs`); `messaging.operation.type` carries the bounded operation
-  category. Record both at span creation so head samplers can use them. The
-  `boto3sqs==0.65b0` automatic instrumentor adds SQS propagation but still
-  emits its legacy `1.11.0` messaging schema; use the manual boundary when
-  1.44-compliant messaging telemetry is required. The Celery instrumentor on
-  the same line also declares schema `1.11.0`; it uses a producer parent by
-  default and switches to a new task trace with a link only when code-based
-  activation passes `use_span_links=True`.
-- LangChain `stream()` and `astream()` examples pass `version="v2"` and consume `StreamPart` dictionaries with `type`, `ns`, and `data`. Do not mix them with the v1 tuple shape.
-- LangChain provider adapters do not promise one metadata casing or content-block representation.
-  Re-run provider fixtures and inspect installed adapter source on every adapter upgrade.
-- Lambda examples distinguish the community `/opt/otel-handler` wrapper from
-  the AWS-managed ADOT wrapper used by the selected layer. Layer ARNs are not
-  pinned here because they vary by region, architecture, runtime, and release.
-- Use `xray-lambda` only when Lambda spans export to AWS X-Ray. Do not combine
-  it with the ordinary `xray` propagator, and do not use it for a non-X-Ray
-  trace backend.
-- Collector self-metrics use the declarative
-  `service.telemetry.metrics.readers` schema with a periodic OTLP reader; pull
-  readers are outside this skill's transport contract. The self-telemetry
-  resource uses the declarative `resource.attributes` array —
-  the legacy inline map is accepted only for backward compatibility and emits
-  a warning. Internal logs remain at `INFO` and go to `stderr`; internal traces
-  are experimental and opt-in. Periodic OTLP readers pin a measured timeout;
-  `5000` ms is the reviewed 30-second-budget example, not a universal value.
-- Langfuse receives either complete traces or rooted, ancestor-closed GenAI projections over
-  OTLP/HTTP with the v4 ingestion header. A projected trace retains the application root and every
-  parent of every retained span; the pinned Collector's span filter does not infer those ancestors.
-  The endpoint remains configurable for region and self-hosting.
-- Langfuse-readable input/output is a destination projection, not the portable wire contract:
-  keep `gen_ai.system_instructions` / `gen_ai.input.messages` / `gen_ai.output.messages`
-  canonical, emit content-gated `app.gen_ai.observation.input` / `output` only when a
-  lossless presentation is available, and map those to `langfuse.observation.input` /
-  `output` in the Langfuse Collector branch (`backends/langfuse.md`).
+Each choice below depends on the version set above; the rule itself is stated
+once in the owner file. Re-check the owner when a version changes.
+
+- Standard `gen_ai.client.token.usage` uses only `gen_ai.token.type=input|output`; subsets go to application-owned instruments: `metrics/genai.md`.
+- `gen_ai.usage.cache_write.input_tokens` (not `cache_creation`), breakdowns only when reported with explicit zeros preserved, and audio per-modality attributes: `tracing/genai/token_usage.md`.
+- Messaging spans follow the 1.44 schema (`messaging.operation.name` required and the span-name prefix, `messaging.operation.type` the bounded category, both set at span creation so head samplers can use them); the `boto3sqs` and Celery `0.65b0` instrumentors still declare legacy schema `1.11.0`, and Celery links only with code-based `use_span_links=True`: `tracing/queue_messaging.md`.
+- LangChain `stream()` / `astream()` pass `version="v2"` and consume `StreamPart` dictionaries (`type`, `ns`, `data`), never the v1 tuple shape: `tracing/genai/langchain/streaming_and_agent_span.md`.
+- Provider adapters promise no metadata casing or content-block representation; re-run provider fixtures and inspect installed adapter source on every adapter upgrade: `tracing/genai/langchain/model_callback.md`, "Compatibility gate".
+- Lambda: community `/opt/otel-handler` versus the AWS-managed ADOT wrapper, layer ARNs unpinned (they vary by region, architecture, runtime, and release), and `xray-lambda` only for X-Ray export, never with `xray`: `tracing/lambda_functions.md`.
+- Collector self-metrics use the declarative `service.telemetry.metrics.readers` periodic OTLP reader with a measured timeout (`5000` ms is the 30-second-budget example), internal logs `INFO` to `stderr`, internal traces opt-in: `collector/component.md`. On the pinned image the self-telemetry resource uses the declarative `resource.attributes` array; the legacy inline map is accepted only for backward compatibility and emits a warning.
+- Langfuse receives complete traces or rooted, ancestor-closed projections (`collector/genai_projection.md`) over OTLP/HTTP with the v4 ingestion header and a configurable regional or self-hosted endpoint; readable input/output is a destination projection of content-gated `app.gen_ai.observation.*`, emitted only when a lossless presentation exists, while canonical `gen_ai.*` content stays the wire contract: `backends/langfuse.md`, `tracing/genai/content_capture.md`.
 
 ## Upgrade checklist
 
@@ -76,9 +49,9 @@ Before changing any version above:
 5. Re-run model/provider metadata fixtures so `gen_ai.request.model` can never become a model type such as `chat` or `llm`; verify finish-reason casing, system-field ownership, structured-output type, and provider content blocks at the same time.
 6. Validate **every** Collector YAML block under `references/collector/` with the exact candidate image and inspect its `components` output for renamed or removed components.
 7. Re-check internal-telemetry schema, stability, names, logs, traces,
-   resources, periodic readers, backend delivery, and alerts. For a
-   periodic reader, stop against a hanging — not DNS-failing — sink and remeasure
-   its timeout and total shutdown against the platform grace period.
+   resources, periodic readers, backend delivery, and alerts; re-run the
+   periodic reader's hanging-sink shutdown test (`collector/component.md`, "Keep
+   the monitoring path independent") and remeasure its timeout.
 8. Confirm whether the `batch` **processor** is still the recommended batching mechanism at the candidate version, or whether exporter-level `sending_queue.batch` supersedes it. If batching moves into the exporter, the "`batch` last, after `tail_sampling`" ordering advice in `collector/production.md` changes with it.
 9. Re-check every `gen_ai.*` attribute this skill uses against the pinned convention revision, not only the metric names. Resolve each changed key deliberately; never keep a key the pinned revision no longer defines.
 10. Re-check backend authentication, endpoints, required headers, and whether trace ingestion remains real-time.

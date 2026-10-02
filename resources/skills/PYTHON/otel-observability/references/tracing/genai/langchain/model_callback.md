@@ -2,12 +2,13 @@
 
 One span per **physical** model request, with model identity, parameters, token usage, and — when streaming — time to first chunk.
 
-The callback fires below every middleware, so retries produce separate spans with no retry-specific code.
+The callback fires below every middleware, so retries produce separate spans with no retry-specific code (`architecture.md`, "Why the callback, specifically, for models").
 
 Two neighbours own what it writes: token counts come from `../token_usage.md`, prompt and completion capture from `../content_capture.md`.
 
 ## Contents
 
+- [Compatibility gate](#compatibility-gate)
 - [Model and provider identity](#resolving-model-identity)
 - [`LLMResult` metadata](#reading-the-llmresult)
 - [The callback](#the-callback)
@@ -19,8 +20,51 @@ The callback itself is `assets/langchain/model_callback.py` (skill root). The fe
 below are the helpers it imports or expects beside it; `extract_usage_metadata()` comes
 from `../token_usage.md` and the serializers from `../content_capture.md`.
 
-For provider- and version-specific message or metadata shapes, first read
-`provider_compatibility.md` and complete its compatibility gate.
+For provider- and version-specific message or metadata shapes, first complete the
+[compatibility gate](#compatibility-gate).
+
+## Compatibility gate
+
+Read this when adding or changing a model provider, provider adapter, LangChain,
+LangGraph, or a backend that renders captured LLM input/output. Provider
+serialization is a versioned adapter contract, not a naming convention.
+
+Before implementing or repairing a callback:
+
+1. Read the repository lockfile and identify the exact framework and provider-adapter
+   versions used in production.
+2. Inspect the installed adapter's request conversion and response parsing source.
+   Confirm whether system instructions leave the message list, how structured output
+   is requested, which content blocks reach `AIMessage`, and the exact response metadata
+   keys. If local source does not settle the contract, search current **official**
+   framework and provider documentation; do not rely on blogs or remembered casing.
+3. Capture one bounded representative callback start/end payload and the raw exported
+   span attributes. Inspect those raw values before interpreting how Langfuse or another
+   backend renders them. Then inspect the backend's stored observation input/output: an
+   expandable `parts[0]` object can contain the output even when the collapsed UI says only
+   `2 items`, while a correct raw attribute can still fail backend ingestion mapping.
+4. Add a hermetic provider fixture containing the observed shapes. Assert system-field
+   ownership, decoded input/output message JSON, structured-output type, finish reason,
+   model identity, usage, preservation of relevant non-text content blocks, and any
+   destination presentation projection. For a JSON response, assert both the canonical
+   text part and the decoded observation object.
+5. Keep a marked live provider check for capability drift when its credentials and cost
+   are justified. A unit fixture proves one recorded adapter shape, not current provider
+   behaviour.
+
+Normalize only the stable OpenTelemetry envelope (`role`, `parts`,
+`finish_reason`). Do not flatten every provider part to text, assume one metadata
+casing, or treat a backend's expandable JSON rendering as raw wire evidence. See
+`../content_capture.md`, "Backend rendering is not the wire shape". The rules for a
+backend-native presentation projection (`app.gen_ai.observation.*`, including an empty
+`reasoning` part next to one text part) are in `../../../backends/langfuse.md`,
+"Observation input and output".
+
+For example, the reviewed `langchain-aws` Bedrock Converse adapter sends
+`SystemMessage` content through Bedrock's top-level `system` field and preserves the
+provider's camel-case `stopReason` in response metadata. Generic code that keeps the
+system message in chat history or reads only `stop_reason` produces plausible but
+false telemetry.
 
 ## Resolving model identity
 
@@ -176,7 +220,7 @@ no callback exists. Do not instrument retrieval twice.
 
 ### Span leaks
 
-If neither `on_llm_end` nor `on_llm_error` fires — a cancelled request, a provider integration that swallows the event — the span never ends and never exports. Add a guard when the agent runs long or handles cancellation:
+If neither `on_llm_end` nor `on_llm_error` fires — a cancelled request, a provider integration that swallows the event — the span never ends and never exports. Add a guard when the agent runs long or handles cancellation.
 
 The guard is `abandon_runs_older_than()` at the end of the template. It ends each
 stale run with `ERROR` status, `error.type="_ABANDONED"` (a documented sentinel from
@@ -192,8 +236,9 @@ Call it from the outer agent wrapper's `finally`. A growing `self._runs` in a lo
 Streaming adds one thing that matters: **time to first chunk**, the latency the
 user actually perceives. It comes from `on_llm_new_token`, which fires on the
 real token stream — not from agent-level stream updates, which are step-granular
-and arrive much later. The `on_llm_new_token` hook above owns it; the additional
-imports it needs are `GENAI_TIME_TO_FIRST_CHUNK` and
+and arrive much later. The `on_llm_new_token` hook in the template
+(`assets/langchain/model_callback.py`, skill root; not reproduced in this file) owns
+it; the additional imports it needs are `GENAI_TIME_TO_FIRST_CHUNK` and
 `record_time_to_first_chunk`, already imported by the template.
 
 ### Streaming token usage is opt-in at the model
@@ -211,9 +256,11 @@ Miss it and the spans look correct but usage attributes and observations are abs
 
 ### Chunk count and captured content
 
-`chunk_count` increments on every chunk whether capture is on or off. The
+`chunk_count` increments on every chunk whether capture is on or off, and is
+written as `app.gen_ai.stream.chunk_count` (`APP_STREAM_CHUNK_COUNT`). The
 content list exists only when capture is enabled and is capped at 32 KiB; a
-larger response sets `app.gen_ai.output.capture_mode="truncated"`. This keeps
+larger response sets `app.gen_ai.output.capture_mode="truncated"`
+(`APP_OUTPUT_CAPTURE_MODE`, `../content_capture.md`). This keeps
 operational telemetry correct without buffering production responses when the
 safe default is active.
 
@@ -221,8 +268,48 @@ safe default is active.
 
 ## How to attach it
 
-Use the flags and sync/async verification in `provider_compatibility.md`; they are
-properties of the physical adapter and production invocation style.
+The flags and the sync/async check below are properties of the physical adapter and
+the production invocation style.
+
+### Attach configuration to the physical adapter
+
+| Situation | Attach |
+| --- | --- |
+| Non-streaming model | `OTelModelCallback(capture_content=...)` |
+| Streaming model | `OTelModelCallback(capture_content=..., streaming=True)` |
+| Adapter with a separate system field, such as Bedrock Converse | `OTelModelCallback(capture_content=..., separate_system_instructions=True)` |
+| Both in one service | Use one instance per model with matching flags; instances may be shared only by models with the same wire contract |
+| Completion-style non-chat LLM | Add `on_llm_start` as described in [Non-chat models](#non-chat-models) |
+
+**One instance per wire contract.** Run state is keyed by `run_id`, so concurrent
+calls never collide and one instance can serve every model whose flags match — a
+main model and its summarization model, for example. A model with a different
+`streaming` or `separate_system_instructions` value needs its own instance. Build
+each instance in bootstrap from the settings slice.
+
+Choose `separate_system_instructions` from the adapter's wire contract, not merely
+because the framework object is named `SystemMessage`. The projection never changes
+token usage (`../token_usage.md`, "The mapping rule").
+
+Attach the callback to the **model** (`with_config(callbacks=[...])`), not only to the
+invocation config. A callback passed at invoke time still reaches model calls, but
+attaching it to the model means every path that uses that model — including
+middleware-owned paths — is instrumented without the caller remembering. The complete
+wiring is in `tools_and_middleware.md`, "Complete middleware stack".
+
+### Sync versus async invocation
+
+Whether an `AsyncCallbackHandler` also covers synchronous `invoke()` or `stream()`
+depends on the pinned `langchain-core`. Resolve it once using the exact production
+invocation style:
+
+1. Call the agent exactly as production does.
+2. Confirm that a `chat <model>` span exports.
+3. If none appears, attach a `BaseCallbackHandler` with equivalent synchronous methods
+   and record that both implementations are required.
+
+Never verify with `ainvoke` and ship `invoke`. Instrumentation often fails silently,
+so a missing callback invocation otherwise looks like a healthy quiet service.
 
 ---
 
@@ -233,16 +320,15 @@ Run one agent invocation and check the exported spans:
 - one `chat <model>` span per model call — including the summarization call, if configured;
 - the model name is the **real** one, and differs between the main and summarization models; when unavailable, `gen_ai.request.model` is absent and never `chat` or `llm`;
 - `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` are non-zero;
-- `gen_ai.usage.cache_read.input_tokens` is present, even if `0`;
+- `gen_ai.usage.cache_read.input_tokens` is present when the provider reports it, including an explicit `0`, and absent when unavailable (`../token_usage.md`, "Verify");
 - with streaming, `gen_ai.response.time_to_first_chunk` is set and is smaller than the span duration;
 - `app.gen_ai.stream.chunk_count` is correct with capture both on and off, including an error after the first chunk;
 - the agent is invoked **the way production invokes it** (sync or async) and model spans still appear;
 - `gen_ai.response.model` appears on the span and the model-duration/token metrics when the provider returns it;
 - when the provider returns a finish reason, both `gen_ai.response.finish_reasons` and each captured output message preserve it instead of falling back to `unknown`;
 - native structured output emits `gen_ai.output.type=json`, while its JSON text remains inside the standard output-message envelope;
-- text-only observation input renders as role/content and one valid JSON response renders as
-  the decoded object, while multipart output falls back to the canonical envelope;
-- a provider with a separate system field emits `gen_ai.system_instructions` without a duplicate system-role input message, while provider-reported usage stays unchanged;
+- when the backend projection is in use, its observation checks pass (`../../../backends/langfuse.md`, "Verify");
+- a provider with a separate system field emits `gen_ai.system_instructions` without a duplicate system-role input message;
 - representative non-text provider content blocks survive serialization instead of becoming empty text;
 - forcing a provider error produces a span with `ERROR` status and `error.type`, and no exception span event;
 - with `CAPTURE_AI_CONTENT` unset, no `gen_ai.input.messages` attribute exists anywhere.

@@ -46,8 +46,9 @@ A wrong double makes every test that uses it pass for the wrong reason.
 - Default to zero `unittest.mock`. Use `httpx.MockTransport` for HTTP and
   `create_autospec(Port, instance=True)` rather than `patch` when a generated
   double is needed. Never use a spec-less `Mock` or `AsyncMock` for a port.
-- Keep one fake per port per member. Move a fake over about 100 lines, or one
-  used by more than one test module, into a `fakes` support module.
+- Keep one fake per port per member. When a fake, builder, or harness moves
+  into the support package is owned by `$python-service-architecture`
+  ([testing.md](../../python-service-architecture/references/testing.md#test-support-packages)).
 - Doubles type-check against the port `Protocol`: test support is in the mypy
   run, and a fake that is never passed where the port is expected gets an
   explicit check such as `_: OrderRepository = InMemoryOrders()`.
@@ -94,9 +95,10 @@ Use fixtures for lifecycle and reusable setup, not to conceal the scenario.
 Setup that carries no scenario facts should become a fixture once it repeats.
 
 - Default to function scope and fresh mutable state.
-- Keep a fixture at the narrowest common ancestor of its consumers. Expensive
-  database, broker, browser, model, or worker fixtures belong under the profile
-  that needs them, not root `conftest.py`.
+- Which `conftest.py` a fixture lives in (narrowest common ancestor; expensive
+  infrastructure under the profile that needs it, never root) is owned by
+  `$python-service-architecture`
+  ([testing.md](../../python-service-architecture/references/testing.md#fixtures-and-static-data)).
 - Prefer explicit fixture parameters over distant `autouse` behavior. A narrow
   autouse safety guard, such as blocking the public network in unit tests, is a
   justified exception.
@@ -108,9 +110,9 @@ Setup that carries no scenario facts should become a fixture once it repeats.
 - Broaden resource startup scope only when per-test mutable state is still
   isolated by unique database/schema, transaction, queue, namespace, tenant,
   directory, or identifier.
-- Resolve paths from `__file__`, never the working directory. Read environment
-  variables inside the fixture that needs them, never at import time; test
-  bodies never read `os.environ` directly.
+- Resolve paths from `__file__` and read environment variables inside
+  fixtures, never at import time (testing.md, as above). Test bodies never read
+  `os.environ` directly.
 
 Reusable doubles, builders, and harness types are importable support code, not
 fixtures. Never write:
@@ -216,6 +218,10 @@ shutdown) are owned by `$python-service-architecture`:
 - Mark async modules once with a module-level `pytestmark`
   (`pytest.mark.anyio`, or `pytest.mark.asyncio(loop_scope=...)`), not per
   test. When both plugins are installed, avoid conflicting auto modes.
+- AnyIO's default test backend behavior may exercise more than asyncio. If the
+  application intentionally supports only asyncio, configure that explicitly
+  (an `anyio_backend` fixture returning `"asyncio"`). If multiple backends are
+  supported, treat the matrix as a deliberate contract.
 - Create loop-bound clients, pools, sessions, and checkpointers inside the loop
   and lifecycle in which they run, never at module import time.
 - Align async fixture lifetime with event-loop lifetime. With pytest-asyncio, a
@@ -250,9 +256,10 @@ Unit tests then do not re-assert framework shape.
 ## Suite hygiene
 
 - When behavior is removed or renamed, update every profile (unit,
-  integration, E2E, live) in the same change. The hermetic job runs
-  `pytest --collect-only` over all profiles so a stale import in an
-  infrastructure profile fails fast.
+  integration, E2E, live) in the same change; the `--collect-only` job that
+  enforces it is owned by
+  [testing.md](../../python-service-architecture/references/testing.md#profiles-and-markers)
+  ("CI selection").
 - Delete per-module `pytest.skip` fallbacks; every infrastructure prerequisite
   goes through the one `require_env` helper in the support package, which skips
   locally and fails when `REQUIRE_INTEGRATION=1`
@@ -261,9 +268,25 @@ Unit tests then do not re-assert framework shape.
   recorded. Keep scripts with a `main()` outside `tests/`.
 - Prove that importing a module is inert (no connections, threads, or
   environment reads) in a subprocess, not in the already-warmed test process.
-- A live test module sets `pytestmark = pytest.mark.live`, fails rather than
-  skips when its required environment is missing, and asserts bounded shapes,
-  not exact provider output.
+
+## Live checks
+
+A live test calls a shared or paid external provider. Its placement and CI job
+are owned by
+[testing.md](../../python-service-architecture/references/testing.md#profiles-and-markers);
+the test design:
+
+- A live test module sets `pytestmark = pytest.mark.live` and is excluded from
+  the default suite. Run it in an explicit scheduled, pre-release, or
+  provider-compatibility job.
+- It fails rather than skips when its required environment is missing.
+- Inject secrets through the approved CI mechanism, and bound calls, tokens,
+  concurrency, time, latency, cost, and data.
+- Assert types, schema, bounded shapes, and termination, not exact provider
+  output or natural-language wording.
+- A cassette improves repeatability but proves the recorded response, not the
+  provider's current behavior. Redact it, version it when schemas change, and
+  retain a tiny uncached smoke when live compatibility matters.
 
 ## Property-based and stateful testing
 

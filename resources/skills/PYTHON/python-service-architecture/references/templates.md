@@ -42,125 +42,27 @@ consumers, and hybrid processes, use the trees in
 
 An idempotent submission endpoint: resolve and normalize the selection, then
 insert it or return the existing receipt for the same client and normalized
-payload. The compact snippets show ownership; the executable example in
-[`assets/canonical_service/`](../assets/canonical_service/) contains the
-constraint, duplicate handling, and transaction error translation.
+payload. The executable example is
+[`assets/canonical_service/`](../assets/canonical_service/); each module shows
+one owner:
 
-```python
-# domain/submissions.py — pure rules, unit-tested without doubles
-from dataclasses import dataclass
-
-
-class InvalidSelectionError(Exception):
-    """The selection violates submission policy."""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SelectionRequest:
-    record_type: str
-    max_records: int | None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Selection:
-    """A normalized selection; only `normalize` builds one from a request."""
-
-    record_type: str
-    max_records: int
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class SubmissionPolicy:
-    default_records: int
-    max_records: int
-
-
-def normalize(request: SelectionRequest, policy: SubmissionPolicy) -> Selection:
-    max_records = policy.default_records if request.max_records is None else request.max_records
-    if max_records > policy.max_records:
-        raise InvalidSelectionError("submission_limit")
-    return Selection(record_type=request.record_type.strip().lower(), max_records=max_records)
-
-
-def payload_hash(selection: Selection) -> str: ...
-```
-
-```python
-# ports/submissions.py — what the action needs, in business terms
-from dataclasses import dataclass
-from typing import Protocol
-from uuid import UUID
-
-from my_service.ports.errors import DependencyUnavailableError
-from my_service.domain.submissions import Selection
-
-
-class SubmissionStoreUnavailableError(DependencyUnavailableError):
-    """The store could not complete the transaction; retry later."""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Receipt:
-    request_id: UUID
-    replayed: bool
-
-
-class SubmissionStore(Protocol):
-    async def submit(
-        self, *, client_id: str, selection: Selection, payload_hash: str
-    ) -> Receipt: ...
-```
-
-```python
-# application/submit.py — the real steps; imports only domain/ and ports/
-from my_service.domain.submissions import (
-    SelectionRequest,
-    SubmissionPolicy,
-    normalize,
-    payload_hash,
-)
-from my_service.ports.submissions import Receipt, SubmissionStore
-
-
-async def submit_investigation(
-    *, store: SubmissionStore, policy: SubmissionPolicy, client_id: str, request: SelectionRequest
-) -> Receipt:
-    selection = normalize(request, policy)
-    return await store.submit(
-        client_id=client_id, selection=selection, payload_hash=payload_hash(selection)
-    )
-```
-
-```python
-# db/submissions.py — implements the port directly: transaction + queries in one class
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from my_service.db.transactions import transaction
-from my_service.domain.submissions import Selection
-from my_service.ports.submissions import Receipt
-
-
-class SqlSubmissionStore:
-    def __init__(self, *, sessions: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = sessions
-
-    async def submit(self, *, client_id: str, selection: Selection, payload_hash: str) -> Receipt:
-        async with transaction(self._sessions, errors=_ERRORS) as session:
-            ...  # unique (client_id, payload_hash); handle conflict and return existing receipt
-```
-
-```python
-# api/routers/submissions.py — HTTP in, one action, HTTP out
-@router.post("/submissions", status_code=status.HTTP_202_ACCEPTED)
-async def submit(body: SubmissionBody, runtime: RuntimeDep, identity: WriteIdentity) -> SubmissionOut:
-    receipt = await submit_investigation(
-        store=runtime.submission_store,
-        policy=runtime.submission_policy,
-        client_id=identity.client_id,
-        request=body.to_request(),
-    )
-    return SubmissionOut.from_receipt(receipt)
-```
+- [`domain/submissions.py`](../assets/canonical_service/src/my_service/domain/submissions.py): pure rules,
+  unit-tested without doubles. `SelectionRequest`, the normalized `Selection`
+  (only `normalize` builds one from a request), `SubmissionPolicy`,
+  `normalize` (raises `InvalidSelectionError` past the policy limit), and
+  `payload_hash`.
+- [`ports/submissions.py`](../assets/canonical_service/src/my_service/ports/submissions.py): what the action needs, in
+  business terms. The `SubmissionStore` Protocol, its `Receipt` result, and
+  its unavailable and integrity errors.
+- [`application/submit.py`](../assets/canonical_service/src/my_service/application/submit.py): the real steps;
+  imports only `domain/` and `ports/`. It normalizes, hashes, and makes one
+  store call.
+- [`db/submissions.py`](../assets/canonical_service/src/my_service/db/submissions.py): implements the port directly,
+  transaction and queries in one class. A unique `(client_id, payload_hash)`
+  constraint decides duplicates; a conflict returns the existing receipt.
+- [`api/routers/submissions.py`](../assets/canonical_service/src/my_service/api/routers/submissions.py): HTTP in, one
+  action, HTTP out. `client_id` comes from the verified `WriteIdentity`, never
+  from the request body.
 
 The shared `transaction` helper takes the calling port's error types
 (`_ERRORS = PortErrors(...)`, one module constant per store), so several DB
@@ -169,14 +71,17 @@ DB timeout and disconnect failures with `raise ... from exc` and preserves
 unknown failures; constraint conflicts the store expects are handled inside it
 first. Helper mechanics are owned by `python-sqlmodel-alembic` (fallback:
 `../../python-sqlmodel-alembic/references/engine-and-session.md`, "Transactions
-and the unit of work"). Read the executable example only when implementing
-persistence; test instructions are in its `tests/README.md`.
+and the unit of work"). Test instructions are in the example's
+`tests/README.md`.
 
-`bootstrap/runtime.py` builds `SqlSubmissionStore(sessions=sessions)` and the
+[`bootstrap/runtime.py`](../assets/canonical_service/src/my_service/bootstrap/runtime.py)
+builds `SqlSubmissionStore(sessions=sessions)` and the
 `SubmissionPolicy` once and exposes them on the runtime container; `RuntimeDep`
 is the one API dependency for it
-([api-and-workers.md](api-and-workers.md#fastapi--http-api)). `InvalidSelectionError` maps to 422 in the API's
-exception table ([api-and-workers.md](api-and-workers.md#public-error-mapping)).
+([api-and-workers.md](api-and-workers.md#fastapi--http-api)).
+`InvalidSelectionError` maps to 422 in the API's exception table,
+[`api/exception_handlers.py`](../assets/canonical_service/src/my_service/api/exception_handlers.py)
+([api-and-workers.md](api-and-workers.md#public-error-mapping)).
 
 Tests: `normalize` and `payload_hash` as plain unit tests; `SqlSubmissionStore`
 as an integration test against the real database; the route as a `unit/api/`
@@ -194,7 +99,7 @@ result (or `None` when no result is needed).
 Use a class only when the action holds state across calls; then it exposes
 **one** public `async def execute(*, ...)`.
 
-The submission action above illustrates this shape. For a concurrency-safe state
+The canonical feature's `submit_investigation` illustrates this shape. For a concurrency-safe state
 transition and the UoW alternative, load [persistence.md](persistence.md) only
 when the operation needs them.
 

@@ -23,7 +23,8 @@ from service_audit.ast_helpers import (
 from service_audit.model import Finding, Module, review, violation
 from service_audit.rules import (
     APPLICATION_ALLOWED_EXTERNAL,
-    BOOTSTRAP_FUNCTION_LINES,
+    BOOTSTRAP_COLLABORATORS,
+    BOOTSTRAP_FACTORY_PREFIXES,
     FRAMEWORK_PORT_NAMES,
     GENERIC_COLLECTIONS,
     INTERNAL_FORBIDDEN,
@@ -325,11 +326,48 @@ def sql_findings(module: Module) -> Iterator[Finding]:
                 )
 
 
+def own_calls(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Iterator[ast.Call]:
+    """Calls in a function's body, not in the functions it defines."""
+    pending: list[ast.AST] = list(node.body)
+    while pending:
+        child = pending.pop()
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        if isinstance(child, ast.Call):
+            yield child
+        pending.extend(ast.iter_child_nodes(child))
+
+
+def bundle_calls(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[int]:
+    """The container a function yields or returns (`yield Runtime(...)`) is not a collaborator."""
+    return {
+        id(child.value)
+        for child in ast.walk(node)
+        if isinstance(child, ast.Yield | ast.Return) and isinstance(child.value, ast.Call)
+    }
+
+
+def constructed_collaborators(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    bundles = bundle_calls(node)
+    count = 0
+    for call in own_calls(node):
+        callee = dotted_name(call.func).split(".")[-1]
+        if id(call) in bundles or not callee:
+            continue
+        if callee[:1].isupper() or callee.startswith(BOOTSTRAP_FACTORY_PREFIXES):
+            count += 1
+    return count
+
+
 def size_findings(module: Module) -> Iterator[Finding]:
     if module.owner == "bootstrap":
         for node in functions(module.tree):
-            if span(node) > BOOTSTRAP_FUNCTION_LINES:
-                message = f"bootstrap function {node.name} spans {span(node)} lines; split by capability"
+            built = constructed_collaborators(node)
+            if built >= BOOTSTRAP_COLLABORATORS:
+                message = (
+                    f"bootstrap function {node.name} constructs {built} collaborators; "
+                    "split at resource or capability seams into _build_<capability>() bundles"
+                )
                 yield review(module, node.lineno, message, R_BOOTSTRAP)
     if module.owner == "db":
         for cls in ast.walk(module.tree):

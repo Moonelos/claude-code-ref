@@ -120,7 +120,7 @@ INTERNAL_FORBIDDEN: dict[str, set[str]] = {
     "application": {"adapters", "api", "bootstrap", "config", "db", "genai", "workers"},
     "db": {"adapters", "api", "application", "bootstrap", "genai", "workers"},
     "genai": {"adapters", "api", "bootstrap", "db", "workers"},
-    "api": {"bootstrap", "db", "adapters", "genai", "workers"},
+    "api": {"adapters", "bootstrap", "config", "db", "genai", "workers"},
     # workers/ is the non-HTTP entry-point boundary: loops and consumers.
     "workers": {"adapters", "api", "bootstrap", "config", "db", "genai"},
     "core": {
@@ -136,8 +136,9 @@ INTERNAL_FORBIDDEN: dict[str, set[str]] = {
         "observability",
         "workers",
     },
-    # adapters may import the inbound contract a worker declares (workers/).
-    "adapters": {"api", "bootstrap"},
+    # adapters may import the inbound contract a worker declares (workers/); they reach
+    # db/ and genai/ only through a port.
+    "adapters": {"api", "application", "bootstrap", "db", "genai"},
     "observability": {"api", "application", "bootstrap", "workers"},
 }
 # The per-service contracts in python-repository-setup (pre-commit.md, "Architecture
@@ -240,7 +241,10 @@ IO_CALL_ROOTS = {
 IO_METHODS = {"read_bytes", "read_text", "write_bytes", "write_text"}
 TRANSPORT_EXCEPTION_FIELDS = {"public_message", "retryable", "status_code"}
 SQL_HANDLE_HINTS = ("conn", "cursor", "session")
-BOOTSTRAP_FUNCTION_LINES = 80
+# runtime() stays one flat function, however long, until it builds ~10 collaborators.
+BOOTSTRAP_COLLABORATORS = 10
+# Calls that construct a collaborator: a class (capitalized) or one of these factories.
+BOOTSTRAP_FACTORY_PREFIXES = ("build_", "create_", "init_", "open_")
 REPOSITORY_METHOD_LINES = 40
 SHARED_LITERAL_MODULES = 3
 # Standard names nobody owns; repeating them is not a missing owner.

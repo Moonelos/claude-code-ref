@@ -1,3 +1,5 @@
+"""ASGI application factory for the sample API."""
+
 from fastapi import FastAPI
 
 from sample_api.api.routers import greetings, health

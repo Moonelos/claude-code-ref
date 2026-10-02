@@ -36,20 +36,14 @@ themselves; the numbers live in `python-code-conventions` (fallback:
 
 ## Resolve the target shape
 
-Do not redefine the structural rules during a migration:
-
-- Use [templates.md](templates.md) for the target service tree and placement
-  map.
-- Use [boundaries.md](boundaries.md) for dependency direction, port admission,
-  ownership, flat-first growth, and constants; [errors.md](errors.md) for error
-  design; `python-service-architecture-audit` for the final audit.
-- Use [ai.md](ai.md) when any GenAI responsibility exists.
-- Use [api-and-workers.md](api-and-workers.md) for process-specific boundaries.
-- Use [testing.md](testing.md) before moving tests or fixtures.
-- Use [shared-libraries.md](shared-libraries.md) when extracting reusable code.
-
-These references are authoritative. A migration must enforce their rules rather
-than preserve a conflicting legacy layout for cosmetic compatibility.
+Do not redefine the structural rules during a migration. The references routed
+from [SKILL.md](../SKILL.md#reference-routing) are authoritative:
+[templates.md](templates.md) for the target service tree and placement map,
+[boundaries.md](boundaries.md) for dependency direction, port admission,
+ownership, flat-first growth, and constants, and [testing.md](testing.md)
+before moving tests or fixtures. `python-service-architecture-audit` runs the
+final audit. A migration must enforce their rules rather than preserve a
+conflicting legacy layout for cosmetic compatibility.
 
 ## Migration sequence
 

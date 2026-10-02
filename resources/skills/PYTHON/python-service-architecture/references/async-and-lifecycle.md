@@ -54,51 +54,26 @@ pairs; never drive `__enter__`/`__exit__` by hand. Every acquired client, sessio
 browser, workbook, or streaming response body has an owner and is closed on
 success and failure.
 
-The composition root uses one lifecycle idiom:
+The composition root uses one lifecycle idiom: an `@asynccontextmanager
+runtime(settings, secrets)` owning one `AsyncExitStack` and yielding a frozen
+`Runtime` of implementations and policies. The canonical service's
+[`bootstrap/runtime.py`](../assets/canonical_service/src/my_service/bootstrap/runtime.py)
+is the executable version; it registers the engine's disposal with
+`stack.push_async_callback(engine.dispose)`. A client that is itself an async
+context manager is entered on the stack, then injected:
 
 ```python
-from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
-from dataclasses import dataclass
-
-import httpx
-
-from my_service.adapters.ticket_api import HttpTicketApi
-from my_service.config.secrets import Secrets
-from my_service.config.settings import Settings
-from my_service.domain.tickets import SyncPolicy
-from my_service.ports.tickets import TicketSource
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Runtime:
-    """Implementations and policies, built once; entry points pass them to actions."""
-
-    tickets: TicketSource
-    sync_policy: SyncPolicy
-
-
-@asynccontextmanager
-async def runtime(settings: Settings, secrets: Secrets) -> AsyncIterator[Runtime]:
-    async with AsyncExitStack() as stack:
-        http = await stack.enter_async_context(
-            httpx.AsyncClient(timeout=settings.ticket_api_timeout_seconds)
-        )
-        tickets = HttpTicketApi(client=http, token=secrets.ticket_api_token)
-        yield Runtime(
-            tickets=tickets,
-            sync_policy=SyncPolicy(batch_size=settings.ticket_sync_batch_size),
-        )
+http = await stack.enter_async_context(
+    httpx.AsyncClient(timeout=settings.ticket_api_timeout_seconds)
+)
+tickets = HttpTicketApi(client=http, token=secrets.ticket_api_token)
 ```
 
-Entry points in `api/` and `workers/` call function actions with fields from
-the runtime (`await sync_tickets(tickets=runtime.tickets, policy=runtime.sync_policy)`).
-The runtime never holds application actions, objects that wrap them, or raw SDK
-clients; inbox adapters are built here like every other implementation.
+What the runtime may hold, and how entry points use it, is in
+[boundaries.md](boundaries.md#bootstrap).
 
 `build_*` functions only construct; `run()` only orchestrates and maps outcomes
-to exit codes. Register each process-wide teardown exactly once. A resource kept
-only for disposal lives in the exit stack, not in `Runtime`. Never reach into a
+to exit codes. Register each process-wide teardown exactly once. Never reach into a
 collaborator's `_private` fields to close it; it exposes `aclose()`.
 
 When closing several independent resources, use
@@ -135,5 +110,6 @@ resource cleanup; `CancelledError` bypasses it.
 ## Health probes
 
 Health and readiness probes have a timeout and log the failure reason on state
-transitions, not on every probe. They never perform business work; readiness
-calls a port method rather than running SQL in bootstrap.
+transitions, not on every probe. Readiness calls a port method rather than
+running SQL in bootstrap. What a probe may read, and why it calls no action, is
+in [api-and-workers.md](api-and-workers.md#health-and-readiness).

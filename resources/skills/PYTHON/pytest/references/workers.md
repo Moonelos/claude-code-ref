@@ -58,7 +58,8 @@ repeats it (`../../python-service-architecture/references/api-and-workers.md`,
 ## Database-backed work queues
 
 When a table is the queue, the claim query and lease rules are the delivery
-guarantee. Test them against the production database dialect with separate
+guarantee (owned by `$python-sqlmodel-alembic`:
+[work-queues.md](../../python-sqlmodel-alembic/references/work-queues.md#work-claiming-and-leases)). Test them against the production database dialect with separate
 sessions per claimer; an in-memory fake cannot prove row locking. Cover the
 cases the queue promises:
 
@@ -163,16 +164,12 @@ production guarantee or failure mode.
 
 ## Database and publication boundaries
 
-A worker runs in another connection and often another process:
-
-- It cannot see uncommitted setup from the test process under normal transaction
-  isolation.
-- Its commits cannot be rolled back by the test process's outer transaction.
-- It must not inherit a live pooled database connection across `fork()`.
-
-Use committed setup plus a disposable database/schema/tenant and unique queue or
-namespace. Stop workers before cleanup. Re-read results using a fresh session.
-Use one SQLAlchemy session per thread or task.
+A worker runs in another connection and often another process, so the
+same-connection rollback fixture cannot isolate it: use committed setup, a
+disposable database/schema/tenant, and fresh-session re-reads
+([integration-boundaries.md](integration-boundaries.md#transaction-isolation-fixture)),
+plus a unique queue or namespace. Stop workers before cleanup. A worker must
+also not inherit a live pooled database connection across `fork()`.
 
 Test message publication relative to the database transaction:
 
@@ -248,7 +245,10 @@ clock/random source.
 ## Suggested CI shape
 
 Use this to review or propose profile placement. Change CI files only when that
-configuration work is part of the requested scope.
+configuration work is part of the requested scope. Generic profile selection is
+owned by
+[testing.md](../../python-service-architecture/references/testing.md#profiles-and-markers)
+("CI selection"); the worker-specific tiers:
 
 - **PR:** pure/application tests, task-adapter tests, real database repository
   and work-queue tests, contract tests, and a bounded embedded-worker path if
@@ -259,8 +259,9 @@ configuration work is part of the requested scope.
   redelivery, visibility timeout, scheduler overlap, and longer stateful tests.
 
 Run only versions and brokers the product supports. Never hide a flaky worker
-test behind automatic reruns; preserve diagnostics and repair its isolation or
-synchronization.
+test behind automatic reruns
+([core-principles.md](core-principles.md#make-time-randomness-and-concurrency-observable));
+preserve diagnostics and repair its isolation or synchronization.
 
 ## Celery and RQ specifics
 

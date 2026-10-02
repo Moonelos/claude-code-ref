@@ -86,8 +86,21 @@ High-cardinality values (`order.id`, `user.id`, `session.id`) are acceptable on 
 ```
 app.<domain>.<noun>              app.pricing.product_count
 app.<domain>.<noun>.<qualifier>  app.retrieval.result_count
-app.outcome                      success | error | timeout | blocked
+app.outcome                      one value from the closed set below
 ```
+
+`app.outcome` values — the complete set; other files link here instead of
+restating it:
+
+| Value | Meaning |
+| --- | --- |
+| `success` | The unit finished and did its work; no `error.type` |
+| `error` | The unit failed; span `ERROR` plus bounded `error.type` (`errors.md`) |
+| `timeout` | The unit exceeded its deadline; also `ERROR` with `error.type=TimeoutError` (`errors.md#cancellation`) |
+| `blocked` | A guardrail or policy refused the unit; a business result, not an exception |
+| `cancelled` | Shutdown or client disconnect cancelled the unit; no `ERROR` (`errors.md#cancellation`) |
+| `skipped` | The unit was deliberately not processed: duplicate, stale, or nothing to do |
+| `hitl` | The unit was handed to a human; `ERROR` only when failure-driven (`errors.md#failures-visible-in-both-signals`) |
 
 Keep the enum values for `app.outcome` fixed across the whole service. A metric that groups on it is only useful if the set is closed. Outcome is always `app.outcome` and classification always `error.type` (`errors.md`), on spans and app metrics alike: no `status`, `result`, or `error_code` synonyms. A business failure taxonomy is `app.failure.class`. Closed vocabularies are types, per the `python-code-conventions` skill (`../../../python-code-conventions/SKILL.md`, Closed vocabularies).
 
@@ -98,7 +111,7 @@ dashboards that each miss three quarters of the data, so the domains are fixed:
 
 | Domain | Owns | Examples |
 | --- | --- | --- |
-| `app.gen_ai.*` | model- and provider-level facts with no standard `gen_ai.*` equivalent | `app.gen_ai.usage.input_token_details`, `app.gen_ai.stream.chunk_count`, `app.gen_ai.input.capture_mode`, `app.gen_ai.observation.input`, `app.gen_ai.observation.output`, `app.gen_ai.request.attempt`, `app.gen_ai.upstream_provider`, `app.gen_ai.estimated_cost_usd` |
+| `app.gen_ai.*` | model- and provider-level facts with no standard `gen_ai.*` equivalent | `app.gen_ai.usage.input_token_details`, `app.gen_ai.stream.chunk_count`, `app.gen_ai.input.capture_mode`, `app.gen_ai.output.capture_mode`, `app.gen_ai.input.batch_size`, `app.gen_ai.observation.input`, `app.gen_ai.observation.output`, `app.gen_ai.request.attempt`, `app.gen_ai.upstream_provider`, `app.gen_ai.estimated_cost_usd` |
 | `app.agent.*` | facts about one agent **run**, not one model call | `app.agent.time_to_first_chunk`, `app.agent.step_count`, `app.agent.stop_reason`, `app.agent.fallback.used` |
 | `app.workflow.*` | a durable or multi-step run | `app.workflow.name`, `app.workflow.run.id`, `app.workflow.version` |
 | `app.job.*`, `app.worker.*`, `app.message.*` | scheduled, worker, and queue work | `app.job.type`, `app.worker.jobs`, `app.message.attempt` |
@@ -110,7 +123,7 @@ dashboards that each miss three quarters of the data, so the domains are fixed:
 | `app.<business-domain>.*` | everything the service's own domain owns | `app.pricing.product_count`, `app.exception.rule` |
 | `app.outcome`, `app.response.time_to_first_chunk` | deliberately flat, because they belong to no single domain | — |
 
-Two rules follow from the table:
+Three rules follow from the table:
 
 - **`app.llm.*` does not exist.** Model-adjacent facts live under
   `app.gen_ai.*`, mirroring the standard namespace they extend.
@@ -134,7 +147,7 @@ Metric names describe the measured thing; the instrument type describes how it i
 | `app.pricing.updates` | `app.pricing.counter`, `app.pricing.updates.count` |
 | `app.worker.job.duration` (unit `s`) | `app.worker.job.latency_ms` recorded in seconds |
 | `app.retrieval.result_count` | `docs` |
-| `app.exceptions_processed` | `app.exceptions_processed.count` |
+| `app.exception.reviews` | `app.exception.reviews.count` |
 
 **No `.count` suffix on an event counter.** A plural noun already says what is
 being counted, the unit annotation (`{job}`, `{update}`) says it again, and

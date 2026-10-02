@@ -4,8 +4,10 @@ description: >-
   Structure or review a Python repository: a single src-layout project or a uv
   workspace with isolated deployables and reusable packages. Use for dependency
   ownership, lockfiles, toolchain pins, repository-wide quality tooling, Docker,
-  Compose, and scoped production installs. Use `python-service-architecture` for
-  modules inside a service or library.
+  Compose orchestration (the environment contract is `python-settings-config`),
+  scoped production installs, and workspace admission of shared libraries
+  (library design is `python-service-architecture`). Use
+  `python-service-architecture` for modules inside a service or library.
 ---
 
 # Python Repository Setup: Single Service or uv Workspace
@@ -109,13 +111,13 @@ Check all of these before adding `libs/<name>`:
 - owning it as a package improves consistency, dependency direction, testing,
   or release safety enough to justify the boundary.
 
-Good candidates include a stable vendor client, shared wire/schema contracts,
-database model metadata consumed by several members, and generic observability
-plumbing. An observability library may coherently own provider lifecycle, span
-helpers, propagation, trace/log correlation, redaction, and shared structured-
-logging processors when those policies are common. Service span names, business
-metrics, event vocabulary, and outcome decisions remain service-local. Use the
-`otel-observability` skill for that package's API and lifecycle.
+Good candidates and what each may contain follow the library kinds in
+`python-service-architecture` (fallback:
+`../python-service-architecture/references/shared-libraries.md#library-kinds-and-importers`):
+a stable vendor client, shared wire/schema contracts, database model metadata
+consumed by several members, and generic observability plumbing (which may
+also own trace/log correlation; outcome decisions stay service-local). Use the
+`otel-observability` skill for an observability package's API and lifecycle.
 
 ## Workspace Layout
 
@@ -163,55 +165,11 @@ glob has no such failure mode.
 
 ## Choose And Align Toolchain Versions First
 
-Before scaffolding, verify the current stable patch release for the chosen
-Python minor and the current stable uv release from official sources. Propose
-the defaults, then ask one concise question: “I will use Python X.Y.Z and uv
-A.B.C; do you want different versions?” Skip the question when the user has
-already supplied both versions. When nobody can be asked (a delegated agent, a
-non-interactive run), use the installed uv and Python if they are stable
-releases of the intended minor, otherwise the template's pins, and state the
-chosen pins as an assumption in the handoff. After copying the bundled asset
-to a writable location and before using it, update its single toolchain
-manifest and every derived pin with
-`scripts/update_toolchain.py --python X.Y.Z --uv A.B.C`; do not hand-edit a
-subset of the copies. Run that script on a writable copy of the template,
-never on the installed skill source. When constructing a service without
-copying the template, set all new toolchain pins coherently and run the
-equivalent pin checks in that service; the template update script does not
-apply to files it does not own.
-
-The bundled template snapshot currently uses:
-
-- Python `3.13.15`, with `.python-version` containing exactly `3.13.15`.
-- uv `0.12.7`.
-- Every member: `requires-python = ">=3.13,<3.14"`.
-
-Apply them in this order:
-
-1. Put `requires-python = ">=3.13,<3.14"` in every service and library
-   `pyproject.toml`.
-2. Run `uv python pin 3.13.15` at the workspace root to create
-   `.python-version`.
-3. Read that exact value into each Dockerfile's `ARG PYTHON_VERSION` default
-   and keep the in-build equality check.
-4. Put `required-version = "==0.12.7"` in the root `[tool.uv]` table and use
-   the same exact uv version in Docker and CI.
-
-Treat these as a coherent set. If the user changes the Python minor, update
-all member `requires-python` ranges, Ruff's `target-version`,
-`.python-version`, the Docker `PYTHON_VERSION`, and CI. If only the patch
-changes within 3.13, update `.python-version`, Docker, and CI. If uv changes,
-update root `required-version`, Docker, and CI.
-
-Do not add mise. Let uv read `.python-version` locally; `uv python install`
-can install the pinned interpreter when needed. A Dockerfile cannot derive a
-pre-`FROM` `ARG` from a file in the build context, so repeat the exact Python
-pin in `ARG PYTHON_VERSION` and fail the build if it differs from
-`.python-version`.
-
-In CI, install the exact root `required-version`, run `uv python install`, and
-then use the root lockfile. `required-version` enforces the uv pin but does not
-install the matching uv binary by itself.
+Before scaffolding, verify current stable Python and uv releases, confirm them
+with the user in one question, and update every pin in a writable template
+copy with `scripts/update_toolchain.py --python X.Y.Z --uv A.B.C`. Version
+choice, the pin surfaces and their update order, local/CI/Docker alignment,
+and the no-mise rule: [references/toolchain.md](references/toolchain.md).
 
 ## `pyproject.toml` Ownership
 
@@ -235,64 +193,17 @@ concrete root, service, and library files before writing or reviewing one.
 ## Lint, Type, And Test Baseline
 
 Any rule a linter or type checker can enforce is enforced in configuration, not
-restated in prose. The template's `[tool.ruff.lint]` table is the baseline; each
-rule family carries its one-line rationale there.
+restated in prose; the templates' root `pyproject.toml` is the baseline. Read
+[references/quality-tooling.md](references/quality-tooling.md) before changing
+Ruff, mypy, pytest, or coverage settings. In short:
 
-- `TID252` with `ban-relative-imports = "all"` is mandatory: absolute imports
-  only.
-- `C90` with `max-complexity = 10` enforces complexity. Ruff cannot measure
-  function length or nesting; those stay review signals, with the numbers in
-  `python-code-conventions` (fallback: `../python-code-conventions/SKILL.md`,
-  "Size signals").
-- `INP001` requires `__init__.py` in every package directory (rule owner:
-  `python-code-conventions`, "Imports and package markers"). Test directories
-  (`**/tests/**`) and Alembic script directories (`**/alembic/**`) are exempt:
-  tests run under `--import-mode=importlib` without package markers, and
-  Alembic loads its scripts by path.
-- List every import package and each member's test-support package
-  (`<member>_testing`) in `[tool.ruff.lint.isort] known-first-party`; Ruff
-  cannot discover a package that lives under `tests/`.
-- Do not enable `PLR0913` (keyword-only DI constructors legitimately exceed it)
-  or `EM`/`TRY003` (high volume, little value). `ANN401`, `FBT001`, and
-  `PLR2004` are optional; if enabled, exempt true adapters from `ANN401` and
-  tests from `PLR2004` through `per-file-ignores`.
-- When introducing the baseline into existing code, fix each finding or add a
-  `# noqa: <CODE> <reason>`. Never raise thresholds or broaden ignores to pass.
-
-mypy runs `strict` with `warn_unreachable` and the `ignore-without-code`,
-`redundant-expr`, and `possibly-undefined` error codes. Add
-`plugins = ["pydantic.mypy"]` whenever any member uses pydantic. The mypy paths
-include tests, test-support packages, and every `conftest.py`; never exclude
-them. Because tests have no `__init__.py` and several `conftest.py` files, set
-`explicit_package_bases = true` and give mypy each member's `src` and `tests`
-as bases:
-
-- **Single deployable:** `mypy_path = ["src", "tests"]` and `mypy src tests`.
-- **Workspace:** run mypy once per member with
-  `MYPYPATH=<member>/src:<member>/tests` (`scripts/mypy-members.sh` in the
-  template). One run over every member fails with "Duplicate module named
-  conftest", because each member's `tests/conftest.py` is a top-level
-  `conftest`. Libraries ship `py.typed` so consumers type-check against them. For third-party types, add `boto3-stubs`/`types-*` to the dev group; for a
-package with no stubs, list it in one `[[tool.mypy.overrides]]` block with
-`ignore_missing_imports = true`, never per-import `# type: ignore[import-untyped]`.
-
-Every package a member imports directly is declared in that member's
-`dependencies` (or dev group, for test-only imports); an install that arrives
-transitively is not a declaration.
-
-Coverage is reported, not gated: the default `pytest` run collects none, and
-the CI job that runs every non-live profile against real infrastructure reports
-it with `--cov`, because only that run exercises `db/` and migrations. Coverage
-`source` lists every workspace import package and omits Alembic's `env.py` and
-`versions/`. Do not add `fail_under`; coverage is a map for review
-(`pytest`, fallback: `../pytest/SKILL.md`).
-
-The root `testpaths` lists member roots for discovery only. Do not add a root
-`pythonpath` listing every member; make shared test support importable per
-member as described in `../python-service-architecture/references/testing.md`
-("Test support packages"). Async tests are native `async def` under the one
-async plugin the repository already uses (anyio or pytest-asyncio); test design
-belongs to the `pytest` skill.
+- Ruff: mandatory absolute imports (`TID252`), complexity ≤ 10 (`C90`),
+  package markers (`INP001`); never raise thresholds to pass.
+- mypy: `strict` over sources, tests, and every `conftest.py`, with
+  `explicit_package_bases`; one run per member in a workspace
+  (`scripts/mypy-members.sh`).
+- Coverage is reported on the integration CI run, never gated.
+- Every directly imported package is declared by the member that imports it.
 
 ## Pre-commit And Pre-push
 
@@ -313,22 +224,11 @@ and CI ([pre-commit.md](references/pre-commit.md#architecture-contracts)).
 ## Internal Library Layout
 
 This skill owns the workspace boundary and installation mechanics, not a rigid
-internal architecture. Every library still uses `src/<import_package>/`, keeps
-tests beside the member, exposes a small intentional public API, and starts with
-the fewest cohesive modules. Do not copy a deployable's `main.py`, `bootstrap/`,
-`application/`, `adapters/`, and `config/` shell into a non-deployable library.
-
-Keep a small package flat. Introduce a subpackage only when one narrower
-capability has several cohesive modules, changes independently, needs distinct
-test setup, or causes real naming pressure. Avoid file-per-class layouts,
-one-file subpackages, speculative registries/factories, and generic `common`,
-`shared`, `utils`, or `core` packages.
-
-Use the `python-service-architecture` skill's shared-library guidance for detailed
-module ownership, dependency direction, public exports, tests, and
-consumer-by-consumer modularization. Use the domain-specific skill as well when
-the library has one—for example, `otel-observability` determines the internals of a
-shared telemetry and logging package.
+internal architecture. A library's layout, flat-first module growth, public
+API, and tests are owned by `python-service-architecture` (fallback:
+`../python-service-architecture/references/shared-libraries.md#flat-first`). Use the
+domain-specific skill as well when the library has one (for example,
+`otel-observability` for a shared telemetry and logging package).
 
 ## One Lockfile, Scoped Installs
 
@@ -349,38 +249,19 @@ get wrong by assuming the opposite:
 - `uv sync --package api` (or `uv run --package api …`, `uv export --package
   api`) scopes to `api` **and its transitive workspace dependencies only**.
 
-The shared dev venv is not a dependency firewall: a scoped
-`uv sync --package <service>` (or the Docker build itself) is the real test of
-a member's dependency boundary.
-
-### Root Dev Dependencies and Docker
-
-A root `[dependency-groups] dev = [...]` group is installed **by default even
-with `--package`**. Always pass `--no-dev` (or `--only-group
-<name>` for a narrower selection) alongside `--package` when building anything
-that ships, or the "lean image" goal quietly fails:
-
-```bash
-uv sync --frozen --no-dev --package api
-```
+The shared dev venv is not a dependency firewall; a scoped install is the real
+boundary test ([references/workspace-rationale.md](references/workspace-rationale.md#the-shared-dev-environment-is-not-a-dependency-firewall)).
 
 ## Lean Production Docker Images
 
-For a single service, build the root `Dockerfile` from the repository root. Use
-the same pins, multi-stage split, locked non-editable install, non-root runtime,
-and secret rules as workspace images, without workspace metadata, `--package`,
-or `--no-install-workspace`.
-
-Build each service's image from the **workspace root** as the build context —
-not from inside `services/api/` — because resolving `api`'s dependencies
-still requires the root `pyproject.toml`, the shared `uv.lock`, and the source
-of every workspace member `api` imports (at minimum `libs/company_observability/`).
-Scoping the build context to just `services/api/` is a common mistake that
-breaks the build the moment a service depends on a shared library. Full
-production Dockerfile, `.dockerignore`, version-alignment checks, and build
-commands for both modes: read
+Every shipped build passes `--no-dev` (the root `dev` group is installed even
+with `--package`), builds from the repository root as context, and uses the
+canonical multi-stage Dockerfile. Single-service adaptation, build context,
+sync flags, `.dockerignore`, and service variants: read
 [references/docker-builds.md](references/docker-builds.md) before creating or
 editing an image.
+
+## Templates
 
 Copy one of the two canonical runnable scaffolds instead of recreating these
 files from memory:
@@ -391,8 +272,9 @@ files from memory:
   two `conftest.py` files, the root `Dockerfile`, `compose.yaml`,
   `.env.example`, pre-commit hooks, and the CI workflow.
 - **Workspace:** `assets/workspace-template/`: a FastAPI service, an internal
-  library, the workspace-aware Dockerfile, the per-member mypy script, and the
-  same hooks and workflow.
+  library, the workspace-aware Dockerfile, the per-member mypy script,
+  `compose.yaml`, the root and per-service `.env.example`, and the same hooks
+  and workflow.
 
 Both carry exact toolchain pins and the same Ruff, pytest, coverage, mypy,
 import-linter, pre-commit, and CI decisions
@@ -404,66 +286,19 @@ and the import-linter contracts.
 ## Docker Compose And Root `.env`
 
 Read [references/docker-compose.md](references/docker-compose.md) whenever
-creating or reviewing `compose.yaml`, root `.env.example`, service environment
-mapping, or local container startup. Compose uses one ignored root `.env` as
-the local stack input. Declare each service's `environment:` mapping explicitly;
-do not attach the whole root file to every container with `env_file: .env`.
-Keep the root `.env.example` focused on values the user must configure or
-consciously choose for the local Compose stack. For each service, put required
-runtime environment variables in active assignments and optional overrides of
-committed config in commented-out assignments in its `.env.example`; see the
-reference for the single-service case.
+creating or reviewing `compose.yaml`, the root `.env.example`, service
+environment mapping, or local container startup. Each deployable's own
+`.env.example` contract is owned by `python-settings-config` (fallback:
+`../python-settings-config/references/env-example.md`).
 
 ## Setup And Verification
 
-After adapting the template, run the applicable commands from the repository
-root. For both modes:
-
-```bash
-uv python install
-uv lock --check
-uv sync --frozen
-uv run --locked pre-commit install
-uv run --locked pre-commit run --all-files --hook-stage pre-commit
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src tests            # single deployable; workspace: scripts/mypy-members.sh
-uv run pytest
-uv run --locked pre-commit run --all-files --hook-stage pre-push
-docker compose config --quiet
-docker compose up --build
-```
-
-For workspace mode, additionally run:
-
-```bash
-uv sync --frozen --all-packages
-uv sync --frozen --no-dev --package <service>
-docker build --pull -f services/<service>/Dockerfile .
-```
-
-For a single service, instead use `uv sync --frozen --no-dev` and
-`docker build --pull -f Dockerfile .`.
-
-Also verify the version contract explicitly:
-
-```bash
-python scripts/update_toolchain.py --check
-test "$(uv run python -c 'import platform; print(platform.python_version())')" = "$(tr -d '\r\n' < .python-version)"
-uv --version
-```
-
-Run the toolchain check from this skill package before copying the asset; after
-copying, use the remaining checks from the generated repository root.
-
-The final expected ownership is:
-
-| Environment | Python | uv |
-| --- | --- | --- |
-| Local project | exact `.python-version` | exact root `required-version` |
-| CI | exact `.python-version` | exact root `required-version` |
-| Docker builder | exact `PYTHON_VERSION` | exact `UV_VERSION` |
-| Docker runtime | exact `PYTHON_VERSION` | absent |
+After adapting a template, run the commands in
+[references/verification.md](references/verification.md) from the repository
+root. A workspace root is virtual, so it syncs with
+`uv sync --frozen --all-packages` (as the template CI does); a plain
+`uv sync --frozen` installs no members. A single service uses
+`uv sync --frozen`.
 
 ## Adding a Service or Library
 
@@ -489,26 +324,24 @@ The final expected ownership is:
 
 ## When Not To Split
 
-Two services that always deploy together as one release unit, or candidate
-library code with one consumer and no independent stable contract, do not need
-the separation. Similar code that carries different business semantics should
-also remain duplicated until a real common contract emerges. Keeping it inside
-its owning service is a legitimate simplification—the workspace is not a
-mandate to maximize package count.
+Two services that always deploy together as one release unit do not need the
+separation. Whether candidate library code stays inside its owning service
+(one consumer, similar code with different meaning) is decided by
+`python-service-architecture`
+(`../python-service-architecture/references/shared-libraries.md#extraction-triggers`);
+the workspace is not a mandate to maximize package count.
 
 ## Related Skills
 
-This skill covers the Python package/dependency structure inside the
-repository. It does not cover how each service's image gets built and shipped
-in CI, or whether Terraform and application source share a repository — those
-decisions belong to the `terraform-aws`, `deploy-scripts`, and
-`split-repo-app-releases` skills. For a Lambda function's `handler.py`/`src/`
-boundary and packaging (ZIP vs. container), see `terraform-aws`'s
-`../terraform-aws/references/python-lambda.md`; a Lambda that shares code with other functions
-through a uv workspace follows this skill for the workspace layout and that
-reference for the AWS-specific packaging step.
-
-Use `python-service-architecture` for the internal modularization of services and
-shared libraries. Use `otel-observability` for the API, lifecycle, and migration of a shared
-observability package (`python-logging` for its logging policy); this skill owns only whether
-it earns a workspace member and how consumers install it.
+- `terraform-aws`, `deploy-scripts`, `split-repo-app-releases`: how each
+  service's image is built and shipped in CI, and whether Terraform and
+  application source share a repository. A Lambda's `handler.py`/`src/`
+  boundary and ZIP vs. container packaging:
+  `../terraform-aws/references/python-lambda.md`; a Lambda sharing code through
+  a uv workspace follows this skill for the layout and that reference for
+  packaging.
+- `python-service-architecture`: internal modularization of services and
+  shared libraries.
+- `otel-observability`: API, lifecycle, and migration of a shared
+  observability package; `python-logging` for its logging policy. This skill
+  owns only whether it earns a workspace member and how consumers install it.

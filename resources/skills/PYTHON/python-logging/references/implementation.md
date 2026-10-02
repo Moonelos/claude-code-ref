@@ -61,11 +61,9 @@ Accept incoming correlation IDs only after validating length and character set. 
 
 ## Optional trace correlation
 
-If the application already has OpenTelemetry or another tracing system, add its valid active IDs in the central enricher: `trace_id` as 32 and `span_id` as 16 lowercase hexadecimal characters. The tracing owner supplies that enricher; for OpenTelemetry it is `$otel-observability` (fallback `../../otel-observability/references/logging/correlation.md`), which also owns linked-trace and sampling interactions.
+If the application already has OpenTelemetry or another tracing system, add its valid active `trace_id` and `span_id` in the central enricher, and omit them when no valid context exists. The tracing owner supplies that enricher and owns the ID format, linked traces, and sampling interactions; for OpenTelemetry it is `$otel-observability` (fallback `../../otel-observability/references/logging/correlation.md`, which covers the 32/16-hex format, `causal_trace_id`, and orphan logs from trace sampling).
 
-Omit them when no valid context exists. Do not add OpenTelemetry packages, exporters, OTLP configuration, or a Collector merely to satisfy logging. Do not emit an upstream or linked trace ID as the current `trace_id`; if a demonstrated search need exists, use a distinct `causal_trace_id`.
-
-Trace sampling does not sample logs. A log can correctly reference a trace absent from the trace backend. Design log volume independently.
+Do not add OpenTelemetry packages, exporters, OTLP configuration, or a Collector merely to satisfy logging. Whatever the tracing system, never emit an upstream or linked trace ID as the current `trace_id`. Trace sampling does not sample logs: design log volume independently ([Volume controls](structlog-pipeline.md#volume-controls)).
 
 ## Libraries and third-party logs
 

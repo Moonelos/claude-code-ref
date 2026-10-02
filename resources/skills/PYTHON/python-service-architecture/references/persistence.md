@@ -6,15 +6,22 @@ Transaction mechanics are owned by `python-sqlmodel-alembic` (fallback:
 
 ## Choose the transaction owner
 
-| Need | Shape |
-| --- | --- |
-| One cohesive persistence operation | One port method owns one transaction; the implementation reads/locks, calls a pure domain decision, and applies it |
-| Several persistence operations must succeed together | The action enters a UoW port and explicitly commits; uncommitted exit rolls back |
-| Database state plus an external write | A DB transaction cannot cover the remote effect; declare outbox/durable handoff or reconciliation and idempotency semantics |
-| An external read or model call whose result is then stored | Call first, then write in one transaction; no durable intermediate state is needed |
+The decision is always a pure function in `domain/`; the only question is who
+holds the transaction.
 
-A domain decision stays pure in either shape. A store may invoke it while holding
-locks; the public action remains the operation's catalog entry. Never split
+| The operation | Transaction owner | The action's body |
+| --- | --- | --- |
+| One cohesive persistence operation: read, decide, and write atomically, including an outbox row the decision produces | One port method owns one transaction; the `db/` implementation reads/locks, calls the pure domain decision, and applies it | One call to the port |
+| Several persistence operations that must succeed together, which the action interleaves with its own decisions or other ports | A unit-of-work port the action enters; an uncommitted exit rolls back | Observe, call the domain decision, apply, explicitly commit |
+| Database state plus a *write* to an external system (payment, shipment, email) | Nobody: a DB transaction cannot cover the remote effect | Commit durable intent first; deliver through an outbox or durable handoff, or reconcile; declare idempotency semantics |
+| A *read* from an external system or model, then a database write | Nobody needs one | Call first, then write once in one transaction; no durable intermediate state |
+
+Prefer the first row; use a unit of work only when the action itself must
+decide between writes. A one-call action in the first row is correct: it is the
+operation's catalog entry. A domain decision stays pure in either shape; a store
+may invoke it while holding locks. Do not invent intermediate states: a
+classification, lookup, or model call that changes nothing outside the service
+is not an effect to protect. Never split
 read/decide/write across transactions without an explicit concurrency contract
 such as an expected version and conflict outcome. A UoW alone does not prevent
 stale reads: choose row locks, conditional writes, or appropriate isolation.

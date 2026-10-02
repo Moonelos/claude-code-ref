@@ -1,3 +1,5 @@
+"""Routes and the application factory of the sample API."""
+
 from sample_api.api.routers.greetings import root
 from sample_api.api.routers.health import health
 from sample_api.bootstrap.app import create_app

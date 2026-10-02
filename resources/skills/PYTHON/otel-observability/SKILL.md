@@ -38,10 +38,10 @@ whole contract and say in your report which sibling guidance was unavailable.
 | Mode | Load |
 | --- | --- |
 | **Add** instrumentation | Steps 1–4 in order |
-| **Audit or review** | Run `scripts/audit_telemetry.py <src>` first; load the rule-index owner of each finding, the Step 3 file for the service's boundary, then `references/verification.md` |
+| **Audit or review** | Run `scripts/audit_telemetry.py <src>` first (add `--processor SUFFIX` for python-logging's exception-detail processor module, which may build `exception.*`); load the rule-index owner of each finding, the Step 3 file for the service's boundary, then `references/verification.md` |
 | **Troubleshoot** a symptom (missing, duplicated, orphaned, zero-valued signals) | `references/troubleshooting.md`, then the one file it names |
 | **Upgrade** a package, convention revision, or Collector image | `references/compatibility.md`, then the files its checklist names |
-| **Collector-only** change | `references/collector/*`; `references/tracing/production_policy.md` for retention |
+| **Collector-only** change | `references/collector/component.md` always; `references/collector/dev_staging.md` for development or staging configs; `references/tracing/production_policy.md`, then `references/collector/production.md`, only when a production config is written or changed; `references/collector/genai_projection.md` only for a GenAI backend view |
 | **Shared observability library** | `references/setup/shared_library.md` |
 
 ## Step 1 — Discovery
@@ -85,10 +85,10 @@ expected volume.
 | 10 | Metrics are independent of trace sampling, with bounded attributes; one measurement, one instrument, one producer. | `references/metrics/service.md` |
 | 11 | Instrument boundaries, not functions. DB/ORM spans must earn their volume. | `references/setup/high_volume_database_tracing.md` |
 | 12 | Durable handoffs carry an allowlisted W3C carrier. Synchronous in-process call → parent. Queued or durable work: default to a new trace plus link when delayed, batched, or retried (redelivery also records `app.message.attempt`); continue the trace only for prompt, causally owned work. State the choice in the report. | `references/tracing/async_handoffs.md` |
-| 13 | OTLP push to the Collector is the default; no Prometheus pull readers or scrape endpoints. | `references/collector/component.md` |
+| 13 | Telemetry leaves by OTLP push, directly to backends or via a Collector (topology asked in discovery); no Prometheus pull readers or scrape endpoints. | `references/discovery.md` §7; Collector side `references/collector/component.md` |
 | 14 | A GenAI backend is a rooted projection of the same trace, not a second provider or trace. | `references/collector/genai_projection.md` |
 | 15 | Telemetry never chooses or mutates an outcome; no `try/except` around OTel API calls. | `references/conventions/errors.md#telemetry-failure-isolation` |
-| 16 | Application code uses one-line telemetry helpers only (≈3 lines per call site); one `work_boundary`-style helper closes span, log, and metric on every exit. | `../python-service-architecture/references/boundaries.md` |
+| 16 | Application code uses one-line telemetry helpers only (≈3 lines per call site); one `work_boundary`-style helper closes span, log, and metric on every exit. | helpers: `../python-service-architecture/references/boundaries.md` (`observability/`); the closing helper: `references/metrics/service.md` (Recording measurements) |
 | 17 | Spans are write-only; `gen_ai.usage.*` only on model-call and agent spans; no spans as events (log plus counter); don't copy `http.*` onto internal spans. | `references/tracing/genai/attributes.md` |
 | 18 | All application logging is owned by the `python-logging` skill (`../python-logging/SKILL.md`); this skill owns only the trace-context enricher and log–trace interactions. No OTLP log export. | `references/logging/correlation.md` |
 
@@ -105,8 +105,8 @@ reach its part.
 | Situation | Load |
 | --- | --- |
 | Creating or changing SDK setup | `references/setup/resource_identity.md`, `references/setup/package_layout.md`, `references/setup/auto_instrumentation.md`, `references/setup/sdk_bootstrap.md` |
-| Runtime identity | `references/setup/resource_kubernetes.md`, `resource_docker_compose.md`, `resource_ecs.md`, or `resource_processes.md` (multi-process, or no platform identity) |
-| Process startup | FastAPI `references/setup/startup_fastapi.md`; worker/CLI `startup_worker_cli.md`; pre-fork `startup_prefork.md` + `resource_processes.md` |
+| Runtime identity | `references/setup/resource_kubernetes.md`, `references/setup/resource_docker_compose.md`, `references/setup/resource_ecs.md`, `references/tracing/lambda_functions.md` (AWS Lambda), or `references/setup/resource_processes.md` (multi-process, or no platform identity) |
+| Process startup | FastAPI `references/setup/startup_fastapi.md`; worker/CLI `references/setup/startup_worker_cli.md`; pre-fork `references/setup/startup_prefork.md` + `references/setup/resource_processes.md`; Lambda `references/tracing/lambda_functions.md` |
 | HTTP/API service | `references/tracing/http_service.md` |
 | Long-running worker | `references/tracing/worker_runtime.md` |
 | Scheduled job or CLI batch | `references/tracing/scheduled_jobs.md` |
@@ -121,14 +121,16 @@ reach its part.
 | — RAG embedding and retrieval | `references/tracing/genai/retrieval.md` |
 | Metrics | `references/metrics/service.md`; GenAI adds `references/metrics/genai.md` |
 | Logging | the `python-logging` skill for the logs themselves, plus `references/logging/correlation.md` for trace IDs |
-| Deploying a Collector | `references/collector/component.md`, `dev_staging.md`, `production.md`; `genai_projection.md` for a GenAI-only backend view |
+| Deploying a Collector | `references/collector/component.md`, `references/collector/dev_staging.md`, `references/collector/production.md` (production config only); `references/collector/genai_projection.md` for a GenAI-only backend view |
 | A specific GenAI backend (Langfuse) | `references/backends/langfuse.md` |
 | Before reporting done | `references/testing.md` (when applicable), then `references/verification.md` |
 
 Handoff tables compose: an HTTP endpoint that publishes to a queue loads both.
 `references/local/` holds repository-specific mappings; load only on a match.
 `scripts/estimate_trace_budget.py` gives production volume lower bounds.
-`assets/` holds copyable templates (the LangChain model callback).
+`assets/` holds copyable templates: the LangChain model callback
+(`assets/langchain/model_callback.py`) and the content serializers it imports
+(`assets/genai_content.py`).
 
 ## Step 4 — Business telemetry
 
@@ -142,10 +144,9 @@ metrics.
 
 ## What not to do
 
-- Don't put a model name, tool name, prompt, user ID, or request ID into a span name.
-- Don't enable every auto-instrumentation package; noisy ones such as full `botocore` need a stated reason.
-- Don't create a second `TracerProvider`, or mix `opentelemetry-instrument` with in-code setup.
-- Don't create a span per streamed token, or hold `start_as_current_span` across a generator `yield`.
+- Don't put runtime values (model, tool, prompt, user, request ID) into a span name (rule 4).
+- Don't enable every auto-instrumentation package or create a second provider (rule 5; `references/setup/auto_instrumentation.md`, `references/setup/sdk_bootstrap.md`).
+- Don't create a span per streamed token, or keep a span current across a `yield` (`references/tracing/genai/provider_sdk.md`, "Why the span is never current across a `yield`").
 - Don't copy example sampling percentages, thresholds, or capacities into production.
 - Don't accept a force-sampling signal from an untrusted request, message, or baggage carrier.
 - Don't pick a backend for the user, and don't report done before `references/verification.md`.

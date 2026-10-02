@@ -21,10 +21,13 @@ ellipsis is the service's real provider or vector-store call, which must keep
 the error contract, content gating, and response parsing of that dependency.
 
 ```python
-with tracer.start_as_current_span(
+from opentelemetry.trace import SpanKind
+
+from observability.spans import start_span  # sets ERROR + error.type on failure
+
+with start_span(
     f"embeddings {model}",
     kind=SpanKind.CLIENT,
-    record_exception=False,
     attributes={
         GENAI_OPERATION_NAME: "embeddings",
         GENAI_PROVIDER_NAME: "openai",
@@ -40,9 +43,8 @@ with tracer.start_as_current_span(
 ```
 
 ```python
-with tracer.start_as_current_span(
+with start_span(
     f"retrieval {data_source_id}",
-    record_exception=False,
     attributes={
         GENAI_OPERATION_NAME: "retrieval",
         "gen_ai.data_source.id": data_source_id,

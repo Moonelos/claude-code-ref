@@ -12,18 +12,18 @@ The boundary that decides the operation's final outcome emits exactly one `error
 
 Do not use `str(exc)` as `error.type`, an event name, or a bounded field. Do not log and re-raise at every layer. Inner code may wrap with a meaningful domain exception and preserve the cause, but it should not emit another terminal record. A function that logs a summary and re-raises omits `exc_info`; the handling boundary logs the exception.
 
-A failed attempt that is handled and later succeeds is counted, not logged; only state transitions are logged (see `event-design.md#Loops and pollers`). The successful outer operation is not an error.
+A failed attempt that is handled and later succeeds follows `event-design.md#loops-and-pollers`. The successful outer operation is not an error.
 
 ## Silent degradation leaves a trace
 
-When code catches and continues with a recorded fallback, it emits one `warning` with bounded `error.type` and the fallback taken, or carries a why-comment when a log would be pure noise. Which exception shapes may be caught at all is owned by `$python-service-architecture` (fallback `../../python-service-architecture/references/errors.md#Broad except shapes`).
+When code catches and continues with a recorded fallback, it emits one `warning` with bounded `error.type` and the fallback taken, or carries a why-comment when a log would be pure noise. Which exception shapes may be caught at all is owned by `$python-service-architecture` (fallback `../../python-service-architecture/references/errors.md#broad-except-shapes`).
 
 ## Exception detail
 
 This skill is the single owner of the exception-detail rule; tracing skills link here.
 
 - **Call sites never build `exception.*` fields.** Pass `exc_info=exc` and nothing else. Hand-built stack traces drop the message and the `__cause__` chain. The central processor (`structlog-pipeline.md`) turns `exc_info` into `exception.type`, `exception.message`, and `exception.stacktrace`; that is the only field name for the traceback.
-- **One typed setting controls detail**: `log_full_exception_trace: bool`. It is YAML policy with no Python default, per `$python-settings-config` (fallback `../../python-settings-config/SKILL.md`): `base.yaml` sets `false` and an environment file overrides it. Never derive it from the environment name in code. Shared code takes the value as a required input and bakes in no environment policy.
+- **One typed setting controls detail**: `log_full_exception_trace: bool`. Where its value comes from (YAML, the safe default, per-environment overrides, never the environment name) is owned by `$python-settings-config` (fallback `../../python-settings-config/SKILL.md#ownership`). Shared code takes the value as a required input and bakes in no environment policy.
 - When the service handles personal or financial data and no policy is stated, ask before enabling full detail in any environment.
 
 The processor renders:

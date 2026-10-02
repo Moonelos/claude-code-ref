@@ -44,11 +44,13 @@ class OrdersApi:
 def orders_api() -> Iterator[OrdersApi]:
     app = create_app()
     runtime = FakeRuntime(order_store=FakeOrderStore(), order_policy=OrderPolicy(max_quantity=10))
+    previous_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_runtime] = lambda: runtime
     try:
         yield OrdersApi(client=TestClient(app), store=runtime.order_store)
     finally:
         app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous_overrides)
 
 
 def test_submit_order_translates_http_to_the_action(orders_api: OrdersApi) -> None:
@@ -72,9 +74,12 @@ domain and application tests.
 Use this only when the test must await resources on the same loop. This example
 pins AnyIO to asyncio because the illustrative SQLAlchemy stack is asyncio-only;
 omit or parameterize that fixture when the application deliberately supports
-other AnyIO backends.
+other AnyIO backends. `create_app()` reads the test process's settings, which
+point at the disposable database (the variable and guard are in
+[examples-core.md](examples-core.md#async-fixtures-with-pytest-asyncio)).
 
 ```python
+import uuid
 from collections.abc import AsyncIterator
 
 import httpx
@@ -82,8 +87,9 @@ import pytest
 from asgi_lifespan import LifespanManager
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bootstrap.app_factory import create_app
+from app.bootstrap.app import create_app
 from app.db.models import Job
+from app.db.vocabulary import JobStatus
 
 pytestmark = pytest.mark.anyio
 
@@ -95,7 +101,7 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 async def async_client() -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(environment="test")
+    app = create_app()
 
     async with LifespanManager(app) as manager:
         transport = httpx.ASGITransport(app=manager.app)
@@ -113,11 +119,11 @@ async def test_create_job_commits_visible_state(
     response = await async_client.post("/jobs", json={"source": "inbox-12"})
 
     assert response.status_code == 201
-    job_id: int = response.json()["id"]
+    job_id = uuid.UUID(response.json()["id"])
     async with session_factory() as verification_session:
         saved = await verification_session.get(Job, job_id)
     assert saved is not None
-    assert saved.status == "queued"
+    assert saved.status is JobStatus.PENDING
 ```
 
 The verification session is deliberately fresh. Ensure the app and test

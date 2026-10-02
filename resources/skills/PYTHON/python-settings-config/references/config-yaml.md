@@ -39,7 +39,7 @@ override layer and not a full configuration:
 ```yaml
 # Application policy for every environment. No secrets, no topology.
 log_level: INFO
-log_full_exception_trace: false   # safe projection; see otel exception detail
+log_full_exception_trace: false   # safe projection; python-logging errors-and-security.md#exception-detail
 request_timeout_seconds: 30
 batch_size: 50
 retry:

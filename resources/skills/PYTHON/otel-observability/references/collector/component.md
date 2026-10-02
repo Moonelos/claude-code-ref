@@ -99,7 +99,7 @@ Mounting the config at runtime (a ConfigMap or a volume) is equally valid and us
 | DaemonSet agent | Node-local logs/host metrics, or a node-local endpoint for workloads | One failure affects its node |
 | Agent → gateway | Node-local collection plus central policy | Two tiers to configure, monitor, upgrade |
 
-**Default: a gateway Deployment.** Use a DaemonSet only for work that is genuinely node-local, not because agents feel more production-like.
+**Default, once discovery has chosen a Collector (`../discovery.md` §7): a gateway Deployment.** Use a DaemonSet only for work that is genuinely node-local, not because agents feel more production-like.
 
 Tail sampling is the one exception to "any replica can handle any request": all spans of a trace must reach the same instance. That needs trace-ID-aware routing in front of the sampling tier — see `production.md`.
 
@@ -139,9 +139,8 @@ service:
 ### If a GenAI backend is one of the destinations
 
 - Name pipeline exporters `otlphttp/...` or `otlp_grpc/...` explicitly. A bare `otlp` exporter (as opposed to the `otlp` receiver, which is still the correct name) is a deprecated alias for `otlp_grpc` on 0.159.0 and logs a startup warning: `"otlp" alias is deprecated; use "otlp_grpc" instead`.
-- Send either a complete trace or the rooted, ancestor-closed GenAI projection defined below.
-  Never send only model leaves: the backend needs the entry root and every retained span's
-  parent chain to build a readable trace.
+- Send either a complete trace or the rooted, ancestor-closed GenAI projection
+  (`genai_projection.md`), never only model leaves.
 - A GenAI backend is a trace backend. Operational metrics go to the metrics backend.
 - Vendor attributes (`langfuse.*`, and the like) are added in that backend's pipeline by a
   destination-specific `attributes` or `transform` processor, never in application code. The
@@ -156,16 +155,10 @@ mapping processors — live in one file per backend under `../backends/`. Langfu
 
 ## One trace, two destination views
 
-For one bounded operation, the application emits one trace. The main backend receives its
-complete operational tree with verbose GenAI content removed. The GenAI backend receives the
-same trace ID as a rooted, ancestor-closed projection: GenAI spans plus their entry root and
-meaningful business ancestors, with approved captured context retained. Universal secret
-redaction still applies to both branches, and routing must not rewrite span identity or status.
-
-This is not a model-leaf filter. Application-side classification, the
-`app.telemetry.category="genai"` contract, business-span example, durable-work exception,
-Collector filter, and verification invariants live in `genai_projection.md`. Load that file
-whenever a specialized GenAI trace destination is configured or reviewed.
+One application trace feeds both a main backend and a GenAI backend; the destination contract,
+the `app.telemetry.category="genai"` marker, the Collector filter, and the acceptance invariants
+live in `genai_projection.md`. Load it whenever a specialized GenAI trace destination is
+configured or reviewed.
 
 ---
 
@@ -278,8 +271,9 @@ the 30-second Compose/ECS budget, not a universal production value.
 Test the bound with a sink that accepts the TCP connection but never responds;
 an invalid hostname exercises fast DNS failure and does not prove the timeout.
 Confirm the Collector stops before the platform deadline and that queued
-application telemetry still drains. A failed final self-metrics export can
-still produce a non-zero process exit; do not hide it with a PID-1 wrapper or
+application telemetry still drains. Record the exit code separately: a failed
+final self-metrics export can still produce a non-zero process exit even when
+the timeout bound works; do not hide it with a PID-1 wrapper or
 alarm on a bare non-zero exit without also distinguishing expected stops.
 
 Do not send a Collector's internal logs, metrics, or experimental traces to its

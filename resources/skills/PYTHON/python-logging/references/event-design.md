@@ -25,14 +25,14 @@ Choose only rows matching real boundaries:
 | HTTP/API | `request_failed`; routine success belongs in access logs unless a business outcome must be independently searchable |
 | Worker/consumer, scheduled job, CLI | `job_failed` from the owner plus one terminal business event (for example `invoice_issued`, `queue_message_dead_lettered`); no default `job_started`/`job_completed` pair |
 | Durable workflow | `workflow_transition_started`, `workflow_transition_completed`, `workflow_transition_failed` |
-| Retry/fallback | recovered attempts are counted, not logged (see "Loops and pollers"); one warning when a fallback is activated |
+| Retry/fallback | see "Loops and pollers" |
 | Domain change | a past-tense event such as `order_approved`, `payment_declined`, `document_published` |
 
 On very hot boundaries, omit or sample routine start/completion records. Keep failure events, audit-relevant changes, and consequential external side effects.
 
 ## Loops and pollers
 
-In a long-running loop or retry policy, count every failure but log only on state transitions: healthy→failing once with `exc_info`, failing→recovered once with the failure count and duration. A condition already exported as a gauge is alerted from the metric, not from repeated log lines.
+In a long-running loop or retry policy, count every failure but log only on state transitions: healthy→failing once with `exc_info`, failing→recovered once with the failure count and duration. A recovered attempt, inner or retried, is counted, not logged, and produces no terminal error; an activated fallback emits one warning. A condition already exported as a gauge is alerted from the metric, not from repeated log lines.
 
 ## Naming
 
@@ -62,4 +62,4 @@ High-cardinality identifiers are often appropriate in logs because they locate o
 
 Choose one owner for boundary outcomes. A framework access record and an application business record may both exist only when they answer different questions. Do not emit a new success record merely for symmetry with a failure record.
 
-For an exception that crosses layers, the outer boundary deciding the HTTP response, message disposition, or job result owns the single terminal error record. A recovered inner attempt is counted, not logged.
+For an exception that crosses layers, the outer boundary deciding the HTTP response, message disposition, or job result owns the single terminal error record; a recovered inner attempt follows "Loops and pollers".

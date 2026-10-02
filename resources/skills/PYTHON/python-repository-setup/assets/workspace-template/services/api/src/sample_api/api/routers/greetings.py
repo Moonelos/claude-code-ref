@@ -1,3 +1,5 @@
+"""Greeting endpoint backed by the shared library."""
+
 from fastapi import APIRouter
 
 from sample_shared import greeting

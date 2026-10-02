@@ -16,7 +16,7 @@ Bounded metadata is acceptable when useful: provider, requested/response model, 
 | Model failure inside `genai/` | No log: the capability translates it into its port error and raises (`../../python-service-architecture/references/errors.md`, "Broad except shapes") |
 | Model failure the calling action degrades from (human review, default answer) | One recorded-fallback `model_fallback_activated` warning in the action, with `error.type` |
 | Model failure escaping to the HTTP, job, or worker boundary | One `model_request_failed` error at that handling boundary only |
-| Recovered provider/tool retry | Counted, not logged; log only transitions (`event-design.md#Loops and pollers`) |
+| Recovered provider/tool retry | Per `event-design.md#loops-and-pollers` |
 | Provider/model fallback | `model_fallback_activated` warning |
 | Guardrail block | `guardrail_blocked` |
 | Agent step limit | `agent_step_limit_reached` |

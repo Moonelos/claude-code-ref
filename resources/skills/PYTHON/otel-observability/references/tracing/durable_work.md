@@ -154,7 +154,7 @@ run workflow transition
 | --- | --- |
 | `app.workflow.name`, `app.workflow.state`, `app.workflow.attempt` | Bounded state-machine dimensions that explain which transition ran |
 | `app.workflow.run.id` | High-cardinality identifier for finding every linked trace in one durable workflow; spans and logs only |
-| `app.outcome` | `success` / `error` / `skipped`, bounded |
+| `app.outcome` | bounded, from the closed set in [`../conventions/naming.md`](../conventions/naming.md#the-app-shape) |
 
 - metrics: `../metrics/service.md` — processing duration and retry counts;
   workflow names/states may be dimensions only when they come from a bounded

@@ -131,7 +131,8 @@ unrelated DB or HTTP sibling) and assert, for spans carrying
 with an in-trace parent has a marked parent; workflow, GenAI leaves, and real
 business ancestors are marked; operational siblings are not; structural
 ancestors gain no fabricated `gen_ai.operation.name`. That proves
-classification only; Collector routing is proven in `verification.md`, never
+classification only; Collector routing is proven by the exported-telemetry
+invariants in `collector/genai_projection.md`, never
 by re-implementing the filter in test code.
 
 ---

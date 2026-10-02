@@ -1,12 +1,11 @@
 # AWS Lambda Functions
 
-**Do not open this file unless the target actually runs on AWS Lambda.** The
-managed-runtime lifecycle here contradicts the ordinary startup/shutdown
-pattern on purpose, and applying it to a normal process breaks flushing.
-
-Read this file for Python functions running in the managed AWS Lambda runtime.
-Do not apply the normal server/worker shutdown pattern mechanically: a Lambda
-execution environment is frozen and reused between invocations.
+**Do not open this file unless the target is a Python function running in the
+managed AWS Lambda runtime.** A Lambda execution environment is frozen and
+reused between invocations, so the lifecycle here contradicts the ordinary
+server/worker startup/shutdown pattern on purpose: do not apply that pattern
+mechanically to a Lambda, and do not apply this one to a normal process, where
+it breaks flushing.
 
 The AWS Lambda semantic-convention guidance is still marked **Development**.
 Re-check `../compatibility.md` and the upstream guidance when upgrading:

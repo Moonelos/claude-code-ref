@@ -1,0 +1,13 @@
+# Local stack. Every value a container receives is mapped explicitly from the
+# root .env (see .env.example); never `env_file: .env`. Build contexts are the
+# workspace root so each image can resolve the shared lock and libraries.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    ports:
+      # Host port only; the container port is set by the Dockerfile CMD.
+      - "${API_HOST_PORT:-8080}:8080"
+    environment:
+      ENVIRONMENT_NAME: ${API_ENVIRONMENT_NAME:?set API_ENVIRONMENT_NAME}

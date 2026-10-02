@@ -153,7 +153,8 @@ Eager loading is a per-query decision, not a blanket option on the model.
 - A bulk state or FK change is one `UPDATE … WHERE id IN (…)` (or
   `= ANY(:ids)`), not a load-modify-flush loop.
 - Bulk upsert uses `insert(...).on_conflict_do_update(...)`, chunked at
-  `65535 // n_columns` rows (the bind-parameter limit).
+  `bind_limit // n_columns` rows, where `bind_limit` is the driver's
+  bind-parameter limit: 32767 for asyncpg, 65535 for psycopg.
 - A projection "rebuilt every run" deletes rows this run didn't produce; an
   upsert alone isn't a rebuild.
 - Repository methods accept collections when callers would otherwise loop,

@@ -121,7 +121,10 @@ The session factory never begins or commits. One owner per operation draws
 the transaction.
 
 - **Repositories never call `commit`, `begin` or `rollback`.** They may `flush()`.
-- **Exactly one owner draws the transaction**, chosen by who needs atomicity:
+- **Exactly one owner draws the transaction.** Which shape an operation uses
+  is chosen in
+  `../../python-service-architecture/references/persistence.md#choose-the-transaction-owner`;
+  the mechanics of each:
   1. **One port call = one transaction.** The class that implements the port
      holds the session factory, opens a transaction per method, and runs its
      queries (or composes repositories) inside it. Never add a separate
@@ -286,8 +289,9 @@ async def orders_unit_of_work(
 - When ≥2 UoWs differ only in their repositories and error type, share a
   private base.
 - **No forwarding stores:** a class whose methods only open a session and
-  call a same-named repository method adds nothing. Nor do callable
-  "repository factory" Protocols.
+  call a same-named repository method is a forwarding layer
+  (`../../python-service-architecture/references/boundaries.md#no-forwarding-layers`).
+  Nor do callable "repository factory" Protocols add anything.
 - Durable "run started" markers get their own committed transaction before
   the work starts. Plain reads may rely on autobegin inside `read_transaction`.
 - Repositories don't construct sibling repositories. A query several of them
@@ -370,5 +374,22 @@ async def apply_transaction_limits(
   so no query is unbounded.
 - Invariant session settings go in connection options or a connect event, not
   per query: `search_path`, a read-only default, and, behind PgBouncer
-  transaction mode, disabled prepared statements (psycopg
-  `prepare_threshold=None`; asyncpg `statement_cache_size=0`).
+  transaction mode, disabled prepared statements.
+  - psycopg: `prepare_threshold=None`.
+  - asyncpg under SQLAlchemy: `statement_cache_size=0` alone is not enough,
+    because the dialect prepares every statement itself. Also set
+    `prepared_statement_cache_size=0` and pass a
+    `prepared_statement_name_func` that returns unique names, so two clients
+    sharing a server connection never collide on asyncpg's sequential names.
+    SQLAlchemy's docs also warn that prepared statements accumulate on the
+    server connections unless the app engine uses `NullPool` and PgBouncer
+    runs `DISCARD` on release; weigh that against the pooled app engine
+    above ([asyncpg dialect: Prepared Statement Name with PGBouncer](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#prepared-statement-name-with-pgbouncer)):
+
+    ```python
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+    }
+    ```

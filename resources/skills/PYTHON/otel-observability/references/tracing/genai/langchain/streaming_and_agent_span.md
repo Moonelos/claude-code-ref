@@ -25,6 +25,7 @@ POST /chat                          SERVER
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from typing import Any, TypeAlias
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -33,14 +34,22 @@ from opentelemetry.trace import Span
 
 from observability.agent_counters import InvocationCounters, invocation_counters
 from observability.genai_attributes import (
+    APP_AGENT_STEP_COUNT,
+    APP_AGENT_TIME_TO_FIRST_CHUNK,
     GENAI_AGENT_NAME,
     GENAI_CONVERSATION_ID,
     GENAI_OPERATION_NAME,
+    GENAI_REQUEST_STREAM,
 )
 from observability.metrics import record_agent_invocation
 from observability.spans import error_type_of, mark_error, start_span
 
 tracer = trace.get_tracer(__name__)
+
+# The final graph state from ainvoke(), e.g. {"messages": [...]}.
+AgentResult: TypeAlias = dict[str, Any]
+# One "updates" StreamPart's data: {node_name: that node's state update}.
+AgentUpdate: TypeAlias = dict[str, Any]
 
 
 def record_agent_result(
@@ -126,12 +135,8 @@ for multiple modes; do not mix the two schemas. See `../../../compatibility.md`.
 
 ### The rule both streaming wrappers follow
 
-A generator does not get its own `contextvars` context. If the agent span is
-made current with `start_as_current_span` and the body yields, the span stays
-current **in the consumer** — the caller's next span becomes a child of the
-agent span, interleaved streams unwind their `detach()` tokens out of order,
-and the SDK logs `Failed to detach context`. Full explanation:
-`../provider_sdk.md`, "Why the span is never current across a `yield`".
+The agent span is never current across a `yield`: `../provider_sdk.md`, "Why the
+span is never current across a `yield`" (owner of the rule).
 
 A streaming agent wrapper cannot simply stop making the span current, though:
 the model callback and tool middleware create their spans *during* the agent's
@@ -167,6 +172,16 @@ explicitly rather than with `async for`.
 from observability.metrics import record_agent_time_to_first_chunk
 
 
+def record_first_chunk(span: Span, *, started_at: float, agent_name: str) -> None:
+    """Agent TTFC: the span attribute and the histogram, always together."""
+    elapsed = time.perf_counter() - started_at
+    # Organisation-owned: there is no standard agent-level TTFC attribute.
+    # gen_ai.response.time_to_first_chunk belongs to a single model request,
+    # not to an agent run.
+    span.set_attribute(APP_AGENT_TIME_TO_FIRST_CHUNK, elapsed)
+    record_agent_time_to_first_chunk(elapsed, agent_name=agent_name)
+
+
 async def stream_agent_tokens(
     agent: CompiledStateGraph,
     messages: list[BaseMessage],
@@ -179,13 +194,14 @@ async def stream_agent_tokens(
     error_type: str | None = None
     counters = InvocationCounters()
 
-    # start_span, not start_as_current_span: this function yields.
+    # The manual tracer.start_span(), not the start_span helper or
+    # start_as_current_span: this function yields.
     span = tracer.start_span(
         f"invoke_agent {agent_name}",
         attributes={
             GENAI_OPERATION_NAME: "invoke_agent",
             GENAI_AGENT_NAME: agent_name,
-            "gen_ai.request.stream": True,
+            GENAI_REQUEST_STREAM: True,
         },
     )
     if conversation_id:
@@ -212,12 +228,7 @@ async def stream_agent_tokens(
                 continue
             token, metadata = part["data"]
             if not first_chunk_seen:
-                elapsed = time.perf_counter() - started_at
-                # Organisation-owned: there is no standard agent-level
-                # TTFC attribute. gen_ai.response.time_to_first_chunk
-                # belongs to a single model request, not to an agent run.
-                span.set_attribute("app.agent.time_to_first_chunk", elapsed)
-                record_agent_time_to_first_chunk(elapsed, agent_name=agent_name)
+                record_first_chunk(span, started_at=started_at, agent_name=agent_name)
                 first_chunk_seen = True
 
             # Outside agent_step: nothing of ours is current in the consumer.
@@ -239,86 +250,44 @@ async def stream_agent_tokens(
             error_type=error_type,
             counters=counters,
         )
-        # start_span has no context manager, so the end is explicit.
+        # tracer.start_span() has no context manager, so the end is explicit.
         span.end()
 ```
 
-### Step updates
+### Step updates, or both at once
 
-Same skeleton; only the stream mode and the per-part handling change.
+Same skeleton as `stream_agent_tokens`: the same signature (including
+`conversation_id`), `GENAI_REQUEST_STREAM: True`, the `agent_step` bracketing,
+the cancellation and error handling, and `record_agent_result` in `finally`.
+Exactly these things differ:
+
+| | Step updates (`stream_agent_updates`) | Both at once |
+| --- | --- | --- |
+| `stream_mode` | `"updates"` | `["updates", "messages"]` |
+| Return type | `AsyncIterator[AgentUpdate]` | `AsyncIterator[dict[str, Any]]`, tagged `{"type": "update" \| "token", "data": ...}` |
+| Extra local | `step_count = 0` | `step_count = 0` and `first_chunk_seen = False` |
+| Agent TTFC | none — updates are step-granular, never token latency | on the first `"messages"` part, via `record_first_chunk` |
+| `finally` | `span.set_attribute(APP_AGENT_STEP_COUNT, step_count)` before `record_agent_result` | the same |
+
+The per-part branch replaces the token wrapper's lines from `if part["type"] != "messages":` through `yield token` (still outside `agent_step`):
 
 ```python
-async def stream_agent_updates(
-    agent: CompiledStateGraph, messages: list[BaseMessage], *, agent_name: str
-) -> AsyncIterator[AgentUpdate]:
-    started_at = time.perf_counter()
-    step_count = 0
-    error_type: str | None = None
-    counters = InvocationCounters()
-
-    span = tracer.start_span(
-        f"invoke_agent {agent_name}",
-        attributes={
-            GENAI_OPERATION_NAME: "invoke_agent",
-            GENAI_AGENT_NAME: agent_name,
-        },
-    )
-    try:
-        with agent_step(span, counters):
-            stream = agent.astream(
-                {"messages": messages},
-                stream_mode="updates",
-                version="v2",
-            ).__aiter__()
-
-        while True:
-            with agent_step(span, counters):
-                try:
-                    part = await stream.__anext__()
-                except StopAsyncIteration:
-                    break
-
+            # Step updates
             if part["type"] != "updates":
                 continue
             step_count += 1
             yield part["data"]
-    except asyncio.CancelledError as exc:
-        # A manual span (this function yields), so it applies start_span's
-        # cancellation rule itself: outcome, not ERROR.
-        error_type = error_type_of(exc)
-        span.set_attribute("app.outcome", "cancelled")
-        raise
-    except BaseException as exc:
-        error_type = error_type_of(exc)
-        mark_error(span, exc)
-        raise
-    finally:
-        span.set_attribute("app.agent.step_count", step_count)
-        record_agent_result(
-            started_at=started_at,
-            agent_name=agent_name,
-            error_type=error_type,
-            counters=counters,
-        )
-        span.end()
 ```
 
-### Both at once
-
-Only the per-part branch differs. The `while` loop, the `agent_step`
-bracketing, and the `finally` are identical to the two wrappers above.
-
 ```python
+            # Both at once
             if part["type"] == "updates":
                 step_count += 1
                 yield {"type": "update", "data": part["data"]}
             elif part["type"] == "messages":
                 token, metadata = part["data"]
                 if not first_chunk_seen:
-                    span.set_attribute(
-                        "app.agent.time_to_first_chunk",
-                        time.perf_counter() - started_at,
-                    )
+                    record_first_chunk(span, started_at=started_at, agent_name=agent_name)
                     first_chunk_seen = True
                 yield {"type": "token", "data": token.content}
 ```
@@ -331,9 +300,9 @@ unpacking behind one adapter and pin that decision in its dependency lock.
 
 ## The generator must always finish
 
-The span ends in the generator's `finally`, which only runs when the generator is exhausted, closed, or garbage-collected. If a client disconnects mid-stream and the caller abandons the generator, the span can stay open indefinitely.
-
-Guard at the caller — for FastAPI, `StreamingResponse` closes the generator on disconnect, but confirm it on a real disconnect test. If the span is missing from a trace whose model spans are present, this is the cause.
+The rule, the FastAPI `StreamingResponse` guard, and the disconnect test are in
+`../provider_sdk.md`, "The generator must always finish". For an agent the symptom
+is an `invoke_agent` span missing from a trace whose model spans are present.
 
 Also call the callback's `abandon_runs_older_than()` (see `model_callback.md`) here, so a cancelled stream does not leave model spans open too.
 
@@ -341,7 +310,7 @@ Also call the callback's `abandon_runs_older_than()` (see `model_callback.md`) h
 
 ## Conversation correlation
 
-The agent span is where `gen_ai.conversation.id` goes in a LangChain service — it is the root of each turn. Both wrappers above already accept and set it.
+The agent span is where `gen_ai.conversation.id` goes in a LangChain service — it is the root of each turn. Every wrapper above accepts and sets it.
 
 The rule it implements (one trace per turn, never one trace per conversation, never a metric attribute) is in `../attributes.md`.
 
@@ -356,7 +325,7 @@ Read the agent's actual behaviour and record the bounded facts that would matter
 | `app.agent.step_count` | Detects loops |
 | `app.agent.stop_reason` | `completed` / `step_limit` / `guardrail` / `cancelled` — bounded |
 | `app.agent.fallback.used` | Whether a model or workflow fallback fired |
-| `app.outcome` | `success` / `error` / `timeout` / `blocked` |
+| `app.outcome` | the closed service-wide set in [`../../../conventions/naming.md`](../../../conventions/naming.md#the-app-shape) |
 | `app.workflow.version` | Which prompt/agent version produced this run |
 
 Keep every value bounded — these are the ones you will want as metric dimensions too.

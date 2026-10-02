@@ -177,6 +177,17 @@ Keep the business action outside the task. Patch it where the task module looks
 it up, then assert only the worker-specific translation. This assumes Celery's
 default `retry(..., throw=True)` behavior.
 
+This is the third-party-boundary exception to the zero-`unittest.mock` default
+in [core-principles.md](core-principles.md#doubles-must-be-correct): `Task.retry`
+is Celery control flow with no injectable seam, and the action is a public
+module-level function patched in one module, which is tolerated when production
+changes are not authorized
+([Stop at a missing seam](core-principles.md#stop-at-a-missing-seam)). Both
+patches are autospecced. The `exc` identity check is the interaction contract
+itself (retry with the original cause), not configured output echoed back. When
+the task can receive the action through a seam, replace both patches with a
+recording fake.
+
 ```python
 from unittest.mock import patch
 
@@ -199,6 +210,7 @@ def test_transient_delivery_failure_requests_retry() -> None:
         patch.object(
             deliver_invoice_task,
             "retry",
+            autospec=True,
             side_effect=Retry(),
         ) as retry,
         pytest.raises(Retry),

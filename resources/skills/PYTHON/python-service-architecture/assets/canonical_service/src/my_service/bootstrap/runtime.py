@@ -1,9 +1,10 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from my_service.config.secrets import Secrets
 from my_service.config.settings import Settings
 from my_service.db.submissions import SqlSubmissionStore
 from my_service.domain.submissions import SubmissionPolicy
@@ -19,14 +20,14 @@ class Runtime:
 
 
 @asynccontextmanager
-async def runtime(settings: Settings) -> AsyncIterator[Runtime]:
-    engine = create_async_engine(settings.database_url)
-    try:
+async def runtime(settings: Settings, secrets: Secrets) -> AsyncIterator[Runtime]:
+    async with AsyncExitStack() as stack:
+        engine = create_async_engine(secrets.database_dsn.get_secret_value())
+        # Kept only for disposal: the engine lives in the exit stack, not on Runtime.
+        stack.push_async_callback(engine.dispose)
         yield Runtime(
             submission_store=SqlSubmissionStore(sessions=async_sessionmaker(engine)),
             submission_policy=SubmissionPolicy(
                 default_records=settings.default_records, max_records=settings.max_records
             ),
         )
-    finally:
-        await engine.dispose()

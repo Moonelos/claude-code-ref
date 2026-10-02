@@ -28,6 +28,16 @@ def percentage(value: str) -> Decimal:
     return parsed
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not an integer: {value}") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be an integer greater than 0")
+    return parsed
+
+
 def ceil_int(value: Decimal) -> int:
     return int(value.to_integral_value(rounding=ROUND_CEILING))
 
@@ -56,8 +66,10 @@ def estimate_trace_budget(
     decision_wait_seconds: Decimal,
     burst_factor: Decimal = Decimal(2),
     cache_multiplier: Decimal = Decimal(10),
-    sampling_pipelines: Decimal = Decimal(1),
+    sampling_pipelines: int = 1,
 ) -> TraceBudgetEstimate:
+    if isinstance(sampling_pipelines, bool) or not isinstance(sampling_pipelines, int) or sampling_pipelines <= 0:
+        raise ValueError("sampling_pipelines must be an integer greater than zero")
     values = {
         "traces_per_second": traces_per_second,
         "average_spans_per_trace": average_spans_per_trace,
@@ -66,7 +78,6 @@ def estimate_trace_budget(
         "decision_wait_seconds": decision_wait_seconds,
         "burst_factor": burst_factor,
         "cache_multiplier": cache_multiplier,
-        "sampling_pipelines": sampling_pipelines,
     }
     if any(not value.is_finite() or value <= 0 for value in values.values()):
         raise ValueError("all inputs must be finite and greater than zero")
@@ -92,7 +103,7 @@ def estimate_trace_budget(
         suggested_non_sampled_cache_lower_bound=ceil_int(cache_lower_bound),
         # The Collector builds one processor instance per pipeline, so naming
         # tail_sampling in N pipelines allocates the buffers N times.
-        sampling_pipelines=ceil_int(sampling_pipelines),
+        sampling_pipelines=sampling_pipelines,
         total_active_trace_capacity=ceil_int(active_capacity * sampling_pipelines),
         total_decision_cache_entries=ceil_int(
             cache_lower_bound * Decimal(2) * sampling_pipelines
@@ -118,8 +129,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-multiplier", type=positive_decimal, default=Decimal(10))
     parser.add_argument(
         "--sampling-pipelines",
-        type=positive_decimal,
-        default=Decimal(1),
+        type=positive_int,
+        default=1,
         help=(
             "how many pipelines name tail_sampling; each one is a separate "
             "processor instance with its own buffers and decision caches"

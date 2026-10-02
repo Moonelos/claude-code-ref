@@ -30,6 +30,7 @@ select = [
     "TID252",               # mandatory: absolute imports only
     "C90",                  # mccabe: cyclomatic complexity <= max-complexity
     "PLR0912", "PLR0915",   # too many branches / statements
+    "PLC0415",              # imports at module top; a local import carries a reason
     "S101",                 # no assert in production code
     "BLE",                  # blind except; `# noqa: BLE001 <reason>` at a real boundary
     "ASYNC",                # blocking calls and misuse inside async code
@@ -169,11 +170,13 @@ forbidden_modules = [
     "sample_api.db",
     "sample_api.genai",
 ]
-# Only direct imports: runtime wiring is in bootstrap.
+# Only direct imports: runtime wiring is in bootstrap; telemetry helpers may
+# have their own outer integrations.
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "sample_shared: independent of services"
 type = "forbidden"
+# The root names the whole package (import-linter treats it as a package).
 source_modules = ["sample_shared"]
-forbidden_modules = ["sample_api"]
+forbidden_modules = ["sample_api", "pydantic_settings"]

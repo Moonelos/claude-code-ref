@@ -25,6 +25,20 @@ across versions):
 3. **Run the DB-touching test tiers** against that same migrated database, in
    a declared order when fixtures disagree about who owns the schema.
 
+Also in this job, when the deployment supports it:
+
+- Upgrade from each operationally supported prior release snapshot to head,
+  not only from blank.
+- The DB-free single-head and expected-revision tests
+  (`alembic-migrations.md`, "Migration tests") prove the history has one head
+  and that the code pins it.
+- Test downgrade only when operational rollback is supported; do not add a
+  ceremonial downgrade test for a one-way migration policy.
+- Migration tests share one throwaway-database fixture. Run the migration tool
+  either in process (`command.*` through `asyncio.to_thread`, per
+  `alembic-migrations.md`) or as a subprocess through one helper with a
+  timeout, for example in the two-runner serialization test.
+
 Alongside the CI diff, keep one integration test module that asserts parity
 structurally, so a failure names the exact table/column/constraint instead of
 dumping an autogenerate op list:

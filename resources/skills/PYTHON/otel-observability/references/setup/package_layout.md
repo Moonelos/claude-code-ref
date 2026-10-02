@@ -30,6 +30,7 @@ observability/
     genai_attributes.py  <- GenAI convention constants                        } GenAI
     genai_usage.py       <- token usage normalization                         } only
     genai_content.py     <- message/payload serializers                      }
+    agent_counters.py    <- fan-out counters, if not in metrics.py           }
 ```
 
 Pick the second when the service has GenAI instrumentation, more than one boundary type, or business metrics — those three together outgrow a single module quickly. GenAI instruments go in the existing `metrics.py`; split instruments by capability only once that module holds roughly fifteen.
@@ -63,18 +64,10 @@ The package owns all code whose sole purpose is telemetry, including:
 
 A LangChain callback handler, a `@wrap_tool_call` middleware, or an OpenAI
 response parser does **not** belong in the module that builds the
-`TracerProvider`. Keep the separation inside the existing observability package
-by default:
-
-```
-observability/
-    tracing.py                  generic SDK setup
-    metrics.py
-    logging.py
-    genai_attributes.py         shared constants — no framework imports
-    genai.py                    OTelModelCallback, trace_tool_call,
-                                invoke_agent wrapper; imports LangChain
-```
+`TracerProvider`; placement (`observability/genai.py` beside a
+framework-free `tracing.py`, in the tree above) is owned by
+`../../../python-service-architecture/references/ai.md` (Middleware and
+observability).
 
 Keep `observability/__init__.py` narrow so non-GenAI entry points do not eagerly
 load `observability.genai`. A module inside a package does not make every package
@@ -107,7 +100,7 @@ bootstrap maps them to explicit telemetry and logging inputs.
 | --- | --- | --- |
 | `OTEL_SERVICE_NAME` | Logical service identity. Required. | none — fail loudly |
 | `SERVICE_NAMESPACE` | System/application grouping. Required. | none — fail loudly |
-| `SERVICE_VERSION` | Immutable build identity; prefer the full Git commit SHA | `unknown` |
+| `SERVICE_VERSION` | Immutable build identity; prefer the full Git commit SHA | none — required; the build fails when the SHA is empty (`resource_identity.md`, Version policy) |
 | `SERVICE_INSTANCE_ID` | Runtime instance identity; platform-supplied when possible | UUID v4 per process |
 | `ENVIRONMENT` | Becomes `deployment.environment.name` | `development` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Base OTLP endpoint | `http://localhost:4318` |

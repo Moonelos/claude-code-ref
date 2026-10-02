@@ -18,7 +18,7 @@ Install an instrumentation package only when the service uses that library in a 
 | uses Redis | `opentelemetry-instrumentation-redis` |
 | runs Celery tasks | `opentelemetry-instrumentation-celery` — **it owns the publish and task spans**; do not also write your own. Its `0.65b0` parent-vs-link option and legacy schema are in `../tracing/queue_messaging.md`, "Other brokers". |
 | runs as an AWS Lambda function | `opentelemetry-instrumentation-aws-lambda`, normally supplied by one selected Lambda instrumentation layer |
-| needs trace IDs in stdlib `logging` records or direct OTel export of them | `opentelemetry-instrumentation-logging` — on `0.65b0` it installs an export handler by default; choose that path or stdout collection, and use `OTEL_PYTHON_LOG_AUTO_INSTRUMENTATION=false` when stdout owns delivery |
+| needs trace IDs in stdlib `logging` records or direct OTel export of them | `opentelemetry-instrumentation-logging` — its `0.65b0` export-handler default and when to set `OTEL_PYTHON_LOG_AUTO_INSTRUMENTATION=false`: `../logging/correlation.md`, "`LoggingInstrumentor`" |
 
 Plus the SDK and exporter:
 
@@ -67,20 +67,11 @@ The test is not "is this data true" but "would anyone open this span during an i
 
 Manual SQS propagation needs `Boto3SQSGetter` / `Boto3SQSSetter`, which only
 exist inside `opentelemetry-instrumentation-boto3sqs`. Installing a package for
-its helper classes is legitimate; leaving its entry point active is not.
-
-- **Code-based setup:** install it and never call
-  `Boto3SQSInstrumentor().instrument()`. It patches nothing on its own.
-- **Zero-code setup:** install it and disable the entry point —
-  `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=boto3`. The launcher activates every
-  installed package, and an active `boto3sqs` plus a hand-written consumer span
-  is two owners for one message.
-- **Neither:** inline the adapters. The nested attribute shape is
-  `{name: {"DataType": "String", "StringValue": value}}` — see
-  `../tracing/queue_messaging.md`.
-
-This is the one case where "installed but deliberately inert" is the intended
-state, so write down which of the three you chose.
+its helper classes is legitimate; leaving its entry point active is not. The
+three resolutions (code-based, zero-code, inline adapters) are in
+`../tracing/queue_messaging.md`, "SQS carrier adapter". This is the one case
+where "installed but deliberately inert" is the intended state, so write down
+which of the three you chose.
 
 ### Trace these boundaries instead
 
@@ -95,7 +86,7 @@ database query — only when its query-level value earns the volume
 
 ## Ordering
 
-Install process-wide hooks before any client is constructed; instrument the app instance after it exists but before it serves.
+The order and the failure each step prevents are owned by `sdk_bootstrap.md`, "Startup order". With several instrumentors it looks like this:
 
 ```python
 configure_observability(telemetry_config(settings))
@@ -108,7 +99,7 @@ app = FastAPI(lifespan=lifespan)
 FastAPIInstrumentor.instrument_app(app)
 ```
 
-`SQLAlchemyInstrumentor` needs the engine, so create the engine here rather than at import time in another module. Full ordering rules and the failure each one prevents are in `sdk_bootstrap.md`.
+`SQLAlchemyInstrumentor` needs the engine, so create the engine here rather than at import time in another module.
 
 Call each `instrument()` exactly once. Calling it twice — easy to do with a dev reloader or a test suite that re-imports the app — produces duplicate spans.
 
@@ -119,7 +110,7 @@ Record the activation owner explicitly:
 | Code-based | dependency lock/build | startup module's `.instrument()` calls |
 | Zero-code | dependency lock plus `opentelemetry-bootstrap` during build | `opentelemetry-instrument` launcher |
 
-Never let both activation owners run in one process.
+Never let both activation owners run in one process (`sdk_bootstrap.md`, provider ownership).
 
 AWS Lambda is a separate activation shape: the selected instrumentation layer
 and `AWS_LAMBDA_EXEC_WRAPPER` own activation. Do not add the normal
@@ -142,7 +133,7 @@ opentelemetry-instrument uvicorn app:app
 
 Use it when broad coverage matters more than control, or when application changes are expensive. Two constraints:
 
-1. Do not also call `configure_observability()` or any `.instrument()` method in code. Pick one owner.
+1. One owner: no in-code `configure_observability()` or `.instrument()` call (`sdk_bootstrap.md`).
 2. Run `opentelemetry-bootstrap` when building the image, and lock the resulting packages. Letting each container start-up resolve its own instrumentation set makes deployments non-reproducible.
 
 Business spans and custom metrics still have to be written by hand. Zero-code cannot infer `invoke_agent support_agent` or `app.pricing.updates`.
@@ -158,9 +149,7 @@ opentelemetry-instrument python worker.py
 
 ## When automatic and manual instrumentation collide
 
-Two owners of one boundary means two spans per operation — the failure mode SKILL.md rule 5 exists to prevent. It bites hardest on queue libraries: `boto3sqs` instrumentation already creates a receive span and a per-message process span linked to the producer, so a hand-written consumer span on top of it doubles every message. On the pinned `0.65b0` line that automatic shape still declares the legacy `1.11.0` messaging schema; `../tracing/queue_messaging.md` owns the compatibility decision as well as the span-shape decision.
-
-**`../tracing/queue_messaging.md` owns that decision** — which shape the instrumentor actually produces, how to disable just that entry point, and what disabling it costs on the producer side. Read it before installing or removing a queue instrumentor.
+Two owners of one boundary means two spans per operation — the failure mode SKILL.md rule 5 exists to prevent. It bites hardest on queue libraries, where an automatic consumer span plus a hand-written one doubles every message. `../tracing/queue_messaging.md`, "Automatic queue instrumentation may already own this", owns that decision — the shape and legacy schema the instrumentor produces, how to disable just that entry point, and what disabling it costs on the producer side. Read it before installing or removing a queue instrumentor.
 
 Whatever you decide: do not "fix" a duplicate by leaving both and filtering in the Collector, and re-check the exported shape after any instrumentation upgrade — these semantics are version-specific.
 

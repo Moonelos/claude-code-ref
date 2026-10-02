@@ -1,6 +1,6 @@
 # structlog Reference Pipeline
 
-Read this when the repository uses `structlog` or stdlib `logging` and needs a concrete central pipeline. It implements the ordering in `implementation.md#One central pipeline`; adapt names to the existing logging owner rather than adding a second one.
+Read this when the repository uses `structlog` or stdlib `logging` and needs a concrete central pipeline. It implements the ordering in `implementation.md#one-central-pipeline`; adapt names to the existing logging owner rather than adding a second one.
 
 ```python
 # app/logging_setup.py (or the existing logging owner)
@@ -16,11 +16,11 @@ from structlog.typing import EventDict, Processor, WrappedLogger
 from app.observability.redaction import mask
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LoggingConfig:
     service_name: str
     level: str
-    full_exception_detail: bool  # set per environment; errors-and-security.md#Exception detail
+    log_full_exception_trace: bool  # set per environment; errors-and-security.md#exception-detail
 
 
 def redact(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDict:
@@ -69,7 +69,7 @@ def configure_logging(
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         add_service_name,
         *correlation,
-        exception_detail(full=config.full_exception_detail),
+        exception_detail(full=config.log_full_exception_trace),
         redact,  # after every field exists, before rendering
     ]
     structlog.configure(
@@ -83,7 +83,9 @@ def configure_logging(
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
-            foreign_pre_chain=shared,
+            # ExtraAdder copies stdlib `extra=` fields into the event dict before
+            # the shared chain redacts and renders them.
+            foreign_pre_chain=[structlog.stdlib.ExtraAdder(), *shared],
             processors=[
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                 structlog.processors.JSONRenderer(),
@@ -95,7 +97,7 @@ def configure_logging(
     root.setLevel(config.level.upper())
 ```
 
-The composition root builds `LoggingConfig` from settings and calls `configure_logging` once, before application modules emit records. Nothing reads settings at import. `mask` is the one redaction module (`errors-and-security.md#Data classification`); `service.name` is the only service-identity key.
+The composition root builds `LoggingConfig` from settings and calls `configure_logging` once, before application modules emit records. Nothing reads settings at import. `mask` is the one redaction module (`errors-and-security.md#data-classification`); `service.name` is the only service-identity key.
 
 When the service is traced, the tracing owner supplies the enricher through `correlation` (OpenTelemetry: `$otel-observability`, fallback `../../otel-observability/references/logging/correlation.md`). Without tracing, pass nothing; the record stays complete with request/job context from `merge_contextvars`.
 
@@ -120,7 +122,7 @@ Pick one mechanism deliberately for noisy `info`/`debug` records:
 
 | Where | How | Cost |
 | --- | --- | --- |
-| Application | `make_filtering_bound_logger` at the configured level, and a per-event sampler for a known-noisy call site | Cheapest; the record never exists, so it cannot be recovered |
+| Application | the root stdlib level set from `LoggingConfig.level` (add `structlog.stdlib.filter_by_level` first in `processors` to drop below-level structlog calls before the chain runs), and a per-event sampler for a known-noisy call site | Cheapest; the record never exists, so it cannot be recovered |
 | Log pipeline/agent | a severity filter or sampling stage in the collector that ships the logs | Central and changeable without a deploy |
 | Log backend | retention rules per severity or stream | Full-fidelity ingest, so you pay for volume you then discard |
 

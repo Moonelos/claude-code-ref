@@ -23,31 +23,67 @@ portfolio, not a required ratio.
 
 ## Databases
 
+This section owns database-test rules for every framework; the FastAPI and
+worker references link here.
+
+### Match production semantics
+
 - Use an explicitly test-scoped disposable database. The guard that makes
-  destructive setup refuse ordinary service URLs is owned by
-  `$python-sqlmodel-alembic` (`../../python-sqlmodel-alembic/SKILL.md`), as are
-  the claim, lease, and fencing rules that work-queue tests exercise.
+  destructive setup refuse ordinary service URLs (a separate
+  `INTEGRATION_<DB>_DATABASE_URL`, a `test_` database name) is owned by
+  `$python-sqlmodel-alembic`
+  ([schema-verification.md](../../python-sqlmodel-alembic/references/schema-verification.md#disposable-test-databases)),
+  as are the claim, lease, and fencing rules that work-queue tests exercise
+  ([work-queues.md](../../python-sqlmodel-alembic/references/work-queues.md#work-claiming-and-leases)).
 - Keep one engine fixture per member. Prefer a unique schema or tenant
   namespace per test over table wipes; any wipe first asserts that it targets a
   test database.
-- Give migration tests one throwaway-database fixture and one subprocess helper
-  with a timeout for running the migration tool.
 - Test repositories, constraints, migrations, transaction isolation, locking,
-  and dialect-specific SQL on the production database family.
-- Apply real migrations to an empty database. `metadata.create_all()` cannot
-  prove the migration chain.
-- A connection plus outer transaction/savepoint can make same-connection tests
-  fast, but it does not isolate a worker, process, or second connection. It can
-  also hide commit visibility and locking defects.
-- Use committed setup plus a unique database, schema, tenant, or explicit reset
-  for multi-connection, worker, outbox, and concurrency tests.
-- Re-read final state through a fresh session when identity-map caching could
-  satisfy the assertion.
+  concurrency, and dialect-specific SQL on the production database family.
+- Migrations in CI (real history applied to an empty database, `alembic check`,
+  heads, downgrade policy, the migration-test fixture and runner helper) are
+  owned by `$python-sqlmodel-alembic`
+  ([schema-verification.md](../../python-sqlmodel-alembic/references/schema-verification.md#the-standing-harness-a-database-contract-ci-job)).
 - Use one SQLAlchemy `Session` per thread and one `AsyncSession` per async task.
 
 SQLite is valid evidence when production is SQLite or the test deliberately
-proves dialect-independent application behavior. It is not evidence for
-PostgreSQL transactions, constraints, locking, types, or migrations.
+proves dialect-independent application behavior. It is not a PostgreSQL or
+MySQL compatibility layer and not evidence for PostgreSQL transactions,
+constraints, locking, types, or migrations.
+
+### Transaction isolation fixture
+
+For same-connection SQLAlchemy tests, the SQLAlchemy 2.x external-transaction
+recipe can bind a session with `join_transaction_mode="create_savepoint"` to a
+connection inside an outer transaction
+([example](examples-core.md#sqlalchemy-same-connection-transaction-fixture)).
+Application code may commit or roll back its session, while teardown rolls back
+the outer transaction. It makes same-connection tests fast, but it is not a
+universal isolation mechanism:
+
+- another connection, process, or worker cannot see uncommitted fixture data;
+- commits made on another connection are outside the outer rollback;
+- rollback-only tests can hide commit visibility, locking, and race defects;
+- sharing a session across threads or an `AsyncSession` across tasks is unsafe.
+
+Use committed setup plus a unique database, schema, or tenant, or an explicit
+reset, for multi-connection, worker, outbox, and concurrency tests. Stop
+dependent workers before cleanup. Re-read final state through a fresh session
+when identity-map caching could satisfy the assertion.
+
+### Minimum database confidence
+
+Cover only the semantics the application relies on:
+
+- mapped types and serialization;
+- unique, foreign-key, check, and exclusion constraints;
+- representative queries, ordering, pagination, and null behavior;
+- commit, rollback, and no partial state after failure;
+- optimistic or pessimistic locking and important race outcomes;
+- idempotency/deduplication under separate concurrent connections;
+- migration from blank to head and from each operationally supported prior
+  release snapshot (harness: the migrations bullet above);
+- application transaction plus outbox/enqueue timing.
 
 ## HTTP and external services
 
@@ -63,9 +99,9 @@ application relies on:
 
 A transport fake or disposable local protocol endpoint is usually more stable
 than patching client-library internals. Add an opt-in provider contract or live
-smoke only for compatibility a local substitute cannot prove. Bound calls,
-time, cost, and data; redact recordings. A cassette proves the recorded response,
-not the provider's current behavior.
+smoke only for compatibility a local substitute cannot prove; how live checks
+are bounded, selected, and asserted, and what a cassette proves, is in
+[core-principles.md](core-principles.md#live-checks).
 
 For independently deployed services, consumer-driven contracts can complement
 provider integration. Include only fields the consumer depends on and verify the
@@ -91,14 +127,16 @@ These are review and design criteria. Do not modify pytest configuration or CI
 unless the user's requested scope includes those files; otherwise report the
 specific change required.
 
-- `skip` means the test cannot apply in the selected environment. `xfail` means
-  a precise known defect or dependency limitation; include a reason or issue,
-  narrow condition and failure type, and strict XPASS behavior.
+- `skip` means the test cannot apply in the selected environment. `xfail` is
+  only for a precise known defect or dependency limitation, under the rule in
+  the [quality gate](../SKILL.md#quality-gate).
 - Assert intentional warnings with `pytest.warns`. Do not hide project or
   dependency deprecations behind broad filters.
-- Keep a direct reproducible command for each profile. Preserve counts and
-  useful artifacts such as service logs, request/correlation IDs, and minimized
-  Hypothesis examples.
+- Profile selection, the fail-when-absent rule, and one direct command per
+  profile are owned by `$python-service-architecture`
+  ([testing.md](../../python-service-architecture/references/testing.md#profiles-and-markers),
+  "CI selection"). Preserve counts and useful artifacts such as service logs,
+  request/correlation IDs, and minimized Hypothesis examples.
 - Favor deterministic tests and proportionate disposable integration in PR
   feedback. Put destructive recovery, broad process topology, long property
   profiles, and live-provider checks in explicit jobs.
@@ -114,5 +152,6 @@ when parallel execution is used or planned.
 - [pytest temporary paths](https://docs.pytest.org/en/stable/how-to/tmp_path.html)
 - [SQLAlchemy external-transaction recipe](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html#joining-a-session-into-an-external-transaction-such-as-for-test-suites)
 - [SQLAlchemy session concurrency](https://docs.sqlalchemy.org/en/20/orm/session_basics.html#is-the-session-thread-safe-is-asyncsession-safe-to-share-in-concurrent-tasks)
+- [SQLAlchemy SQLite transaction differences](https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#transactions-with-sqlite-and-the-sqlite3-driver)
 - [Testcontainers for Python with PostgreSQL](https://testcontainers.com/guides/getting-started-with-testcontainers-for-python/)
 - [Pact contracts](https://docs.pact.io/getting_started/how_pact_works)

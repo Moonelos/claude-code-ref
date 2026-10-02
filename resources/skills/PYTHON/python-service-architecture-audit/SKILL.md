@@ -36,12 +36,10 @@ levels above a `src/<package>` root):
 python scripts/audit_service.py path/to/src/package [--workspace path/to/repo] [--tests path/to/tests] [--allow-external PACKAGE ...]
 ```
 
-`domain/`, `ports/`, and `application/` may import only the standard library,
-`pydantic`, `typing_extensions`, `annotated_types`, and the service's own
-package, and `application/` may also import `structlog` for a recorded
-fallback; every other third-party import is flagged. Pass `--allow-external` for
-a technology-neutral dependency the repository deliberately admits (for example
-a shared contract library). The script also looks upward from the package for
+Third-party imports in `domain/`, `ports/`, and `application/` outside the
+allowance in [boundaries.md, The core rule](../python-service-architecture/references/boundaries.md#the-core-rule)
+are flagged. Pass `--allow-external` for a technology-neutral dependency the
+repository deliberately admits (for example a shared contract library). The script also looks upward from the package for
 the import-linter contracts and their `lint-imports` pre-commit hook.
 
 Every hit cites the rule that owns it. Treat hits as **candidates to confirm**
@@ -71,74 +69,29 @@ process-to-implementation trace for each distinct external capability family.
 
 ## Dependency audit
 
-Search imports and verify each item against the named section of
-`boundaries.md` unless another file is named. Items marked (script) are also
-checked statically.
+Search imports and verify each check against its owner. (script) marks checks
+the bundled script also runs statically; confirm its hits by reading the code.
 
-- `domain/` and `ports/` import no adapters, bootstrap, API, workers, DB, GenAI,
-  config, SDKs, or ORM packages (script) — The core rule.
-- `application/` follows the internal allowances in The core rule: no
-  `api/`, `workers/`, bootstrap, config, `db/`, `adapters/`,
-  `genai/` (script), and never `opentelemetry` types (script) — The core rule;
-  `observability/`. The repository enforces this with an import-linter contract
-  in pre-commit and CI; its absence is a Violation (script checks that the
-  contracts' source and forbidden modules cover all required invariants, whether
-  written as `forbidden` or `layers` contracts, and that the pre-commit hook
-  exists; confirm CI runs it by reading `.github/workflows/`, `.gitlab-ci.yml`,
-  `buildkite/`, or the repository's documented pipeline, since the script does
-  not. A repository with no CI at all gets one Violation for the missing CI
-  step, not one per contract)
-  (`../python-repository-setup/references/pre-commit.md`, "Architecture
-  contracts").
-- `api/` and `workers/` never import concrete `db/`, `adapters/`, or `genai/`
-  code (script and import-linter contract) — The core rule.
-- `api/`, `workers/`, `adapters/`, `db/`, and `genai/` never import
-  `bootstrap/` (script); bootstrap is the composition root.
-- Every business entry point (route, worker, consumer, business agent tool, CLI)
-  lives in `api/`, `workers/`, `genai/` (tools), or `main.py`, never in
-  `bootstrap/` or `adapters/`, and calls exactly one application action and
-  holds no business logic, including simple reads; port
-  implementations depend inward on their ports — Application ports;
-  `application/`. Technical endpoints (liveness, readiness, metrics, version)
-  and technical jobs call no action and are not findings; one that reports
-  business facts is a business entry point (`api-and-workers.md`, Technical
-  jobs). A read-only agent tool that serves only its agent calls its task's
-  collaborator directly and is not a finding (`ai.md`, When a tool calls an
-  action). A one-call action follows Action boundaries: a deliberate cost;
-  confirm it is a real public operation and not a step only a tool reaches
-  (script flags tool-only actions).
-- Every I/O capability an action uses is one port per capability, implemented
-  directly by a class in `db/`, `adapters/`, or `genai/` (script flags ports
-  without an implementation). Ports never model deterministic parsers,
-  calculators, formatters, or business rules; a `__call__`-only Protocol
-  standing in for a domain function or an application action is a Violation
-  (script) even when a test fakes it: the triggers below apply to other
-  Protocols. A unit-of-work factory whose `__call__` returns a context manager
-  is a port, not a stand-in — Application ports; `persistence.md`.
-- Protocols that are not application I/O ports meet a trigger: a test fakes it,
-  a second implementation exists, a decorator wraps it, or a package may not
-  import the implementation (script flags those with one implementation and no
-  test reference) — When a port earns its cost.
-- No concrete broker implementation lives in a root `messaging/` package.
-- Every LLM, agent, prompt, AI schema, tool, or graph lives below root `genai/`;
-  bootstrap calls GenAI factories with resolved configuration, and GenAI modules
-  construct no runtime handles and read no settings at import time — `ai.md`,
-  Factories and bootstrap wiring.
-- Model ids and call parameters that tune behavior or cost (`reasoning_effort`,
-  `max_tokens`, `temperature`, `dimensions`) come from settings, never literals
-  in `genai/`; chat models are built with `init_chat_model` and the integration
-  builds its own SDK clients (script flags literals and hand-built clients) —
-  `ai.md`, Ownership inside `genai/<task>/`.
-- No generic root or `core/` constants or errors module mixes unrelated owners;
-  deployment-varying values live in `config/` — Errors and constants follow
-  ownership (script flags the generic filenames).
-- Small packages stay flat across every boundary; provider identity alone does
-  not justify a folder — Flat-first growth across boundaries (script flags
-  one-module adapter subpackages).
-- No deployable imports another deployable's private package.
-- No Python file uses a relative import (script).
-- Tests can replace costly boundaries with small typed fakes without patching
-  SDK internals — `testing.md`.
+| Check | Owner | Audit notes |
+|---|---|---|
+| `domain/` and `ports/` purity (script) | [boundaries.md, The core rule](../python-service-architecture/references/boundaries.md#the-core-rule) | |
+| `application/` imports and no `opentelemetry` types (script) | [The core rule](../python-service-architecture/references/boundaries.md#the-core-rule); [`observability/`](../python-service-architecture/references/boundaries.md#observability) | |
+| Import-linter contracts in pre-commit and CI | [`python-repository-setup` pre-commit.md, Architecture contracts](../python-repository-setup/references/pre-commit.md#architecture-contracts) | Missing contracts are a Violation. The script checks that the contracts' source and forbidden modules cover every required invariant, as `forbidden` or `layers` contracts, and that the `lint-imports` hook exists. Confirm CI runs it by reading `.github/workflows/`, `.gitlab-ci.yml`, `buildkite/`, or the documented pipeline; the script does not. A repository with no CI at all gets one Violation for the missing CI step, not one per contract |
+| `api/` and `workers/` import no `config/`, `db/`, `adapters/`, or `genai/` (script) | [The core rule](../python-service-architecture/references/boundaries.md#the-core-rule) | |
+| `db/`, `adapters/`, and `genai/` reach each other only through a port (script) | [The core rule](../python-service-architecture/references/boundaries.md#the-core-rule) | |
+| Only the composition root imports `bootstrap/` (script) | [The core rule](../python-service-architecture/references/boundaries.md#the-core-rule) | |
+| Who imports `Settings` and slice types | [`config/`](../python-service-architecture/references/boundaries.md#config) | |
+| Every business entry point calls exactly one action and holds no business logic | [SKILL.md rule 2](../python-service-architecture/SKILL.md#core-rules-and-why); [Application ports](../python-service-architecture/references/boundaries.md#application-ports); [`application/`](../python-service-architecture/references/boundaries.md#application) | Entry points live in `api/`, `workers/`, `genai/` tools, or `main.py`, never in `bootstrap/` or `adapters/`. Technical endpoints and jobs are not findings ([api-and-workers.md](../python-service-architecture/references/api-and-workers.md#health-and-readiness)); nor is a read-only agent tool calling its task's collaborator ([ai.md](../python-service-architecture/references/ai.md#when-a-tool-calls-an-action)). For a one-call action, confirm it is a real public operation, not a step only a tool reaches (script flags tool-only actions) |
+| One port per I/O capability, implemented directly; never a Protocol for pure logic | [Application ports](../python-service-architecture/references/boundaries.md#application-ports); [persistence.md](../python-service-architecture/references/persistence.md#multiple-operations-in-a-uow) | Script flags ports without an implementation. A `__call__`-only Protocol standing in for a domain function or an action is a Violation (script) even when a test fakes it; the triggers apply only to other Protocols. A unit-of-work factory whose `__call__` returns a context manager is a port, not a stand-in |
+| Non-port Protocols meet a trigger | [When a port earns its cost](../python-service-architecture/references/boundaries.md#when-a-port-earns-its-cost) | Script flags those with one implementation and no test reference |
+| No root `messaging/` | [Adapters and their placement](../python-service-architecture/references/boundaries.md#adapters-and-their-placement) | |
+| GenAI code lives under `genai/`; factories get resolved configuration; nothing built at import time | [ai.md, Factories and bootstrap wiring](../python-service-architecture/references/ai.md#factories-and-bootstrap-wiring) | |
+| Model ids and tuning parameters come from settings; `init_chat_model` builds the SDK clients (script) | [ai.md, Ownership inside `genai/<task>/`](../python-service-architecture/references/ai.md#ownership-inside-genaitask) | Script flags literals and hand-built clients |
+| No generic root or `core/` errors or constants (script) | [Errors and constants follow ownership](../python-service-architecture/references/boundaries.md#errors-and-constants-follow-ownership) | Script flags the generic filenames |
+| Flat packages; provider identity alone is no folder (script) | [Flat-first growth across boundaries](../python-service-architecture/references/boundaries.md#flat-first-growth-across-boundaries) | Script flags one-module adapter subpackages |
+| No deployable imports another deployable's private package | [shared-libraries.md](../python-service-architecture/references/shared-libraries.md#public-api-and-compatibility) | |
+| No relative imports (script) | [SKILL.md rule 12](../python-service-architecture/SKILL.md#core-rules-and-why) | |
+| Tests replace costly boundaries with small typed fakes, without patching SDK internals | [testing.md](../python-service-architecture/references/testing.md) | |
 
 ## Semantic audit
 
@@ -146,33 +99,33 @@ Trace real business actions from their process boundary through application
 code, ports, concrete implementations, and bootstrap. For each trace, check the
 owning rule:
 
-| Check | Owner |
-|---|---|
-| **Hop chain:** verify each boundary and additional collaborator owns the responsibility allowed by the rule; do not count calls as layers. Public one-call actions are allowed | `boundaries.md` No forwarding layers |
-| **Logic outside actions:** input resolution, cursor decoding, selection building, batch-continuation decisions, or business loops in routes, workers, the supervisor, or `genai/` belong in the action or `domain/` | `boundaries.md` `application/`; `ai.md` Invocation and error translation |
-| **Preconditions:** a fact a domain decision assumes about the caller (a role, ownership) is checked in the action, not only by one entry point | SKILL.md Decisions that look ambiguous |
-| **Port granularity:** one port per capability; a Protocol per repository or table is merged | `boundaries.md` Application ports |
-| **Mocks for pure logic:** a port mock whose assertions only inspect values computed by pure functions; move the logic to `domain/` and test it directly | `boundaries.md` When a port earns its cost |
-| Contract: caller-needed capability, no framework verbs, vendor types, `Any`, or configuration controls | `boundaries.md` Contract ownership |
-| Implementations translate SDK failures into port-owned errors once, without a central translator mapping unrelated owners. Shared transient/permanent bases are allowed | `errors.md` Translate once; Classification bases |
-| **Port failure with no handler:** every failure a port can raise reaches a named API or loop boundary | `errors.md` Handling boundaries |
-| Errors, constants, validation, and helpers stay with their semantic owner | `boundaries.md` Errors and constants follow ownership |
-| Repositories and adapters apply caller-owned decisions rather than choosing statuses, codes, messages, or transitions | `boundaries.md` Repositories apply decisions |
-| Tasks, cadence, stop events, failure policy, and shutdown stay in the supervisor; each iteration is a worker function in `workers/` that calls one action and logs its summary; bootstrap logs no business results | `api-and-workers.md` Long-running worker |
-| **Consumers:** the inbox adapter moves messages and never names an action; the consumer worker maps the action's outcome to a settlement; neither owns retry policy | `api-and-workers.md` SQS, Kafka, or another broker |
-| **Batches:** a per-item failure is recorded on that item; only a dependency outage stops the batch | `errors.md` Handling boundaries |
-| **Failure classification:** credentials, missing endpoints, and misconfiguration are unavailable, not rejected; a 2xx with an unreadable body is an unknown outcome, never a failure; a corrupt stored row is not moved to a terminal business state | `errors.md` Classification bases; `persistence.md` Uncertain external writes |
-| Inbound API, broker, and SDK payloads are translated at the process adapter | `boundaries.md` Validate external structure |
-| Application actions receive capability implementations. Raw handles go only into genai/adapter constructors | `boundaries.md` Constructor contracts |
-| GenAI tasks own model binding, prompts, schemas, tools, and the capability adapter. A few cohesive tools may share `tools.py` | `ai.md` Standard agent shape; Tools and MCP |
-| Application telemetry goes through the service's `observability/` vocabulary | `boundaries.md` `observability/` |
-| **Pass-through wrappers:** confirm static forwarding candidates have no boundary or behavior of their own; distinguish public actions from extra helpers | `boundaries.md` No forwarding layers |
-| **Atomicity:** identify the transaction owner, concurrency guard, and DB/external-effect recovery contract; every committed intermediate state has a named exit; verify behavior with tests | `persistence.md` (load only for relevant writes) |
-| Package depth and abstractions are justified by current ownership, change, or test pressure | `boundaries.md` Flat-first growth across boundaries |
-| **Tool failures:** every error an agent tool's action or collaborator can raise becomes a tool message or a task abort that the capability translates once; none escapes the capability's port | `ai.md` Tools and MCP |
-| **Over-structure:** for each feature, count the modules on the path from entry point to SQL or external call. A read-only path over ~3 hops, or a feature spread over more than ~5 modules, is a candidate; name each hop and the trigger that justifies it. Tool-only actions, ports with one implementation and no double, `domain/` + port + action stacks around a technical job, and process-lifetime collaborators carried in per-invocation context are Improvements to remove | SKILL.md Where the hexagon applies; `ai.md` When a tool calls an action, What a tool receives; `api-and-workers.md` Technical jobs |
-| **Port size:** a port or store with more than ~12 methods, an implementation over ~400 lines, or a sibling `db/` module importing its private helpers is split by aggregate or lifecycle | `boundaries.md` Application ports |
-| **Scope:** behavioral machinery (intermediate states, sweepers, outboxes, idempotency keys, extra loops, leases, schedule tables) is required by the brief or by a rule whose trigger actually holds; machinery added for a trigger that does not hold is an Improvement to remove. Example: a lease row with owner, generation, and fencing around an idempotent retention purge, where an advisory lock suffices | SKILL.md Decisions that look ambiguous; `python-sqlmodel-alembic` `work-queues.md` Choose the lightest coordination |
+| Check | Owner | Audit notes |
+|---|---|---|
+| **Hop chain** | [No forwarding layers](../python-service-architecture/references/boundaries.md#no-forwarding-layers) | Each boundary and extra collaborator owns an allowed responsibility; do not count calls as layers. Public one-call actions are allowed |
+| **Logic outside actions** | [`application/`](../python-service-architecture/references/boundaries.md#application); [Thin routes](../python-service-architecture/references/api-and-workers.md#fastapi--http-api); [ai.md, Invocation and error translation](../python-service-architecture/references/ai.md#invocation-and-error-translation) | Look in routes, workers, the supervisor, and `genai/` for input resolution, cursor decoding, selection building, batch-continuation decisions, and business loops |
+| **Preconditions** | [SKILL.md, Decisions that look ambiguous](../python-service-architecture/SKILL.md#decisions-that-look-ambiguous) | |
+| **Port granularity** | [Application ports](../python-service-architecture/references/boundaries.md#application-ports) | A Protocol per repository or table is merged |
+| **Mocks for pure logic** | [When a port earns its cost](../python-service-architecture/references/boundaries.md#when-a-port-earns-its-cost) (Tests of ports) | |
+| **Port contract** | [Contract ownership](../python-service-architecture/references/boundaries.md#contract-ownership) | |
+| **Error translation** | [errors.md, Translate once](../python-service-architecture/references/errors.md#translate-once); [Classification bases](../python-service-architecture/references/errors.md#classification-bases) | No central translator mapping unrelated owners; shared transient/permanent bases are allowed |
+| **Port failure with no handler** | [errors.md, Handling boundaries](../python-service-architecture/references/errors.md#handling-boundaries) | |
+| **Error, constant, validation, and helper owners** | [Errors and constants follow ownership](../python-service-architecture/references/boundaries.md#errors-and-constants-follow-ownership) | |
+| **Repositories and adapters apply decisions** | [Repositories apply decisions](../python-service-architecture/references/boundaries.md#repositories-apply-decisions) | |
+| **Supervisor and worker split** | [api-and-workers.md, Long-running worker](../python-service-architecture/references/api-and-workers.md#long-running-worker) | |
+| **Consumers** | [SQS, Kafka, or another broker](../python-service-architecture/references/api-and-workers.md#sqs-kafka-or-another-broker) | |
+| **Batches** | [errors.md, Handling boundaries](../python-service-architecture/references/errors.md#handling-boundaries) | |
+| **Failure classification** | [errors.md, Classification bases](../python-service-architecture/references/errors.md#classification-bases); [persistence.md, Uncertain external writes](../python-service-architecture/references/persistence.md#uncertain-external-writes); [Validate external structure](../python-service-architecture/references/boundaries.md#validate-external-structure) | Credentials, missing endpoints, misconfiguration; a 2xx with an unreadable body; a corrupt stored row |
+| **Inbound payloads** | [Validate external structure](../python-service-architecture/references/boundaries.md#validate-external-structure) | |
+| **Constructor contracts** | [Constructor contracts](../python-service-architecture/references/boundaries.md#constructor-contracts) | |
+| **GenAI task ownership** | [ai.md, Standard agent shape](../python-service-architecture/references/ai.md#standard-agent-shape); [Tools and MCP](../python-service-architecture/references/ai.md#tools-and-mcp) | |
+| **Application telemetry** | [`observability/`](../python-service-architecture/references/boundaries.md#observability) | |
+| **Pass-through wrappers** | [No forwarding layers](../python-service-architecture/references/boundaries.md#no-forwarding-layers) | Confirm each static forwarding candidate has no boundary or behavior of its own; distinguish public actions from extra helpers |
+| **Atomicity** | [persistence.md](../python-service-architecture/references/persistence.md#choose-the-transaction-owner) (load only for relevant writes) | Name the transaction owner, concurrency guard, and DB/external-effect recovery contract, and each intermediate state's exit; verify with tests |
+| **Package depth** | [Flat-first growth across boundaries](../python-service-architecture/references/boundaries.md#flat-first-growth-across-boundaries) | |
+| **Tool failures** | [ai.md, Tool rules](../python-service-architecture/references/ai.md#tool-rules) | |
+| **Over-structure** | [SKILL.md, Where the hexagon applies](../python-service-architecture/SKILL.md#where-the-hexagon-applies); [When a port earns its cost](../python-service-architecture/references/boundaries.md#when-a-port-earns-its-cost); [ai.md, When a tool calls an action](../python-service-architecture/references/ai.md#when-a-tool-calls-an-action); [What a tool receives](../python-service-architecture/references/ai.md#what-a-tool-receives-and-how); [Technical jobs](../python-service-architecture/references/api-and-workers.md#technical-jobs) | Count the modules on each feature's path from entry point to SQL or external call. A read-only path over ~3 hops, or a feature spread over more than ~5 modules, is a candidate; name each hop and the trigger that justifies it. A count over the signal alone is an Improvement. Tool-only actions and the ports only they use, a `domain/` + port + action stack around a technical job, and process-lifetime collaborators in per-invocation context break must/never rules in their owners: Violations |
+| **Port size** | [Application ports](../python-service-architecture/references/boundaries.md#application-ports) | More than ~12 methods, an implementation over ~400 lines, or a sibling `db/` module importing private helpers |
+| **Scope** | [SKILL.md, Decisions that look ambiguous](../python-service-architecture/SKILL.md#decisions-that-look-ambiguous); [`python-sqlmodel-alembic` work-queues.md, Choose the lightest coordination](../python-sqlmodel-alembic/references/work-queues.md#choose-the-lightest-coordination) | Behavioral machinery (intermediate states, sweepers, outboxes, idempotency keys, extra loops, leases, schedule tables) must be required by the brief or by a rule whose trigger holds; otherwise it is an Improvement to remove. Example: a lease row with owner, generation, and fencing around an idempotent retention purge, where an advisory lock suffices |
 
 Procedure notes the rules do not cover:
 
@@ -239,17 +192,8 @@ imports, logging configuration, imports the kind forbids, generic names,
 `py.typed`, service shells, speculative packages, and the independence
 contract. It does not run the service checks.
 
-Then check semantically, each against `shared-libraries.md`:
-
-- Which row of "Extraction triggers" justifies the library; a library no row
-  justifies is an Improvement to inline back into its consumer.
-- Does the code match one kind, or must it be split by kind?
-- Every service importer is a layer the kind allows, and each service has the
-  importer contract for it.
-- The library translates every failure into its own errors, and each consumer
-  translates those once into port errors.
-- Borrowed resources are not closed by the library; review explicit ownership
-  transfer against the lifecycle rule. Exactly one layer retries.
+Then answer the [Review questions](../python-service-architecture/references/shared-libraries.md#review-questions)
+semantically; rules marked **(review)** there have no static check.
 
 For a database runtime, follow the scoped exception declaration and semantic
 checks in `shared-libraries.md#database-runtime-exception`; run `--library
@@ -292,9 +236,16 @@ Classify every finding as:
   transition. Report behavioral Violations first; they cost the most in
   production.
 - **Improvement:** a different shape materially improves isolation or
-  navigation, including removing a speculative package or a non-I/O Protocol
-  without a trigger. Forwarding layers and callable Protocols are Violations
-  (see the hop-chain check).
+  navigation and no must/never rule decides it: removing a speculative package
+  or machinery whose trigger does not hold, or a hop or module count over a
+  review signal.
+
+A structure the owning reference forbids with must/never wording is a
+Violation, not an Improvement: forwarding layers, callable Protocols standing
+in for a function, non-I/O Protocols without a trigger, tool-only actions and
+the ports only they use, and a `domain/` + port + action stack around a
+technical job. Approximate numbers are review signals
+([SKILL.md, Enforcement](../python-service-architecture/SKILL.md#enforcement)).
 - **Preference:** cosmetic difference without architectural consequence.
 
 Do not present preferences as violations. Recommend removing layers as readily
@@ -324,8 +275,8 @@ ownership matrix, the shared-capability conclusions, and one recommended route:
 - **Many findings:** coordinated changes across boundaries or consumers,
   shared-library extraction, state-transition or compatibility changes, or
   material design uncertainty. Count alone does not decide; one consequential
-  finding can require this route. Invoke `openspec-propose` (fallback
-  `../openspec-propose/SKILL.md`) to create the proposal, delta specs, design,
+  finding can require this route. Invoke `$openspec-propose` (an external
+  skill, not in this repository) to create the proposal, delta specs, design,
   and tasks, including evidence, classification, acceptance criteria,
   shared-capability conclusions, migration order, and verification tasks. If
   `openspec-propose` is not installed, write the audit file below instead.

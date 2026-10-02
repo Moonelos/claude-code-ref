@@ -6,9 +6,10 @@ fields are not stable application contracts unless your wrapper makes them so.
 
 ## Canonical scripted tool-calling model
 
-`GenericFakeChatModel` does not support `bind_tools`, so it cannot drive
-`create_agent` or any node that binds tools. Keep one scripted model like this
-in the member's test support and reuse it everywhere.
+Why `GenericFakeChatModel` is not enough, and the rules this model follows, are
+in [langchain-langgraph.md](langchain-langgraph.md#use-model-fakes-for-protocol-not-intelligence).
+Keep one scripted model like this in the member's test support and reuse it
+everywhere.
 
 ```python
 # tests/app_testing/models.py
@@ -92,9 +93,9 @@ HTTP client's `Request` and `Response` types; with openai 3.x that client is
 `httpx2`, so constructing those errors in tests needs `httpx2` in the dev
 dependency group even when production code never imports it.
 
-It raises `AssertionError` rather than a `BaseException` subclass because
-LangChain's async generation path does not propagate non-`Exception` errors
-cleanly. The async path runs `_generate` in an executor, so the recorded lists
+It raises `AssertionError` rather than `UnexpectedCall` for the reason in
+[core-principles.md](core-principles.md#doubles-must-be-correct) (LangChain's
+async path). That path runs `_generate` in an executor, so the recorded lists
 are still appended in call order.
 
 ## Agent tool round trip

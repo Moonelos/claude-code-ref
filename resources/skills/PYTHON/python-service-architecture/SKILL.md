@@ -39,6 +39,28 @@ A request travels `entry point → action → implementation`. The worked exampl
 [templates.md](references/templates.md#canonical-feature), and an executable
 version is in [`assets/canonical_service/`](assets/canonical_service/).
 
+## Reference routing
+
+For a deployable service read [templates.md](references/templates.md),
+[boundaries.md](references/boundaries.md), [domain.md](references/domain.md),
+[errors.md](references/errors.md), and [testing.md](references/testing.md). For
+an internal library read [shared-libraries.md](references/shared-libraries.md)
+and [testing.md](references/testing.md) instead. Load the rest when they apply:
+
+- [api-and-workers.md](references/api-and-workers.md): HTTP API, worker,
+  scheduled process, queue consumer, or hybrid.
+- [persistence.md](references/persistence.md): state transitions, concurrent
+  writes, a unit of work, or writes to an external system; skip for ordinary
+  reads.
+- [async-and-lifecycle.md](references/async-and-lifecycle.md): async I/O or
+  long-lived resources.
+- [ai.md](references/ai.md): LLM calls, agents, graphs, prompts, AI tools.
+- [modularization.md](references/modularization.md): splitting or migrating an
+  existing service.
+
+Language idioms and size signals are owned by `python-code-conventions`
+(fallback: `../python-code-conventions/SKILL.md`).
+
 ## Where the hexagon applies
 
 Decide the shape per piece of code before placing it. The full feature shape
@@ -64,8 +86,10 @@ action test must fake it. "It does I/O" alone is not a trigger.
    catalog stays complete, so "what does this service do?" has one answer, and
    a new entry point has an obvious thing to call.
 2. **Every business entry point calls exactly one action.** Routes live in
-   `api/`; loops and queue consumers in `workers/`. Health, readiness, metrics,
-   version endpoints, and technical jobs call none. An agent tool calls an
+   `api/`; loops and queue consumers in `workers/`. Technical endpoints and
+   jobs call none
+   ([api-and-workers.md](references/api-and-workers.md#health-and-readiness)).
+   An agent tool calls an
    action only when it triggers a business operation
    ([ai.md](references/ai.md#when-a-tool-calls-an-action)). *Why:* business
    logic in an entry point is invisible to every other entry point, and gets
@@ -118,40 +142,23 @@ library-to-service callback) needs a trigger that holds today
 ## Decisions that look ambiguous
 
 **Who runs a state transition.** The decision is always a pure function in
-`domain/`; the only question is who holds the transaction.
-
-| The operation | Transaction owner | The action's body |
-| --- | --- | --- |
-| Read, decide, and write atomically, including an outbox row the decision produces | One port method; the `db/` implementation locks, calls the domain decision, writes | One call to the port |
-| Several writes the action must interleave with its own decisions or other ports | A unit-of-work port the action enters | Observe, call the domain decision, apply, commit |
-| A database change plus a *write* to an external system (payment, shipment, email) | Nobody: they cannot share a transaction | Commit durable intent first; deliver through an outbox or handoff |
-| A *read* from an external system or model, then a database write | Nobody needs one | Call first, then write once; no intermediate state |
-
-A one-call action in the first row is correct: it is the operation's catalog
-entry. Prefer the first row; use a unit of work only when the action itself must
-decide between writes. Do not invent intermediate states: a classification,
-lookup, or model call that changes nothing outside the service is not an effect
-to protect. When an intermediate state does exist (`PENDING` before a carrier
-call), it has a named exit: the step that completes it, a sweeper that retries
-it, or an expiry ([persistence.md](references/persistence.md)).
+`domain/`; the only question is who holds the transaction. Choose it from
+[persistence.md](references/persistence.md#choose-the-transaction-owner),
+preferring one port method over a unit of work. Every committed intermediate
+state (`PENDING` before a carrier call) has a named exit.
 
 **Entry points pass collaborators explicitly.** A route or worker passes fields
 of the runtime view to the action as keyword arguments. The cost: adding a port
 to an action changes every entry point that calls it. The benefit: each call
 site shows what the operation touches, and the type checker verifies the
 wiring. Do not remove the cost with a DI container, handler classes,
-`functools.partial` over actions in bootstrap, or one FastAPI provider per port.
+`functools.partial` over actions in bootstrap
+([boundaries.md](references/boundaries.md#bootstrap)), or one FastAPI provider
+per port.
 
-**Steps shared by several actions.** A step that two actions both run (triage a
-ticket, ship one order) is not a catalog entry: put it in a private module
-(`application/_shipping.py`) or in the module of the action that owns it, and
-never call it from an entry point. An action that *is* a business operation in
-its own right stays public, and another action may call it. A result type the shared step
-returns and entry points read lives in `domain/` (or the public action's
-module), never in the private module; actions reuse those types in their own
-outcome unions rather than renaming them. A shared step propagates dependency
-outages; each calling action decides whether an outage is an outcome for it
-(the consumer retries this message later) or stops its batch (the sweeper).
+**Steps shared by several actions** are private helpers, never catalog entries
+or entry-point targets
+([boundaries.md](references/boundaries.md#action-boundaries-a-deliberate-cost)).
 
 **Port failures that drive a business outcome.** When a port failure decides
 the outcome (model unavailable → human review), the action maps the port error
@@ -213,28 +220,6 @@ handoff, not in files or extra modules; the owning references are
 and [api-and-workers.md](references/api-and-workers.md). Test each failure or
 recovery path you decided, not only the happy path, and report which database,
 broker, or provider guarantee remains unverified.
-
-## Reference routing
-
-For a deployable service read [templates.md](references/templates.md),
-[boundaries.md](references/boundaries.md), [domain.md](references/domain.md),
-[errors.md](references/errors.md), and [testing.md](references/testing.md). For
-an internal library read [shared-libraries.md](references/shared-libraries.md)
-and [testing.md](references/testing.md) instead. Load the rest when they apply:
-
-- [api-and-workers.md](references/api-and-workers.md): HTTP API, worker,
-  scheduled process, queue consumer, or hybrid.
-- [persistence.md](references/persistence.md): state transitions, concurrent
-  writes, a unit of work, or writes to an external system; skip for ordinary
-  reads.
-- [async-and-lifecycle.md](references/async-and-lifecycle.md): async I/O or
-  long-lived resources.
-- [ai.md](references/ai.md): LLM calls, agents, graphs, prompts, AI tools.
-- [modularization.md](references/modularization.md): splitting or migrating an
-  existing service.
-
-Language idioms and size signals are owned by `python-code-conventions`
-(fallback: `../python-code-conventions/SKILL.md`).
 
 ## Output and implementation behavior
 

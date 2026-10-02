@@ -99,8 +99,8 @@ correctly, because it is asking for the wrong kind of attribute. The Lambda side
 of `AWSTraceHeader` is in `lambda_functions.md`.
 
 Two SQS limits bite here: a message carries at most **10** user message
-attributes, and attributes count toward the **256 KB** message size. A W3C
-carrier is 2–3 of those 10.
+attributes, and attributes count toward the **1 MiB** maximum message size
+(raised from 256 KiB in August 2025). A W3C carrier is 2–3 of those 10.
 
 ## Queue consumer side — continued trace
 
@@ -145,8 +145,8 @@ def handle_message(message: QueueMessage) -> None:
 
     with start_span(
         "process pricing-jobs",
-        # An explicit empty Context is what makes this a root span.
-        # Passing None (or omitting it) reuses the CURRENT context instead.
+        # Explicit empty Context = new root; None reuses the current context
+        # (async_handoffs.md, "Carrier contract").
         context=otel_context.Context(),
         kind=SpanKind.CONSUMER,
         links=links,
@@ -161,7 +161,7 @@ def handle_message(message: QueueMessage) -> None:
         process(message.payload)
 ```
 
-`context=None` does **not** mean "create a root." It means "use the current context." This is the single most common bug in linked-consumer code, and it is invisible until you inspect an exported trace.
+`context=None` is the most common linked-consumer bug; the rule is in `async_handoffs.md`, "Carrier contract".
 
 ### How to know it worked
 
@@ -188,12 +188,11 @@ for message in messages:
     if sc.is_valid:
         links.append(Link(sc))
 
-with tracer.start_as_current_span(
+with start_span(
     "process pricing-jobs",
     context=otel_context.Context(),
-    kind=trace.SpanKind.CONSUMER,
+    kind=SpanKind.CONSUMER,
     links=links,
-    record_exception=False,
     attributes={
         "messaging.system": "aws_sqs",
         "messaging.destination.name": "pricing-jobs",
@@ -257,7 +256,7 @@ client instrumentation is never the causal parent of the work.
 | --- | --- |
 | `messaging.system`, `messaging.destination.name`, `messaging.operation.name`, `messaging.operation.type` | Standard. `messaging.operation.name` is required and determines the span-name prefix; `messaging.operation.type` is the bounded category (`send`, `process`, and so on). |
 | `app.message.attempt` / receive count | Distinguishes a first attempt from a fifth |
-| `app.outcome` | `success` / `error` / `skipped`, bounded |
+| `app.outcome` | bounded, from the closed set in [`../conventions/naming.md`](../conventions/naming.md#the-app-shape) |
 | Domain identifiers (`order_id`, `supplier_id`) | Only when they are worth finding one trace by; keep them off metrics |
 
 - metrics: `../metrics/service.md` — queue depth, oldest-message age,

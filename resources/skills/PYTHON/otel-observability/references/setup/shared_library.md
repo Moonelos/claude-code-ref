@@ -24,10 +24,11 @@ Do not create a package merely because two files look similar. Extract only a
 cohesive contract that has demonstrated reuse across current deployables and
 the same operational meaning in each consumer. A library is justified when it
 removes duplicated policy or lifecycle behavior without importing one
-service's business model into the others. When duplication is a finding that
-must be resolved (copy counts, semantic drift, an existing natural library) is
-owned by `../../../python-service-architecture/references/shared-libraries.md`
-(duplication and extraction triggers).
+service's business model into the others. Whether duplication is a finding
+that must be resolved (copy counts, semantic drift, an existing library of the
+right kind) is decided by
+`../../../python-service-architecture/references/shared-libraries.md`
+(Extraction triggers).
 
 Good shared responsibilities include:
 
@@ -68,13 +69,11 @@ application boundary
   decides business outcome and supplies attributes known only after execution
 ```
 
-The shared package must not import a deployable's private package, settings
-class, application action, domain type, or test helper. Accept typed values or a
-library-owned frozen configuration object at the public boundary. Do not read
-environment variables inside the library. Library input types are ordinary
-values, not `BaseSettings`, `.env` loaders, YAML baselines, or secret resolution.
-Keep a small input dataclass beside its consuming function; a separate
-`config.py` is optional and never implies ownership of deployment configuration.
+Library inputs and dependencies follow `../../../python-service-architecture/references/shared-libraries.md`
+(Library rules: Configuration, Dependencies; Flat first): typed values or a
+library-owned frozen options object, no environment reads, no `BaseSettings`,
+and no imports from a deployable. A separate `config.py` in the library is
+optional and never implies ownership of deployment configuration.
 
 For example, this illustrates the input boundary only, not a complete SDK setup:
 
@@ -109,13 +108,9 @@ src/company_observability/
 ```
 
 Do not create `tracing/`, `metrics/`, `logging/`, `exporters/`, or `plugins/`
-subpackages in advance. Promote one slice only when it contains several
-cohesive modules, evolves independently, or needs distinct tests. The general
-library foldering rules live in the `python-service-architecture` skill.
-
-Keep `__init__.py` deliberate. Re-export the small supported API, not every SDK
-type or internal helper. Consumers should not depend on the package's private
-module layout.
+subpackages in advance; when to promote a slice is in `../../../python-service-architecture/references/shared-libraries.md` (Flat
+first). `__init__.py` re-exports the small supported API, not every SDK type or
+internal helper (same file, Public API and compatibility).
 
 ## Explicit lifecycle
 
@@ -186,16 +181,15 @@ Preserve one delivery path per record.
 
 ## Migration
 
-1. Inventory all candidate consumers, public imports, settings, provider
-   ownership, shutdown behavior, logging paths, and tests.
-2. Separate true common invariants from similar-looking service policy. Resolve
-   incompatible semantics before extracting them; do not bury them in flags.
-3. Extract the smallest stable slice into the library with focused unit tests.
-4. Keep a thin service-local compatibility facade when imports cannot move
-   atomically.
-5. Migrate and verify one consumer at a time, including its package-scoped
-   install and startup/shutdown tests.
-6. Remove duplicated service code only after every intended consumer has moved.
+Follow `../../../python-service-architecture/references/shared-libraries.md` (Extraction and modularization
+sequence). What observability adds:
+
+- the inventory also covers public imports, provider ownership, shutdown
+  behavior, and logging paths;
+- keep a thin service-local compatibility facade when imports cannot move
+  atomically;
+- each consumer's verification includes its package-scoped install and
+  startup/shutdown tests.
 
 The shared change stays additive until the migration is complete. Do not update
 unrelated services merely to make their folder trees symmetrical.

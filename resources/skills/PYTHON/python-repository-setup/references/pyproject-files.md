@@ -1,9 +1,9 @@
 # `pyproject.toml` Files
 
 Concrete `pyproject.toml` shapes for each repository mode. The rules that decide
-*which* file owns *what* live in `../SKILL.md`; the Ruff, pytest, coverage and
-mypy tables are in
-[../assets/workspace-template/pyproject.toml](../assets/workspace-template/pyproject.toml).
+*which* file owns *what* live in `../SKILL.md`; the root files are the
+templates' (linked below), whose tool tables are explained in
+[quality-tooling.md](quality-tooling.md).
 
 ## Root `pyproject.toml`
 
@@ -12,68 +12,31 @@ mypy tables are in
 For one deployable, the root is an ordinary installable project. Put runtime
 dependencies in root `[project.dependencies]`, development tools in the root
 `dev` dependency group, and source in `src/<import_package>/`. Keep one root
-`uv.lock`; do not add `[tool.uv.workspace]` or use `--package`:
+`uv.lock`; do not add `[tool.uv.workspace]` or use `--package`.
 
-```toml
-[project]
-name = "my-service"
-version = "0.1.0"
-requires-python = ">=3.13,<3.14"
-dependencies = ["fastapi", "uvicorn"]
-
-[dependency-groups]
-dev = [
-    "mypy>=2.3.0,<3",
-    "pre-commit>=4.6.1,<5",
-    "pytest>=9.1.1,<10",
-    "pytest-cov>=7.1.0,<8",
-    "ruff>=0.16.3,<0.17",
-]
-
-[build-system]
-requires = ["hatchling>=1.32.0,<2"]
-build-backend = "hatchling.build"
-```
-
-The complete file, with the shared Ruff, pytest, coverage, mypy, and
-import-linter tables already set to the single-service roots (`src`, `tests`),
-is [../assets/single-service-template/pyproject.toml](../assets/single-service-template/pyproject.toml).
+The complete file is
+[../assets/single-service-template/pyproject.toml](../assets/single-service-template/pyproject.toml):
+`[project]` with `requires-python` and the runtime dependencies, a hatchling
+`[build-system]`, `[tool.uv] required-version`, the `dev` group (`import-linter`,
+`mypy`, `pre-commit`, `pytest`, `pytest-cov`, `ruff`), and the shared Ruff,
+pytest, coverage, mypy, and import-linter tables already set to the
+single-service roots (`src`, `tests`).
 
 ### Workspace virtual root and shared tooling
 
-```toml
-[tool.uv]
-required-version = "==0.12.7"
+The complete file is
+[../assets/workspace-template/pyproject.toml](../assets/workspace-template/pyproject.toml):
+`[tool.uv] required-version`, `[tool.uv.workspace] members` as globs
+(`services/*`, `libs/*`), the same `dev` group as the single-service template
+(`import-linter`, `mypy`, `pre-commit`, `pytest`, `pytest-cov`, `ruff`; the two
+are checked equal by `../tests/test_templates.py`), and the Ruff, pytest,
+coverage, mypy, and import-linter tables.
 
-[tool.uv.workspace]
-members = [
-    "services/*",
-    "libs/*",
-]
-
-[dependency-groups]
-dev = [
-    "mypy>=2.3.0,<3",
-    "pre-commit>=4.6.1,<5",
-    "pytest>=9.1.1,<10",
-    "pytest-cov>=7.1.0,<8",
-    "ruff>=0.16.3,<0.17",
-]
-```
-
-The Ruff, pytest, coverage, and mypy tables live in the same file; copy them
-from [assets/workspace-template/pyproject.toml](../assets/workspace-template/pyproject.toml).
-
-uv supports a root with no `[project]` table at all — this is a "virtual"
-workspace root: nothing is built or installed for the root itself, it only
-groups members, anchors the single `uv.lock`, pins uv, and configures shared
-development tools. Keep repo-wide lint, test, coverage, and type-check tools in
-the root `dev` group. Keep framework-specific test plugins or type stubs used
-by only one member in that member's own dependency group.
-
-Do not add root `[project]`, root `[project.dependencies]`, or a root
-`[build-system]` merely to express Python compatibility. Put
-`requires-python` on every installable workspace member instead.
+uv supports a root with no `[project]` table at all — a "virtual" workspace
+root, for which nothing is built or installed. What it may hold is ruled in
+`../SKILL.md` ("`pyproject.toml` Ownership"). In particular, do not add root
+`[project]`, `[project.dependencies]`, or `[build-system]` merely to express
+Python compatibility; put `requires-python` on every installable member.
 
 ## Service `pyproject.toml`
 

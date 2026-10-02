@@ -287,24 +287,34 @@ runs `REQUIRE_INTEGRATION=1 pytest -m integration`.
 ## Async fixtures with pytest-asyncio
 
 A session-scoped engine must live on a session-scoped loop, and the tests that
-use it must run on that loop. Mark the module once.
+use it must run on that loop. Mark the module once. The URL comes from the
+service's own `INTEGRATION_<DB>_DATABASE_URL`, never `DATABASE_URL`, and the
+fixture refuses a non-disposable target before any statement runs; that
+contract is owned by `$python-sqlmodel-alembic`
+([schema-verification.md](../../python-sqlmodel-alembic/references/schema-verification.md#disposable-test-databases)).
 
 ```python
 from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app_testing.prerequisites import require_env
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
 
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
-    return require_env("TEST_DATABASE_URL")
+    raw = require_env("INTEGRATION_ORDERS_DATABASE_URL")
+    url = make_url(raw)
+    if url.host not in _LOOPBACK_HOSTS or not (url.database or "").startswith("test_"):
+        pytest.fail(f"refusing non-disposable database {url.render_as_string()}")
+    return raw
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -314,15 +324,80 @@ async def test_engine(test_database_url: str) -> AsyncIterator[AsyncEngine]:
         yield engine
     finally:
         await engine.dispose()
-
-
-async def test_engine_reaches_the_test_database(test_engine: AsyncEngine) -> None:
-    async with test_engine.connect() as connection:
-        result = await connection.execute(text("select 1"))
-    assert result.scalar_one() == 1
 ```
+
+`render_as_string()` masks the password by default. There is no test that only
+proves the engine connects: that would be a framework self-test, and the
+guard plus the first repository test using `test_engine` already exercise it.
 
 With AnyIO instead, use `pytestmark = pytest.mark.anyio`, plain
 `@pytest.fixture` async fixtures, and a session-scoped `anyio_backend` fixture
-when an async fixture is session-scoped. Apply the test-database guard from
-`$python-sqlmodel-alembic` before any destructive setup.
+when an async fixture is session-scoped.
+
+## SQLAlchemy same-connection transaction fixture
+
+Adapt to the installed SQLAlchemy version and the actual ownership of the
+application session; it applies to framework-neutral backends as well as
+FastAPI services. The rules and limits of this isolation are in
+[integration-boundaries.md](integration-boundaries.md#transaction-isolation-fixture).
+
+The asyncio form binds an `AsyncSession` to an `AsyncConnection` inside an
+outer transaction, so application code using the bound session may commit while
+teardown rolls back the outer transaction. `test_engine` is the session-scoped
+engine above; the fixture's loop scope must match it.
+
+```python
+from collections.abc import AsyncIterator
+
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def db_session(test_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    async with test_engine.connect() as connection:
+        outer_transaction = await connection.begin()
+        session = AsyncSession(
+            bind=connection,
+            join_transaction_mode="create_savepoint",
+            expire_on_commit=False,
+        )
+        try:
+            yield session
+        finally:
+            await session.close()
+            await outer_transaction.rollback()
+```
+
+Synchronous variant, for a sync SQLAlchemy 2.x stack (the same pattern with a
+sync `Engine`, `Session`, and explicit `connection.close()`):
+
+```python
+from collections.abc import Iterator
+
+import pytest
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
+
+
+@pytest.fixture
+def db_session(test_engine: Engine) -> Iterator[Session]:
+    connection = test_engine.connect()
+    outer_transaction = connection.begin()
+    session = Session(
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+    )
+
+    try:
+        yield session
+    finally:
+        session.close()
+        outer_transaction.rollback()
+        connection.close()
+```
+
+Inject this exact session through the application boundary. It isolates only
+work on this one connection: do not use it for a worker, a second connection, or
+a concurrent claimer and assume its commits roll back; use committed setup in a
+unique database, schema, or tenant with explicit cleanup there.

@@ -1,7 +1,8 @@
 # Production Collector Configuration
 
 **Do not open this file unless a production Collector config is being
-written or changed.** Read `../tracing/production_policy.md` first — it owns
+written or changed** (or, for staging, only the "Configuration" block that
+`dev_staging.md` derives from). Read `../tracing/production_policy.md` first — it owns
 the retention decisions this file implements, and implementing them without
 the measurements it requires produces a config with unjustified numbers in it.
 
@@ -34,7 +35,7 @@ Retaining every trace forever is not a strategy — it is a bill. Retaining a fl
 
 The exact rates depend on traffic volume, cost, latency thresholds, and operational requirements. Do not copy a percentage from this file without checking it against actual volume.
 
-**Metrics are not sampled this way.** They keep aggregating and exporting at full fidelity, because error rates and SLO burn cannot be computed from a sample.
+**Metrics are not sampled this way, in any environment.** They keep aggregating and exporting at full fidelity, because request counts, error rates, token totals, and SLO burn cannot be computed from a sample. No metrics pipeline — development, staging, or production — contains `tail_sampling`.
 
 ---
 
@@ -213,8 +214,10 @@ processors:
       sampled_cache_size: 500000       # MEASURE: late-span decision headroom
       non_sampled_cache_size: 500000   # MEASURE: late-span decision headroom
     # Policies are evaluated as an OR: a trace is kept if ANY policy votes to
-    # keep it. There is no "everything else" policy and no negation operator,
-    # so the probabilistic policy below is evaluated against every trace. The
+    # keep it. Only a `drop` policy vetoes; `not` inverts one policy's vote
+    # (both present in 0.159.0, replacing the deprecated inverted decisions).
+    # There is no "everything else" policy, so the probabilistic policy below
+    # is evaluated against every trace. The
     # traces it selects that an earlier policy already kept are simply kept
     # once — which is why the net effect still is "errors/slow/important 100%,
     # normal successes at the configured percentage." It is also why configured
@@ -386,7 +389,7 @@ Add a processor only with a stated purpose. Each one costs CPU and a place where
 
 ## Adding a GenAI backend path
 
-Two pipelines consume one application trace: APM keeps the complete tree without GenAI payloads; the GenAI backend keeps approved payloads and only the rooted projection from `genai_projection.md`. The application still owns one provider and root; neither branch rewrites identity. This is how a GenAI-focused tracing tool receives only GenAI traces without a second SDK or trace.
+Two pipelines consume one application trace under the destination contract in `genai_projection.md`. This is how a GenAI-focused tracing tool receives only GenAI traces without a second SDK or trace.
 
 ```yaml
 processors:
@@ -438,9 +441,7 @@ service:
       exporters: [otlphttp/genai]
 ```
 
-Every retained span needs a retained path to the root; the processor does not infer ancestors. Mark the root, GenAI spans, and real business ancestors with `app.telemetry.category="genai"`, not operational siblings. Never filter on `gen_ai.*` alone. If no meaningful business wrapper exists, parent the workflow directly under the operation root. The full invariant is in `genai_projection.md`.
-
-Both branches share a trace ID and preserve retained span/parent IDs. A log's trace ID finds the operation in both backends; a projected-out span has no observation-level counterpart in the GenAI backend.
+The filter does not infer ancestors; which spans to mark is in `genai_projection.md`, "The projection must be ancestor-closed".
 
 **Naming `tail_sampling` in two pipelines allocates it twice.** This example has two buffers and decision-cache pairs. Budget `N ×` the single-instance estimate (`--sampling-pipelines N`), or sample once and fan out through a routing/forward connector. Identical probabilistic policies agree because both hash the same trace ID with the same default salt.
 
@@ -555,29 +556,84 @@ Telemetry loss is preferable to application downtime. Silent telemetry loss duri
 
 ## Before calling it done
 
+This is the acceptance checklist for a production Collector and for any
+production retention or rollout change (`../tracing/production_policy.md` owns
+the policy; `../verification.md` §10–11 point here).
+
+Config and capacity:
+
 - [ ] `otelcol validate` passes against the production image.
 - [ ] No `# MEASURE:` value from this file survives unreplaced.
+- [ ] The policy records measured new traces/second, average and p95 spans/trace,
+      p99 complete-trace arrival, serialized size, backend budget, and minimum
+      useful samples. Example percentages and capacities were not copied as defaults.
 - [ ] `memory_limiter` is first, and its limit is below the container memory limit.
 - [ ] No metrics pipeline contains a sampling processor.
-- [ ] Errors and slow traces are kept at 100%; the sampled percentage is justified by measured volume.
 - [ ] `decision_wait` exceeds measured **p99 complete-trace arrival plus jitter**, not merely p99 trace duration.
-- [ ] `num_traces` and decision caches survive measured bursts and late spans, multiplied by the number of pipelines that name `tail_sampling`.
-- [ ] `deployment.environment.name` uses `action: insert`, so a service that sets its own environment is not relabelled.
-- [ ] `exception.stacktrace` is deleted on traces only; a canary exception's stack trace still arrives in the log backend.
+- [ ] `num_traces` and decision caches survive measured bursts and late spans, multiplied by the number of pipelines that name `tail_sampling`. Exercise a deliberately late span.
 - [ ] Trace-ID-aware routing exists in front of any scaled tail-sampling tier.
-- [ ] Successful-noise handling preserves failed probes and does not orphan instrumented children.
-- [ ] Canary secrets do not reach any backend.
-- [ ] Email and other low-entropy personal fields are deleted, not presented as anonymized hashes.
+- [ ] Collector telemetry shows no early drops, unexpected late spans, policy
+      errors, or memory pressure at the expected peak. Record the actual effective
+      retained ratio rather than adding configured policy percentages.
+
+Retention behaviour:
+
+- [ ] Force a failure and a slow operation: complete retained traces reach the
+      main backend and specialized backends receive their same-trace-ID connected
+      projections regardless of the normal-success percentage. The sampled
+      percentage is justified by measured volume.
+- [ ] Error retention matches any `ERROR` span and keeps the entire trace; log severity alone does not satisfy this check.
+- [ ] Critical non-errors use a separate bounded-outcome policy instead of false `ERROR` status.
+- [ ] Critical routes/outcomes are matched by bounded, observed attributes. Raw
+      user, tenant, request, session, conversation, or workflow-run IDs are not
+      general sampling dimensions.
+- [ ] Successful-noise handling preserves failed probes and does not orphan
+      instrumented children; a Collector span filter matches only a verified leaf
+      or self-contained boundary.
+- [ ] A release burn-in rule matches one immutable `service.version`, has an
+      owner and expiry, and is removed in a rehearsal of the cleanup path.
+- [ ] Any forced-diagnostic path is authenticated, internal, allowlisted,
+      audited, time-bounded, and cannot be activated by public headers, messages, or
+      caller-supplied baggage.
+- [ ] Temporary burn-in/diagnostic rules have an owner and automatic or mandatory expiry removal.
+
+Redaction and security:
+
+- [ ] `deployment.environment.name` uses `action: insert`, so a service that sets its own environment is not relabelled.
+- [ ] `exception.stacktrace` is deleted on traces only; the logs pipeline never
+      overrides the application's exception-detail setting, and a canary
+      exception's stack trace still arrives in the log backend.
+- [ ] Canary secrets — a fake API key, email, and authorization header — reach no backend.
+- [ ] `user.email` and other low-entropy personal fields are deleted on every
+      Collector path; no test or documentation presents the unsalted `hash`
+      action as anonymization.
 - [ ] Credentials come from a secret store and appear in no committed file.
 - [ ] Receivers are bound to private networks.
-- [ ] Collector self-metrics are pushed over OTLP to an independent monitoring path, and structured internal logs leave via an independent platform log agent or direct endpoint.
-- [ ] Any periodic self-metrics reader has an explicit, measured reader-level timeout comfortably below the platform termination grace period, and a hanging-destination shutdown test proves application queues still drain.
+
+Delivery and self-telemetry:
+
+- [ ] Receive and export counters both increase for a canary;
+      `otelcol_exporter_send_failed_*` does not increase.
+- [ ] Collector self-metrics are pushed over OTLP by a periodic reader to an
+      independent monitoring path, with no pull reader or metrics listener, and
+      the monitoring backend contains `otelcol_process_uptime`; structured
+      internal logs leave via an independent platform log agent or direct endpoint.
+- [ ] Any periodic self-metrics reader passes the reader-timeout and hanging-sink shutdown test in `component.md`, "Keep the monitoring path independent".
 - [ ] Collector self-telemetry has stable role/environment identity, preserves
       the per-replica `service.instance.id`, and alerts use rates/increases for
       counters rather than historical values.
 - [ ] Health probes, self-telemetry, and an end-to-end backend canary are all present; none is treated as proof supplied by another.
-- [ ] Temporary burn-in/diagnostic rules have an owner and expiry.
-- [ ] Each GenAI-backend exporter passes that backend's checks in `../backends/` (Langfuse: `../backends/langfuse.md`).
-- [ ] The main trace backend contains the complete operational tree with every verbose GenAI payload and neutral presentation copy removed.
-- [ ] The GenAI backend contains the same trace ID, the root, GenAI spans, and only their meaningful business ancestors; every retained parent exists and retained span IDs match the main trace.
+- [ ] One complete golden trace is searchable in the main backend and the same
+      trace ID resolves to each expected specialized projection; reconcile
+      application, Collector, and backend counts and document expected
+      sampling/filtering differences.
+- [ ] The config is canaried before fleet rollout and the rollback procedure is exercised.
+
+GenAI backend (when configured):
+
+- [ ] The projection passes `genai_projection.md`, "Acceptance invariants".
+- [ ] Destination presentation attributes are created only on the GenAI-backend
+      branch; the main trace backend contains neither `app.gen_ai.observation.*`
+      nor any vendor payload copy such as `langfuse.observation.*`.
 - [ ] Tail sampling evaluates the complete trace before the GenAI projection filter.
+- [ ] Each GenAI-backend exporter passes that backend's checks in `../backends/` (Langfuse: `../backends/langfuse.md`).

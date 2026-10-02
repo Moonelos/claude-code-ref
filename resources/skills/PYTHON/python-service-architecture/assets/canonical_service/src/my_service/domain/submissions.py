@@ -14,6 +14,8 @@ class SelectionRequest:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Selection:
+    """A normalized selection; only `normalize` builds one from a request."""
+
     record_type: str
     max_records: int
 

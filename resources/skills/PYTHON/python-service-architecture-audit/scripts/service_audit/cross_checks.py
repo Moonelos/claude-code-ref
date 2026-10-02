@@ -269,13 +269,13 @@ def normalized_body(module: Module) -> str:
 def duplicate_llm_findings(modules: list[Module]) -> Iterator[Finding]:
     groups: dict[str, list[Module]] = defaultdict(list)
     for module in modules:
-        if module.owner == "genai" and module.path.name == "llm.py":
+        if module.owner == "genai" and module.path.name == "llms.py":
             groups[normalized_body(module)].append(module)
     for group in groups.values():
         if len(group) > 1:
             others = ", ".join(item.display for item in group[1:])
             yield review(
-                group[0], 1, f"identical genai llm.py bodies: {others}", R_ONE_OWNER
+                group[0], 1, f"identical genai llms.py bodies: {others}", R_ONE_OWNER
             )
 
 

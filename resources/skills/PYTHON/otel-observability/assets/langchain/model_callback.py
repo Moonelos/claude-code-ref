@@ -2,6 +2,7 @@
 
 Template for `references/tracing/genai/langchain/model_callback.md`. Copy it into the
 service's `observability/` package and adapt the imports to the modules that exist there.
+`observability.genai_content` is the template in `assets/genai_content.py`.
 """
 
 import time
@@ -15,7 +16,10 @@ from observability.agent_counters import current_counters
 from observability.genai_attributes import (
     APP_OBSERVATION_INPUT,
     APP_OBSERVATION_OUTPUT,
+    APP_INPUT_BATCH_SIZE,
     APP_INPUT_CAPTURE_MODE,
+    APP_OUTPUT_CAPTURE_MODE,
+    APP_STREAM_CHUNK_COUNT,
     ERROR_TYPE,
     GENAI_FINISH_REASONS,
     GENAI_INPUT_MESSAGES,
@@ -23,8 +27,11 @@ from observability.genai_attributes import (
     GENAI_OUTPUT_MESSAGES,
     GENAI_OUTPUT_TYPE,
     GENAI_PROVIDER_NAME,
+    GENAI_REQUEST_MAX_TOKENS,
     GENAI_REQUEST_MODEL,
     GENAI_REQUEST_STREAM,
+    GENAI_REQUEST_TEMPERATURE,
+    GENAI_REQUEST_TOP_P,
     GENAI_RESPONSE_ID,
     GENAI_RESPONSE_MODEL,
     GENAI_SYSTEM_INSTRUCTIONS,
@@ -127,9 +134,9 @@ class OTelModelCallback(AsyncCallbackHandler):
         )
 
         for attribute, key in (
-            ("gen_ai.request.temperature", "temperature"),
-            ("gen_ai.request.max_tokens", "max_tokens"),
-            ("gen_ai.request.top_p", "top_p"),
+            (GENAI_REQUEST_TEMPERATURE, "temperature"),
+            (GENAI_REQUEST_MAX_TOKENS, "max_tokens"),
+            (GENAI_REQUEST_TOP_P, "top_p"),
         ):
             if invocation_params.get(key) is not None:
                 span.set_attribute(attribute, invocation_params[key])
@@ -143,7 +150,7 @@ class OTelModelCallback(AsyncCallbackHandler):
                 span.set_attribute(GENAI_SYSTEM_INSTRUCTIONS, captured_system)
             span.set_attribute(GENAI_INPUT_MESSAGES, captured_input)
             span.set_attribute(APP_OBSERVATION_INPUT, serialize_observation_input(messages))
-            span.set_attribute("app.gen_ai.input.batch_size", batch_size)
+            span.set_attribute(APP_INPUT_BATCH_SIZE, batch_size)
             if batch_size > 1:
                 span.set_attribute(APP_INPUT_CAPTURE_MODE, "truncated")
 
@@ -212,7 +219,7 @@ class OTelModelCallback(AsyncCallbackHandler):
 
         if self._streaming:
             span.set_attribute(
-                "app.gen_ai.stream.chunk_count", run["chunk_count"]
+                APP_STREAM_CHUNK_COUNT, run["chunk_count"]
             )
 
         if self._capture_content:
@@ -234,7 +241,7 @@ class OTelModelCallback(AsyncCallbackHandler):
                 )
                 if run["capture_truncated"]:
                     span.set_attribute(
-                        "app.gen_ai.output.capture_mode", "truncated"
+                        APP_OUTPUT_CAPTURE_MODE, "truncated"
                     )
             else:
                 span.set_attribute(
@@ -263,11 +270,11 @@ class OTelModelCallback(AsyncCallbackHandler):
 
         if self._streaming:
             span.set_attribute(
-                "app.gen_ai.stream.chunk_count", run["chunk_count"]
+                APP_STREAM_CHUNK_COUNT, run["chunk_count"]
             )
 
         # A framework callback cannot use start_span, so it marks the span
-        # itself (../../../conventions/errors.md). The boundary logs the detail.
+        # itself (../../references/conventions/errors.md). The boundary logs the detail.
         mark_error(span, error)
 
         record_model_operation(
@@ -287,11 +294,11 @@ class OTelModelCallback(AsyncCallbackHandler):
                 if run:
                     run["span"].set_status(Status(StatusCode.ERROR))
                     # Documented sentinel, not a class name: no exception occurred.
-                    # The closed set is in ../../../conventions/errors.md.
+                    # The closed set is in ../../references/conventions/errors.md.
                     run["span"].set_attribute(ERROR_TYPE, "_ABANDONED")
                     if self._streaming:
                         run["span"].set_attribute(
-                            "app.gen_ai.stream.chunk_count", run["chunk_count"]
+                            APP_STREAM_CHUNK_COUNT, run["chunk_count"]
                         )
                     record_model_operation(
                         duration_s=now - run["started_at"],

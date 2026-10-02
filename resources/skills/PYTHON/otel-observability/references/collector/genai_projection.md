@@ -106,7 +106,8 @@ contract, or the GenAI destination must receive the complete trace.
 
 For one mixed business/GenAI/operational canary trace, verify:
 
-- the main backend contains the complete retained tree and no verbose GenAI payload values;
+- the main backend contains the complete retained operational tree and no verbose GenAI payload
+  values, neutral `app.gen_ai.observation.*` presentation copies, or vendor payload copies;
 - the GenAI backend resolves the same trace ID and contains one retained root;
 - every retained span has its complete parent chain to that root;
 - retained span IDs, parent IDs, timestamps, and status match the main backend;
@@ -114,6 +115,6 @@ For one mixed business/GenAI/operational canary trace, verify:
   are present, while unrelated DB, HTTP-client, and persistence siblings are absent; and
 - structural ancestors carry the projection marker but no fabricated GenAI semantic operation.
 
-Application unit tests should prove classification; an exported-telemetry test through the
-pinned Collector must prove destination behavior. `../verification.md` and `../testing.md` own
-the full checklists.
+Application unit tests should prove classification (`../testing.md`); an exported-telemetry test
+through the pinned Collector must prove destination behavior against the list above, in every
+environment that configures a GenAI backend.
