@@ -80,8 +80,8 @@ Stop and propose a production seam, instead of adding more patches, when a test:
 - needs `SimpleNamespace` to stand in for a typed runtime.
 
 Seam shapes to propose: settings-to-policy as a pure function; a composition
-root that accepts constructed resources or builder callables; a public `tick()`
-on loops; caches observed through factory-call counts; an adapter that takes a
+root that accepts constructed resources or builder callables; one iteration as
+a plain worker function; caches observed through factory-call counts; an adapter that takes a
 connection factory instead of calling `connect()` itself.
 
 Patching public module-level factories in one module is tolerated when
@@ -176,10 +176,10 @@ through a factory.
   never `sleep(2 * timeout)`.
 - Wrap every `await` on an event, queue, task, or future in
   `asyncio.timeout(...)`, at most 1 s in unit tests. Poll only through one
-  bounded helper (`await wait_until(predicate, timeout=1)`); never write
+  bounded helper (`await wait_until(predicate, within_seconds=1)`); never write
   `while cond: await asyncio.sleep(0)` or count event-loop yields.
 - For "nothing happens" assertions, drive a deterministic step (manual clock
-  plus `tick()`). When a real broker makes that impossible, name the window as
+  plus one worker-function call). When a real broker makes that impossible, name the window as
   a constant and keep the test in the integration profile.
 - Test builders default to minimal time budgets (at most 0.1 s). A unit test
   slower than about 1 s is a defect; check `--durations`.
@@ -253,8 +253,10 @@ Unit tests then do not re-assert framework shape.
   integration, E2E, live) in the same change. The hermetic job runs
   `pytest --collect-only` over all profiles so a stale import in an
   infrastructure profile fails fast.
-- Delete per-module `pytest.skip` fallbacks once a fail-fast prerequisite hook
-  exists for the profile.
+- Delete per-module `pytest.skip` fallbacks; every infrastructure prerequisite
+  goes through the one `require_env` helper in the support package, which skips
+  locally and fails when `REQUIRE_INTEGRATION=1`
+  ([examples-core.md](examples-core.md#profile-prerequisites-skip-locally-fail-when-required)).
 - Delete spike and prototype code from the collected suite once the decision is
   recorded. Keep scripts with a `main()` outside `tests/`.
 - Prove that importing a module is inert (no connections, threads, or

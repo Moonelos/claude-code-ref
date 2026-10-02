@@ -91,7 +91,8 @@ migration cost. Create one only when the code has one cohesive meaning outside
 any single deployable and there is concrete reuse: normally at least two current
 consumers, or an independently valuable protocol/client/schema boundary with a
 concrete compatibility or dependency-isolation reason. Hypothetical reuse alone
-is not enough.
+is not enough. For permitted versus mandatory extraction, see
+`../python-service-architecture/references/shared-libraries.md#extraction-triggers`.
 
 Check all of these before adding `libs/<name>`:
 
@@ -166,10 +167,18 @@ Before scaffolding, verify the current stable patch release for the chosen
 Python minor and the current stable uv release from official sources. Propose
 the defaults, then ask one concise question: “I will use Python X.Y.Z and uv
 A.B.C; do you want different versions?” Skip the question when the user has
-already supplied both versions. Before copying the bundled asset, update its
-single toolchain manifest and every derived pin with
+already supplied both versions. When nobody can be asked (a delegated agent, a
+non-interactive run), use the installed uv and Python if they are stable
+releases of the intended minor, otherwise the template's pins, and state the
+chosen pins as an assumption in the handoff. After copying the bundled asset
+to a writable location and before using it, update its single toolchain
+manifest and every derived pin with
 `scripts/update_toolchain.py --python X.Y.Z --uv A.B.C`; do not hand-edit a
-subset of the copies.
+subset of the copies. Run that script on a writable copy of the template,
+never on the installed skill source. When constructing a service without
+copying the template, set all new toolchain pins coherently and run the
+equivalent pin checks in that service; the template update script does not
+apply to files it does not own.
 
 The bundled template snapshot currently uses:
 
@@ -236,9 +245,13 @@ rule family carries its one-line rationale there.
   `python-code-conventions` (fallback: `../python-code-conventions/SKILL.md`,
   "Size signals").
 - `INP001` requires `__init__.py` in every package directory (rule owner:
-  `python-code-conventions`, "Imports and package markers"). With real package
-  markers mypy needs no `explicit_package_bases` or namespace-package
-  workaround; remove one when adopting the rule.
+  `python-code-conventions`, "Imports and package markers"). Test directories
+  (`**/tests/**`) and Alembic script directories (`**/alembic/**`) are exempt:
+  tests run under `--import-mode=importlib` without package markers, and
+  Alembic loads its scripts by path.
+- List every import package and each member's test-support package
+  (`<member>_testing`) in `[tool.ruff.lint.isort] known-first-party`; Ruff
+  cannot discover a package that lives under `tests/`.
 - Do not enable `PLR0913` (keyword-only DI constructors legitimately exceed it)
   or `EM`/`TRY003` (high volume, little value). `ANN401`, `FBT001`, and
   `PLR2004` are optional; if enabled, exempt true adapters from `ANN401` and
@@ -250,14 +263,29 @@ mypy runs `strict` with `warn_unreachable` and the `ignore-without-code`,
 `redundant-expr`, and `possibly-undefined` error codes. Add
 `plugins = ["pydantic.mypy"]` whenever any member uses pydantic. The mypy paths
 include tests, test-support packages, and every `conftest.py`; never exclude
-them. For third-party types, add `boto3-stubs`/`types-*` to the dev group; for a
+them. Because tests have no `__init__.py` and several `conftest.py` files, set
+`explicit_package_bases = true` and give mypy each member's `src` and `tests`
+as bases:
+
+- **Single deployable:** `mypy_path = ["src", "tests"]` and `mypy src tests`.
+- **Workspace:** run mypy once per member with
+  `MYPYPATH=<member>/src:<member>/tests` (`scripts/mypy-members.sh` in the
+  template). One run over every member fails with "Duplicate module named
+  conftest", because each member's `tests/conftest.py` is a top-level
+  `conftest`. Libraries ship `py.typed` so consumers type-check against them. For third-party types, add `boto3-stubs`/`types-*` to the dev group; for a
 package with no stubs, list it in one `[[tool.mypy.overrides]]` block with
 `ignore_missing_imports = true`, never per-import `# type: ignore[import-untyped]`.
 
 Every package a member imports directly is declared in that member's
 `dependencies` (or dev group, for test-only imports); an install that arrives
-transitively is not a declaration. Coverage `source` lists every workspace
-import package.
+transitively is not a declaration.
+
+Coverage is reported, not gated: the default `pytest` run collects none, and
+the CI job that runs every non-live profile against real infrastructure reports
+it with `--cov`, because only that run exercises `db/` and migrations. Coverage
+`source` lists every workspace import package and omits Alembic's `env.py` and
+`versions/`. Do not add `fail_under`; coverage is a map for review
+(`pytest`, fallback: `../pytest/SKILL.md`).
 
 The root `testpaths` lists member roots for discovery only. Do not add a root
 `pythonpath` listing every member; make shared test support importable per
@@ -278,7 +306,9 @@ checks in the `pre-commit` stage and reserve workspace-wide type/test checks for
 `pre-push` or CI. Local hooks that need the uv environment run through
 `uv run --locked`; hook versions, root tool pins, CI, and Docker must not drift.
 Discover the repository's actual service and internal-library roots rather than
-assuming the example `services/` and `libs/` names.
+assuming the example `services/` and `libs/` names. Every repository with a
+hexagonal service also runs import-linter architecture contracts in pre-commit
+and CI ([pre-commit.md](references/pre-commit.md#architecture-contracts)).
 
 ## Internal Library Layout
 
@@ -352,10 +382,24 @@ commands for both modes: read
 [references/docker-builds.md](references/docker-builds.md) before creating or
 editing an image.
 
-Use `assets/workspace-template/` as the canonical runnable scaffold. Copy and
-adapt the asset instead of recreating these files from memory. It contains a
-FastAPI service, an internal library, centralized tooling, tests, exact
-toolchain pins, and the workspace-aware multi-stage Dockerfile.
+Copy one of the two canonical runnable scaffolds instead of recreating these
+files from memory:
+
+- **Single deployable:** `assets/single-service-template/`: a FastAPI service
+  in `src/sample_service/` (the `bootstrap/` and `api/` boundaries of
+  `python-service-architecture`, started by `uvicorn --factory`), tests with
+  two `conftest.py` files, the root `Dockerfile`, `compose.yaml`,
+  `.env.example`, pre-commit hooks, and the CI workflow.
+- **Workspace:** `assets/workspace-template/`: a FastAPI service, an internal
+  library, the workspace-aware Dockerfile, the per-member mypy script, and the
+  same hooks and workflow.
+
+Both carry exact toolchain pins and the same Ruff, pytest, coverage, mypy,
+import-linter, pre-commit, and CI decisions
+([CI parity](references/pre-commit.md#ci-parity)); `tests/test_templates.py`
+fails when they drift, so change a shared rule in both. Rename `sample_service`
+(or `sample_api`) everywhere, including `known-first-party`, coverage `source`,
+and the import-linter contracts.
 
 ## Docker Compose And Root `.env`
 
@@ -364,8 +408,11 @@ creating or reviewing `compose.yaml`, root `.env.example`, service environment
 mapping, or local container startup. Compose uses one ignored root `.env` as
 the local stack input. Declare each service's `environment:` mapping explicitly;
 do not attach the whole root file to every container with `env_file: .env`.
-Keep every `services/<name>/.env.example` as that process's complete runtime
-contract; the root `.env.example` documents Compose and stack-level inputs.
+Keep the root `.env.example` focused on values the user must configure or
+consciously choose for the local Compose stack. For each service, put required
+runtime environment variables in active assignments and optional overrides of
+committed config in commented-out assignments in its `.env.example`; see the
+reference for the single-service case.
 
 ## Setup And Verification
 
@@ -380,7 +427,7 @@ uv run --locked pre-commit install
 uv run --locked pre-commit run --all-files --hook-stage pre-commit
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy <python-roots>
+uv run mypy src tests            # single deployable; workspace: scripts/mypy-members.sh
 uv run pytest
 uv run --locked pre-commit run --all-files --hook-stage pre-push
 docker compose config --quiet

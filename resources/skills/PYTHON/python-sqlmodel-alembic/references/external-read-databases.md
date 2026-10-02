@@ -25,7 +25,7 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from myservice.db.limits import apply_transaction_limits
+from myservice.db.transactions import apply_transaction_limits
 
 
 class BillingSourceUnavailableError(Exception):

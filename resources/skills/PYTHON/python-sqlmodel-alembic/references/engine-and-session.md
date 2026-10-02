@@ -1,12 +1,12 @@
 # Engine, sessions and transactions
 
-## `engine.py`: a builder, never a module-level engine
+## `engine.py`: builders, never a module-level engine
 
-`engine.py` exposes a builder. It holds no engine, reads no settings and has no
-pool literals:
+`engine.py` exposes the engine builder and the session factory builder. It
+holds no engine, reads no settings and has no pool literals:
 
 ```python
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 
 def build_engine(
@@ -30,6 +30,10 @@ def build_engine(
         pool_recycle=pool_recycle_seconds,
         pool_pre_ping=True,
     )
+
+
+def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False)
 ```
 
 Bootstrap calls it once per process and registers `dispose` on the exit stack
@@ -41,16 +45,16 @@ from contextlib import AsyncExitStack
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from myservice.config.secrets import Secrets
 from myservice.config.settings import Settings
-from myservice.db.engine import build_engine
-from myservice.db.session import build_session_factory
+from myservice.db.engine import build_engine, build_session_factory
 
 
 def build_database(
-    *, settings: Settings, stack: AsyncExitStack
+    *, settings: Settings, secrets: Secrets, stack: AsyncExitStack
 ) -> async_sessionmaker[AsyncSession]:
     engine = build_engine(
-        settings.database_url.get_secret_value(),
+        secrets.database_dsn.get_secret_value(),  # the DSN carries a password
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout_seconds=settings.db_pool_timeout_seconds,
@@ -62,7 +66,8 @@ def build_database(
 
 Acquisition order, cleanup and failure during startup follow
 `../../python-service-architecture/references/async-and-lifecycle.md`
-(Resource acquisition). Pool sizes and the URL are settings (`python-settings-config`).
+(Resource acquisition). Pool sizes are settings and the DSN is a secret
+(`python-settings-config`).
 
 - Never call `create_async_engine(...)` per request or per call: each call
   allocates a new pool, and the result looks like a pool-*sizing* problem when
@@ -97,17 +102,9 @@ across all processes against the database's `max_connections` before growing
 any one pool. At scale, a pooler (PgBouncer in transaction mode) is the fix;
 see "Per-transaction limits" for the connection settings it requires.
 
-## `session.py`: a session factory
+## The session factory
 
-```python
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-
-
-def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    return async_sessionmaker(engine, expire_on_commit=False)
-```
-
-- `session.py` imports no engine; bootstrap passes it in.
+- `build_session_factory` imports no engine; bootstrap passes it in.
 - Use SQLAlchemy's `AsyncSession` for the shared factory and every repository.
   For SQLModel instances, call `session.scalars(select(Model))`; for Core
   statements and projections, call `session.execute(...)`. Merely annotating a
@@ -125,10 +122,11 @@ the transaction.
 
 - **Repositories never call `commit`, `begin` or `rollback`.** They may `flush()`.
 - **Exactly one owner draws the transaction**, chosen by who needs atomicity:
-  1. **One port call = one transaction.** A store holds the session factory,
-     opens a transaction per method and composes repositories inside it. A
-     thin `db/<area>_transactions.py` coordinator may import `AsyncSession`
-     for this; it implements no queries and no policy.
+  1. **One port call = one transaction.** The class that implements the port
+     holds the session factory, opens a transaction per method, and runs its
+     queries (or composes repositories) inside it. Never add a separate
+     `db/<area>_transactions.py` class that opens the transaction and forwards
+     to a same-named repository method (see "No forwarding stores" below).
   2. **The application needs several operations atomically.** A unit of work
      (UoW) is an async context manager that opens the session on enter (not in
      `__init__`) and exposes repositories plus an explicit `commit()`.
@@ -143,40 +141,71 @@ the transaction.
 # db/transactions.py
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from myservice.db.integrity import constraint_name
-from myservice.ports.store import StoreIntegrityError, StoreUnavailableError
+from myservice.ports.errors import DependencyRejectedError, DependencyUnavailableError
 
 # SQLAlchemy wraps driver socket and timeout failures in these. Never add bare
-# OSError/TimeoutError: they would relabel non-DB failures in the body as DB outages.
+# OSError/TimeoutError around the body: they would relabel non-DB failures in
+# the body as DB outages.
 _UNAVAILABLE = (OperationalError, InterfaceError, PoolTimeoutError)
+
+
+def constraint_name(exc: IntegrityError) -> str | None:
+    """The violated constraint's name; asyncpg shown (psycopg: `exc.orig.diag.constraint_name`)."""
+    cause = getattr(exc.orig, "__cause__", None)
+    name = getattr(cause, "constraint_name", None)
+    return name if isinstance(name, str) else None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PortErrors:
+    """The calling port's own error types; each store passes its module constant."""
+
+    unavailable: type[DependencyUnavailableError]
+    integrity: type[DependencyRejectedError]
+
+
+@asynccontextmanager
+async def _translated(errors: PortErrors) -> AsyncIterator[None]:
+    try:
+        yield
+    except IntegrityError as exc:
+        raise errors.integrity(error_code=f"constraint:{constraint_name(exc)}") from exc
+    except _UNAVAILABLE as exc:
+        raise errors.unavailable(error_code="database_unavailable") from exc
+
+
+async def _checkout(session: AsyncSession, errors: PortErrors) -> None:
+    # asyncpg raises a bare OSError (ConnectionRefusedError, connect timeout)
+    # while opening a connection; SQLAlchemy does not wrap it. Catch it only
+    # here, around checkout, never around the transaction body.
+    try:
+        await session.connection()
+    except OSError as exc:
+        raise errors.unavailable(error_code="database_unreachable") from exc
 
 
 @asynccontextmanager
 async def transaction(
-    sessions: async_sessionmaker[AsyncSession],
+    sessions: async_sessionmaker[AsyncSession], *, errors: PortErrors
 ) -> AsyncIterator[AsyncSession]:
-    try:
-        async with sessions() as session, session.begin():
-            yield session
-    except IntegrityError as exc:
-        raise StoreIntegrityError(constraint=constraint_name(exc)) from exc
-    except _UNAVAILABLE as exc:
-        raise StoreUnavailableError from exc
+    async with _translated(errors), sessions() as session, session.begin():
+        await _checkout(session, errors)
+        yield session
 
 
 @asynccontextmanager
 async def read_transaction(
-    sessions: async_sessionmaker[AsyncSession],
+    sessions: async_sessionmaker[AsyncSession], *, errors: PortErrors
 ) -> AsyncIterator[AsyncSession]:
-    async with transaction(sessions) as session:
-        # session.begin() is logical; connection() checks out the connection.
-        # Execute this before any query, flush, or transaction-local limit.
+    async with transaction(sessions, errors=errors) as session:
+        # The connection is already checked out; this is the first statement.
         connection = await session.connection()
         await connection.execute(text("SET TRANSACTION READ ONLY"))
         yield session
@@ -184,19 +213,26 @@ async def read_transaction(
 
 @asynccontextmanager
 async def unit_of_work_session(
-    sessions: async_sessionmaker[AsyncSession],
+    sessions: async_sessionmaker[AsyncSession], *, errors: PortErrors
 ) -> AsyncIterator[AsyncSession]:
     """Caller commits explicitly; closing the session rolls back the rest."""
-    try:
-        async with sessions() as session:
-            yield session
-    except IntegrityError as exc:
-        raise StoreIntegrityError(constraint=constraint_name(exc)) from exc
-    except _UNAVAILABLE as exc:
-        raise StoreUnavailableError from exc
+    async with _translated(errors), sessions() as session:
+        await _checkout(session, errors)
+        yield session
 ```
 
-`constraint_name` (`db/integrity.py`) is the one helper described under "DB failure contract".
+Each store declares its port's errors once and passes them on every call, so
+two DB ports never share or alias error classes:
+
+```python
+# db/claims.py
+_ERRORS = PortErrors(unavailable=ClaimStoreUnavailableError, integrity=ClaimStoreIntegrityError)
+
+async with transaction(self._sessions, errors=_ERRORS) as session: ...
+```
+
+`constraint_name` is the one helper described under "DB failure contract"; it
+lives in `transactions.py` with the other helpers every transaction uses.
 On PostgreSQL, verify that `SET TRANSACTION READ ONLY` is the first statement
 executed by `read_transaction`, `SHOW transaction_read_only` returns `on`, and
 an attempted write is refused. Run the same check for the external connection
@@ -213,9 +249,12 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from myservice.db.repositories.orders import OrderRepository
-from myservice.db.repositories.outbox import OutboxRepository
-from myservice.db.transactions import unit_of_work_session
+from myservice.db.orders import OrderRepository
+from myservice.db.outbox import OutboxRepository
+from myservice.db.transactions import PortErrors, unit_of_work_session
+from myservice.ports.orders import OrdersIntegrityError, OrdersUnavailableError
+
+_ERRORS = PortErrors(unavailable=OrdersUnavailableError, integrity=OrdersIntegrityError)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -229,7 +268,7 @@ class OrdersTransaction:
 async def orders_unit_of_work(
     *, sessions: async_sessionmaker[AsyncSession]
 ) -> AsyncIterator[OrdersTransaction]:
-    async with unit_of_work_session(sessions) as session:
+    async with unit_of_work_session(sessions, errors=_ERRORS) as session:
         yield OrdersTransaction(
             orders=OrderRepository(session=session),
             outbox=OutboxRepository(session=session),
@@ -264,7 +303,10 @@ Classification bases). The DB-specific parts:
   error:
   - **Unavailable** (retryable): `OperationalError`, `InterfaceError` and the
     pool `TimeoutError`, which wrap driver connection and timeout failures.
-    Never catch bare `OSError`/`TimeoutError` around a transaction body.
+    Never catch bare `OSError`/`TimeoutError` around a transaction body; the
+    one exception is connection checkout, where asyncpg raises a bare `OSError`
+    that SQLAlchemy does not wrap (`_checkout` above). Cover it with an
+    integration test that points the engine at a closed port.
   - **Integrity or corrupt state:** a named error carrying the constraint,
     never `RuntimeError`.
   - Any other `SQLAlchemyError` (`ProgrammingError`, `DataError`) is a defect;
@@ -290,10 +332,11 @@ Classification bases). The DB-specific parts:
   maintenance statement against one it does, runs in an explicit transaction
   that first sets a transaction-local `statement_timeout` (plus
   `lock_timeout` for writes) through a bound parameter.
-- Implement it once per DB package, with an explicit unit, rounding up:
+- Implement it once per DB package, in `db/transactions.py`, with an explicit
+  unit, rounding up:
 
 ```python
-# db/limits.py
+# db/transactions.py (continued)
 import math
 from datetime import timedelta
 

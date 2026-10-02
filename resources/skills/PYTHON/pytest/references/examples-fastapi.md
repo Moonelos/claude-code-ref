@@ -3,10 +3,15 @@
 These are adaptable patterns. Inspect the repository's installed FastAPI,
 Starlette, client, AnyIO or pytest-asyncio, SQLAlchemy, and lifespan APIs first.
 
-## Sync client with restored dependency overrides
+## Sync client with a runtime of fakes
 
-Configure the app before lifespan. Preserve prior override state even when
-startup or the request fails.
+Routes read one typed runtime through `get_runtime`
+(`python-service-architecture`, fallback:
+`../../python-service-architecture/references/api-and-workers.md`, "FastAPI /
+HTTP API"). A `unit/api/` test overrides that one dependency with a runtime
+built from fakes; there is no per-action or per-port provider to override. The
+client is not entered as a context manager, so lifespan (which would build the
+real runtime) does not run.
 
 ```python
 from collections.abc import Iterator
@@ -15,36 +20,38 @@ from dataclasses import dataclass
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_submit_order
-from app.application.submit import SubmitOrderRequest
-from app.bootstrap.app_factory import create_app
-from app_testing.orders import RecordingSubmitOrder
+from app.api.dependencies import get_runtime
+from app.bootstrap.app import create_app
+from app.domain.orders import OrderPolicy
+from app_testing.orders import FakeOrderStore
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FakeRuntime:
+    """Satisfies `ApiRuntime` structurally."""
+
+    order_store: FakeOrderStore
+    order_policy: OrderPolicy
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OrdersApi:
     client: TestClient
-    submit_order: RecordingSubmitOrder
+    store: FakeOrderStore
 
 
 @pytest.fixture
 def orders_api() -> Iterator[OrdersApi]:
-    app = create_app(environment="test")
-    submit_order = RecordingSubmitOrder()
-    previous_overrides = app.dependency_overrides.copy()
-    app.dependency_overrides[get_submit_order] = lambda: submit_order
-
+    app = create_app()
+    runtime = FakeRuntime(order_store=FakeOrderStore(), order_policy=OrderPolicy(max_quantity=10))
+    app.dependency_overrides[get_runtime] = lambda: runtime
     try:
-        with TestClient(app) as client:
-            yield OrdersApi(client=client, submit_order=submit_order)
+        yield OrdersApi(client=TestClient(app), store=runtime.order_store)
     finally:
         app.dependency_overrides.clear()
-        app.dependency_overrides.update(previous_overrides)
 
 
-def test_submit_order_forwards_idempotency_key_and_quantity(
-    orders_api: OrdersApi,
-) -> None:
+def test_submit_order_translates_http_to_the_action(orders_api: OrdersApi) -> None:
     response = orders_api.client.post(
         "/orders",
         headers={"Idempotency-Key": "order-op-7"},
@@ -53,14 +60,12 @@ def test_submit_order_forwards_idempotency_key_and_quantity(
 
     assert response.status_code == 202
     assert response.json() == {"operation_id": "order-op-7", "status": "accepted"}
-    assert orders_api.submit_order.requests == [
-        SubmitOrderRequest(operation_id="order-op-7", quantity=2)
-    ]
+    assert orders_api.store.submitted_operation_ids == ["order-op-7"]
 ```
 
-The interaction assertions are justified because translating public HTTP
-identity and quantity is the router's contract. Keep the business decision
-matrix in direct application tests.
+The route calls the real `submit_order` action with the fake store, so the test
+proves HTTP translation and wiring. Keep the business decision matrix in direct
+domain and application tests.
 
 ## Async client with explicit lifespan
 

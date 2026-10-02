@@ -48,20 +48,46 @@ knowledge needed for a promised capability. A stable fundamental absent from eve
 gap; internal mentions and recent release notes are not prerequisites for discovering it. Unsupported
 hunches remain labeled research questions rather than confident findings. No arbitrary gap-count cap.
 
-## Check currency separately
+## Check currency and the current landscape
 
-For evolving subjects inspect supported versions, release and migration notes, removals, changed
-defaults, integration guidance, and relevant new capabilities. Compare the chosen teaching baseline
-and current alternatives explicitly. Mark preview, proposed, deprecated, and generally available
-behavior accurately; a roadmap or accepted design proposal does not prove availability. Cite the
-actual source and date for external claims, including “nothing material changed.”
+Web research is mandatory. Use WebSearch to find sources and WebFetch to read them; a search snippet
+is not evidence. Mark research `INCOMPLETE` only when these tools are unavailable or fail, and say so
+in the first lines of the report, not only in a metadata field.
 
-A historical or pinned-version course may be correct within its scope. Identify applicability and
-migration implications rather than automatically rewriting it around the newest release. Include
-recent items only when they change an in-scope design, example, recommendation, or operational outcome.
+Run these searches for every evolving subject (a stable subject still gets the first two):
 
-If browsing or sources are unavailable, continue local explanation and path checks, record what was
-not verified, and mark research incomplete. Do not present memory-based guesses as source evidence.
+1. Official release notes and changelog for the last 12–18 months.
+2. Deprecations, removals, changed defaults, and migration guides.
+3. Preview and beta features on the official roadmap or docs.
+4. Emerging practice: widely adopted new tools, patterns, or integrations, found through
+   maintainer blogs, conference talks, CNCF/foundation landscapes, popular OSS repositories, and
+   engineering blogs from companies that run the technology at scale.
+
+Label each item with its status and source tier:
+
+| Status | Meaning |
+|---|---|
+| `GA` | Generally available in a released version. |
+| `PREVIEW` | Beta, preview, experimental, or feature-flagged. |
+| `DEPRECATED` | Deprecated or removed, or a default that changed. |
+| `EMERGING` | A practice or tool gaining adoption, not an official feature. |
+
+Source tiers are `primary` (official docs, release notes, specifications, maintainer statements) and
+`community` (conference talks, well-known engineering blogs, adoption signals such as download counts
+or stars). `EMERGING` items can come from community sources when you cite at least two independent
+ones. A roadmap entry or accepted proposal is `PREVIEW` at most, never `GA`.
+
+Report every item that a practitioner reading this collection would want to know about, not only
+items that break an existing example. Then classify its relevance: `CHANGES-BASELINE` (the
+recommended approach or an example must change), `ADD-TO-NOTES` (it belongs in an existing or new
+note), or `MENTION` (worth a line in a "What's changing" section). Exclude only items clearly
+outside the subject.
+
+A historical or pinned-version course may be correct within its scope. Report new items as
+migration context rather than as errors in that scope.
+
+Cite the actual source and date for every external claim, including "nothing material changed."
+Never present memory-based guesses as source evidence.
 
 ## Test transfer, not only restatement
 

@@ -13,6 +13,7 @@ Most of what follows is a **required move**, not a prohibition. A note that only
 - [Concrete carriers](#make-the-mechanism-visible-in-its-native-artifact)
 - [Examples and safety](#examples-baseline-first-hardened-second)
 - [Density, altitude, and completion](#mark-altitude-and-control-prescriptive-density)
+- [Retention and practice](#close-the-lesson-so-it-sticks)
 
 ## Who the note is for
 
@@ -41,7 +42,9 @@ Aim for the middle of the spectrum between soundbite and reference-manual dump:
 ## Develop complete lessons
 
 Read `lesson-design.md` before choosing boundaries. Develop the inference between claims through
-continuous examples and interpreted visuals where useful. A successful six-element teach-back
+continuous examples and interpreted diagrams. `lesson-design.md` lists the explanation shapes that
+require a diagram (multiple actors, time ordering, state lifecycles, topology, data paths). A
+successful six-element teach-back
 checks extractable evidence; it does not prove the complete lesson is developed for its reader.
 Review recurring concept overload and fragmentation at chapter/sequence level, and merge or rewrite
 when local additions cannot repair them. Preserve necessary depth at explicit destinations.
@@ -325,6 +328,42 @@ test to the role-appropriate opening payoff, each core mechanism, and the comple
 At meaningful milestones also test transfer to a changed condition using `curriculum-research.md`,
 with a reasoned solution grounded in material already taught.
 
+## Close the lesson so it sticks
+
+Understanding on first read fades within days unless the reader retrieves it. Every foundation,
+tutorial, and implementation note ends with a short retention block. Decision guides end with one
+decision exercise. References skip it.
+
+1. **Recap:** 3–6 bullets restating the causal chain, not the headings: the problem, the mechanism,
+   the result, the first failure. A returning reader should be able to rebuild the lesson from
+   these bullets.
+2. **Check yourself:** 2–4 questions that require prediction, diagnosis, or choice, not recall of a
+   definition. Put each answer in a collapsed block with its reasoning, so the reader attempts
+   the question first:
+
+   ```markdown
+   **Q: Worker B asks for the lock at t=40. A renewed at t=20 with a 30s lease. What happens?**
+
+   <details><summary>Answer</summary>
+
+   B is refused. A's renewal moved the deadline to t=50, and the lock server only grants a new
+   lease after the current deadline passes. If you answered "granted," you used the original t=30
+   deadline, but renewal replaces it.
+
+   </details>
+   ```
+
+   At least one question per milestone note changes a condition, as in the transfer protocol in
+   `curriculum-research.md`.
+3. **Try it (tutorials and implementations):** one faded exercise. Give a changed requirement,
+   supply the scaffold and a hint, and leave the key step to the reader, with a worked solution in a
+   collapsed block. The path runs from a fully worked example, to a partially worked one, to the
+   reader doing it alone.
+
+For a collection, keep a root `GLOSSARY.md` with one-line definitions of every term the notes gloss,
+each linking to the note that teaches the term. The glossary is for lookup. It never replaces the
+inline gloss at first use.
+
 ## Use headings and insights to aid understanding
 
 **Section headers should answer, not label.** "Lifecycle Events" says what's in the section; "Which events you'll actually use" says what the reader leaves with. The second is also what a returning reader scans for six months later.
@@ -335,7 +374,12 @@ with a reasoned solution grounded in material already taught.
 
 ## Currency — verify, don't assume
 
-Anything time-sensitive (versions, deprecated APIs, pricing, "current best practice," product names) must reflect the live current state. If a fix depends on a fact that could have changed, confirm it against a current source before writing it in. Don't restore stale claims from training-data memory.
+Anything time-sensitive (versions, deprecated APIs, pricing, "current best practice," product names) must reflect the live current state. If a fix depends on a fact that could have changed, confirm it against a current source (WebSearch, then WebFetch the source page) before writing it in. Don't restore stale claims from training-data memory.
+
+For an evolving subject, add a short **What's changing** section to the root README or the relevant
+decision guide. List recent GA features, preview features, deprecations, and emerging practice that
+affect the reader's choices, each with a status label, a source, and a checked date. Teach a new
+feature in the body only when it changes the recommended baseline.
 
 ## Tone
 

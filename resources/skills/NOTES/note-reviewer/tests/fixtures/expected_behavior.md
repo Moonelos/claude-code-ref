@@ -48,6 +48,23 @@ Run structural regressions with `python3 -m unittest discover -s <skill>/tests -
 The maker suite also checks that the shared references remain identical. Behavioral verdicts still
 require the independent forward test; unit tests do not evaluate prose quality.
 
+## Diagram, practice, and landscape scenarios
+
+- A foundation note that explains a three-actor handoff (for example a lease renewal between two
+  workers and a lock server) only in prose must get `VISUAL: FAIL` with a Mermaid sketch using the
+  note's own actors and values. `demonstrated_foundation.md`'s single-actor trace may pass without one.
+- A diagram that repeats nouns and arrows with no interpretation fails VISUAL even though a diagram
+  is present.
+- A foundation note with no recap or check-yourself questions gets `PRACTICE: FAIL`. Questions that
+  only ask for a definition also fail. A reference note is `PRACTICE: n/a`.
+- For `stale_current.md`, `landscape.audit.md` must list the current replacement with status,
+  relevance, placement, and a dated URL. A memory-based item with no URL is a failure.
+- With web tools available, `Research: INCOMPLETE` is a failure of the audit, not an acceptable
+  shortcut. With no tools, the landscape header records what could not be searched and the user
+  summary says so first.
+- An emerging practice backed by a single blog post stays out of the report or is labeled as a
+  research question. It is not an `EMERGING` item.
+
 ## Whole-lesson calibration
 
 Use `lesson_quality/expectations.md` after a blind evaluation of its four note fixtures. Do not give

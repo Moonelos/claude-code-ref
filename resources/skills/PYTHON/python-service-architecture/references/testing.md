@@ -50,6 +50,7 @@ integration test.
 | --- | --- |
 | Domain rule or application action using port fakes | `unit/domain/`, `unit/application/` |
 | API router through an in-process client with outer ports replaced | `unit/api/` |
+| Worker function or consumer with a fake runtime view and a fake inbox | `unit/workers/` |
 | Bootstrap construction and lifecycle with injected constructors | `unit/bootstrap/` |
 | Concrete adapter or GenAI capability with a fake SDK or model handle | `unit/adapters/`, `unit/genai/` |
 | Settings model validation (types, cross-field rules) | `unit/config/` |
@@ -165,22 +166,7 @@ production port:
   guard, reset, migrate, dispose) goes in one workspace test-support package or
   pytest plugin, not in copies per member.
 - Omit `tests/__init__.py`; the support package has its own `__init__.py`.
+  mypy then needs `explicit_package_bases` with the member's `src` and `tests`
+  as bases, one run per member (`python-repository-setup`, "Lint, Type, And
+  Test Baseline").
 - Environment variables are read inside fixtures, never at import time.
-
-## Structure-only migration
-
-1. Inventory every test module by execution profile, owner, fixtures, support
-   imports, markers, and CI command.
-2. Split mixed-profile and mixed-owner modules before moving them; preserve
-   assertions and names unless a rename exposes ownership.
-3. Create only the profile and owner directories the suite needs.
-4. Move expensive fixtures to their narrowest profile; move importable support
-   code out of `conftest.py` into the support package.
-5. Replace bare helper imports with qualified ones; do not broaden `pythonpath`.
-6. Align markers, pytest configuration, pre-commit/pre-push filters, local
-   commands, and CI selectors with the new directories.
-7. Move one profile or capability slice at a time, run it, then finish with every
-   profile command the repository supports.
-
-Do not combine a folder-only migration with production refactoring, test
-rewrites, or coverage expansion unless the user requests both.

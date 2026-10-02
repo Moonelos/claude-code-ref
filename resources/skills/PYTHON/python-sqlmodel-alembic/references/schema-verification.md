@@ -123,8 +123,10 @@ markers; Test support packages). The DB-specific guard:
   database name without the `test_` prefix, fails the session before any
   statement runs. CI's throwaway service container uses a name that passes
   (`postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/test_orders`).
-- When the variable is unset, the tests **fail** in CI profiles (mark them
-  with the repo's `requires_env` marker) and skip only in local profiles, so
+- When the variable is unset, the tests **fail** in CI profiles
+  (`REQUIRE_INTEGRATION=1`, through pytest's `require_env` helper:
+  `../../pytest/references/examples-core.md`, "Profile prerequisites") and skip
+  only in local runs, so
   a CI misconfiguration can't turn the whole DB tier green by skipping it.
 - Each service's fixtures drop and rebuild only the schemas that service owns
   (`repo-layout.md`, "Schema ownership and prototype mode"), never

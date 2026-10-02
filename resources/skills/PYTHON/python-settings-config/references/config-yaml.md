@@ -14,7 +14,7 @@ nested section is a nested map.
 ```text
 config/
 ├── base.yaml                 # required: every policy key
-├── local.yaml                # required per environment: only keys that differ
+├── local.yaml                # required per environment, even when empty: only keys that differ
 ├── staging.yaml
 ├── production.yaml
 └── services/                 # multi-service repositories; optional layers
@@ -24,6 +24,14 @@ config/
 
 Keep existing environment names (`dev`, `prod`) and an existing layout.
 
+Every environment file starts with the same header, so readers know it is an
+override layer and not a full configuration:
+
+```yaml
+# Overrides for ENVIRONMENT_NAME=<environment>.
+# Keys here replace the same keys in base.yaml; list only values that differ.
+```
+
 ## Examples
 
 `config/base.yaml`
@@ -31,7 +39,6 @@ Keep existing environment names (`dev`, `prod`) and an existing layout.
 ```yaml
 # Application policy for every environment. No secrets, no topology.
 log_level: INFO
-secret_provider: remote
 log_full_exception_trace: false   # safe projection; see otel exception detail
 request_timeout_seconds: 30
 batch_size: 50
@@ -45,20 +52,25 @@ retry:
 `config/local.yaml`
 
 ```yaml
+# Overrides for ENVIRONMENT_NAME=local.
+# Keys here replace the same keys in base.yaml; list only values that differ.
 log_level: DEBUG
-secret_provider: env
 log_full_exception_trace: true
 ```
 
 `config/staging.yaml`
 
 ```yaml
-# Same policy as base.yaml.
+# Overrides for ENVIRONMENT_NAME=staging.
+# Keys here replace the same keys in base.yaml; list only values that differ.
+# None yet: staging runs the base.yaml policy.
 ```
 
 `config/production.yaml`
 
 ```yaml
+# Overrides for ENVIRONMENT_NAME=production.
+# Keys here replace the same keys in base.yaml; list only values that differ.
 log_level: WARNING
 retry:
   max_attempts: 8

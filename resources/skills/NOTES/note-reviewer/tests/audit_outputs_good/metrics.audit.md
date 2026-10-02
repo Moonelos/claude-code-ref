@@ -5,7 +5,10 @@ Paths with an execution payoff within two entries: 1/1
 Paths with an understanding payoff within two entries: 1/1
 Core mechanisms at required coverage level: 1/1
 Executable claims reproduced: 0/0
-Current-landscape items absent or stale: 0
+Current-landscape items absent or stale: unverified; research incomplete
+Landscape by relevance: unverified; research incomplete
+Notes with required diagrams present: n/a; 0 notes with a required shape
+Notes with retention practice: 1/1
 
 Research: INCOMPLETE
 Essential curriculum items accounted for: 1/1 locally; external expectations unverified

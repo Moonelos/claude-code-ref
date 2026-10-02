@@ -1,0 +1,72 @@
+[project]
+name = "my-service"
+version = "0.1.0"
+
+[tool.importlinter]
+root_packages = ["my_service"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "my_service: application uses only admitted inner dependencies"
+type = "forbidden"
+source_modules = ["my_service.application.**"]
+forbidden_modules = [
+    "my_service.adapters",
+    "my_service.api",
+    "my_service.bootstrap",
+    "my_service.config",
+    "my_service.db",
+    "my_service.genai",
+    "my_service.workers",
+    "fastapi",
+    "httpx",
+    "opentelemetry",
+    "sqlalchemy",
+    "sqlmodel",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "my_service: domain and ports are pure"
+type = "forbidden"
+source_modules = ["my_service.domain.**", "my_service.ports.**"]
+forbidden_modules = [
+    "my_service.adapters",
+    "my_service.api",
+    "my_service.application",
+    "my_service.bootstrap",
+    "my_service.config",
+    "my_service.db",
+    "my_service.genai",
+    "my_service.observability",
+    "my_service.workers",
+    "fastapi",
+    "httpx",
+    "opentelemetry",
+    "sqlalchemy",
+    "sqlmodel",
+]
+
+[[tool.importlinter.contracts]]
+name = "my_service: only entry points import bootstrap"
+type = "forbidden"
+source_modules = [
+    "my_service.adapters.**",
+    "my_service.api.**",
+    "my_service.db.**",
+    "my_service.genai.**",
+    "my_service.workers.**",
+]
+forbidden_modules = ["my_service.bootstrap"]
+
+[[tool.importlinter.contracts]]
+name = "my_service: entry points do not import concrete integrations"
+type = "forbidden"
+source_modules = ["my_service.api.**", "my_service.workers.**"]
+forbidden_modules = [
+    "my_service.adapters",
+    "my_service.config",
+    "my_service.db",
+    "my_service.genai",
+]
+allow_indirect_imports = true

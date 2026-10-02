@@ -3,26 +3,27 @@
 Adapt these patterns to the installed worker framework. They do not replace a
 production-broker and production-pool smoke when those mechanics are the risk.
 
-## Asyncio worker loop: commit before acknowledge
+## Consumer worker: settle only after the action commits
 
-Both fakes append to one ordered log, so the assertion proves ordering, not
-just that each call happened. The worker exposes a public `tick()`.
+The worker is a plain `async def` in `workers/` that takes the runtime view and
+returns an `Iteration` (`python-service-architecture`, fallback:
+`../../python-service-architecture/references/api-and-workers.md`, "Long-running
+worker"). The fake store and the fake inbox append to one ordered log, so the
+assertion proves ordering, not just that each call happened. The real action
+runs; only its ports and the inbox are fakes.
 
 ```python
 import asyncio
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Self
 
 import pytest
 
-from app.workers.inbox import (
-    InboxMessage,
-    InboxUnitOfWork,
-    InboxWorker,
-    MessageSource,
-    TickOutcome,
-)
+from app.domain.orders import PaidOrder, RetryPolicy
+from app.workers.inbox import Ack, Delivery, Retry, Settlement
+from app.workers.paid_orders import consume_paid_orders
+from app.workers.runtime import Iteration
+from app_testing.builders import paid_order
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,69 +34,104 @@ class EffectLog:
 
 
 @dataclass
-class FakeSource:
+class FakeInbox:
     log: EffectLog
-    pending: deque[InboxMessage]
+    pending: deque[Delivery[PaidOrder]]
 
-    async def receive(self) -> InboxMessage | None:
-        return self.pending.popleft() if self.pending else None
+    async def receive(self) -> list[Delivery[PaidOrder]]:
+        batch = list(self.pending)
+        self.pending.clear()
+        return batch
 
-    async def ack(self, message_id: str) -> None:
-        self.log.events.append(f"ack:{message_id}")
+    async def settle(self, delivery: Delivery[PaidOrder], settlement: Settlement) -> None:
+        self.log.events.append(f"{type(settlement).__name__.lower()}:{delivery.message_id}")
 
 
 @dataclass
-class FakeInboxUnitOfWork:
+class FakeOrderStore:
     log: EffectLog
-    fail_commit: bool = False
-    _pending: list[InboxMessage] = field(default_factory=list)
+    fail_admit: bool = False
 
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(self, *exc_info: object) -> None:
-        self._pending.clear()
-
-    def record(self, message: InboxMessage) -> None:
-        self._pending.append(message)
-
-    async def commit(self) -> None:
-        if self.fail_commit:
-            raise ConnectionError("commit failed")
-        self.log.events.extend(f"commit:{m.message_id}" for m in self._pending)
-        self._pending.clear()
+    async def admit(self, *, order: PaidOrder) -> None:
+        if self.fail_admit:
+            raise ConnectionError("database gone")  # an undeclared failure
+        self.log.events.append(f"commit:{order.order_id}")
 
 
-_source: MessageSource = FakeSource(EffectLog(), deque())
-_uow: InboxUnitOfWork = FakeInboxUnitOfWork(EffectLog())
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FakeRuntime:
+    """Satisfies `WorkerRuntime` structurally."""
+
+    paid_orders: FakeInbox
+    order_store: FakeOrderStore
+    retry_policy: RetryPolicy
 
 
-async def test_message_is_acknowledged_only_after_commit() -> None:
-    log = EffectLog()
-    worker = InboxWorker(
-        source=FakeSource(log, deque([InboxMessage("m-1", "hello")])),
-        uow_factory=lambda: FakeInboxUnitOfWork(log),
+def runtime_with(log: EffectLog, *, fail_admit: bool = False) -> FakeRuntime:
+    delivery = Delivery(message=paid_order(order_id="o-1"), message_id="m-1", token="t-1")
+    return FakeRuntime(
+        paid_orders=FakeInbox(log, deque([delivery])),
+        order_store=FakeOrderStore(log, fail_admit=fail_admit),
+        retry_policy=RetryPolicy(base_seconds=1, max_seconds=60),
     )
 
-    async with asyncio.timeout(1):
-        outcome = await worker.tick()
 
-    assert outcome is TickOutcome.PROCESSED
-    assert log.events == ["commit:m-1", "ack:m-1"]
-
-
-async def test_failed_commit_leaves_message_unacknowledged() -> None:
+async def test_delivery_is_settled_only_after_the_order_commits() -> None:
     log = EffectLog()
-    worker = InboxWorker(
-        source=FakeSource(log, deque([InboxMessage("m-1", "hello")])),
-        uow_factory=lambda: FakeInboxUnitOfWork(log, fail_commit=True),
-    )
 
     async with asyncio.timeout(1):
-        outcome = await worker.tick()
+        outcome = await consume_paid_orders(runtime_with(log))
 
-    assert outcome is TickOutcome.FAILED
-    assert log.events == []
+    assert outcome is Iteration.MORE_DUE
+    assert log.events == ["commit:o-1", "ack:m-1"]
+
+
+async def test_undeclared_failure_leaves_the_delivery_unsettled() -> None:
+    log = EffectLog()
+
+    with pytest.raises(ConnectionError):
+        async with asyncio.timeout(1):
+            await consume_paid_orders(runtime_with(log, fail_admit=True))
+
+    assert log.events == []  # the broker redelivers after the visibility timeout
+```
+
+## Supervisor: bounded drain
+
+Test the generic `run_loop` once, not per worker: a scripted iteration, a stop
+event, and a manual sleep. Every await is bounded.
+
+```python
+import asyncio
+
+import pytest
+
+from app.bootstrap.supervisor import LoopCadence, ProcessHealth, run_loop
+from app.workers.runtime import Iteration
+
+pytestmark = pytest.mark.asyncio
+
+
+async def test_run_loop_stops_between_iterations() -> None:
+    stop = asyncio.Event()
+    calls: list[int] = []
+
+    async def iteration() -> Iteration:
+        calls.append(len(calls))
+        if len(calls) == 2:
+            stop.set()
+        return Iteration.MORE_DUE
+
+    async with asyncio.timeout(1):
+        await run_loop(
+            name="orders",
+            iteration=iteration,
+            cadence=LoopCadence(pause_seconds=60, backoff_seconds=60),
+            stop=stop,
+            health=ProcessHealth(),
+        )
+
+    assert calls == [0, 1]
 ```
 
 ## Database work queue: concurrent claimers

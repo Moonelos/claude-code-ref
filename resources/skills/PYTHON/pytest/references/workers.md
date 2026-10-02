@@ -37,22 +37,22 @@ claim delivery confidence after directly calling the task function.
 
 ## Asyncio worker loops
 
-For a framework-free loop (poll a source, process, commit, acknowledge):
+Services put one iteration in a plain `async def` worker in `workers/` that
+calls one action and returns an `Iteration`; a generic supervisor `run_loop`
+repeats it (`../../python-service-architecture/references/api-and-workers.md`,
+"Long-running worker").
 
-- **Test `tick()`, not `run()`.** A public `tick()` performs one
-  claim-process-commit-acknowledge step and returns what it did. Unit tests
-  drive it directly with fakes and a manual clock; no background task, no
-  sleeping loop.
-- **Prove ordering with one effect log.** Give the unit-of-work fake and the
-  source fake one shared, ordered log and assert the whole sequence, for
-  example `["commit:m-1", "ack:m-1"]`. That is the oracle for "commit before
-  acknowledge", and for "no acknowledge after rollback" on the failure path.
-  Separate call counters cannot prove order.
-- **Bounded drain.** Keep one test of `run()`: start it as a task, request
-  shutdown through the loop's public stop signal, and await completion inside
-  `asyncio.timeout(...)`. Assert that in-flight work finished or was released
-  per the contract and that no task is left running.
-- A poll interval or backoff comes from an injected sleep or clock, so tests
+- **Test the worker function, not the loop.** Call it directly with a runtime
+  of fakes; no background task, no sleeping loop.
+- **Prove ordering with one effect log.** Give the store fake and the inbox
+  fake one shared, ordered log and assert the whole sequence, for example
+  `["commit:o-1", "ack:m-1"]`. That is the oracle for "settle after commit",
+  and for "nothing settled after a failure" on the failure path. Separate call
+  counters cannot prove order.
+- **Bounded drain, once.** Test the supervisor's `run_loop` once with a
+  scripted iteration and a stop event, inside `asyncio.timeout(...)`; do not
+  repeat it per worker.
+- A pause or backoff comes from the cadence and an injected sleep, so tests
   never wait for it.
 
 ## Database-backed work queues
@@ -126,8 +126,8 @@ have landed), the oracle is that the uncertain path never replays the side
 effect: the recording provider fake shows exactly one request, and the durable
 record is in the reconciliation state the policy names. The policy itself is
 owned by `$python-service-architecture`:
-`../../python-service-architecture/references/errors.md` ("Uncertain external
-writes").
+`../../python-service-architecture/references/persistence.md` ("Uncertain
+external writes").
 
 If late acknowledgement or reject-on-worker-loss is relied on, include a
 production-like destructive smoke that kills the correct worker child at a

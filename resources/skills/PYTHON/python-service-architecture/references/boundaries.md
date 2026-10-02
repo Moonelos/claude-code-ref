@@ -4,96 +4,164 @@ This file is the single home for placement rules. Other references point here.
 
 ## The core rule
 
-Hexagonal structure means business logic knows the conversation shape, not the
-technology conducting it.
+Business logic knows the conversation shape, not the technology conducting it.
 
 ```text
-main ──> bootstrap ──> adapters/db/genai ───┐
-                    └─> application actions ├──> ports <── domain
-API/adapter consumer ─> application actions ┘
+                    ┌──────────────── hexagon ────────────────┐
+api / workers ───>  │ application ──> domain                  │
+                    │      └────────> ports (Protocols)       │
+                    └───────────────────▲─────────────────────┘
+                                        │ implement
+                             db/   adapters/   genai/
+                                        ▲
+                     bootstrap (builds implementations, runs the process)
 ```
 
-The composition root is the only ordinary runtime location that knows which
-concrete implementation satisfies a port. Adapters, database repositories, and
-GenAI implementations import their ports; ports, domain, and application code
-never import those outer packages. `api/`, `adapters/`, `db/`, and `genai/` never
-import `bootstrap/`: each declares the narrow Protocol it needs (for example
-`ApiRuntime`) and bootstrap satisfies it. GenAI tools may import a public
-application action they call.
+| Boundary | May import (inside the service) | Never imports |
+| --- | --- | --- |
+| `domain/` | optional `core/` | everything else |
+| `ports/` | `domain/`, `core/` | everything else |
+| `application/` | `domain/`, `ports/`, sibling actions, `core/`, `observability/` | `api/`, `workers/`, `bootstrap/`, `config/`, `db/`, `adapters/`, `genai/` |
+| `api/`, `workers/` | `application/`, `domain/`, `ports/` types, `observability/` | `bootstrap/`, `config/`, `db/`, `adapters/`, `genai/` |
+| `db/`, `adapters/`, `genai/` | the ports they implement, `domain/` types they return; a GenAI tool also imports the action it calls and the port *types* that action takes (never their errors, see [ai.md](ai.md#tools-and-mcp)) | `bootstrap/`, `api/`, `workers/`; each other only through a port, or through a Protocol private to the consumer ([ai.md](ai.md#retrieval-and-rag)) |
+| `bootstrap/` | everything | — |
+
+- Third-party code: `domain/` and `ports/` use only the standard library and
+  `pydantic`; `application/` may add `structlog` for a recorded fallback
+  ([observability](#observability)). Admitted technology-neutral contract
+  libraries are allowed in all three.
+- Entry points and implementations never import `bootstrap/`. Each declares the
+  narrow Protocol it reads (`ApiRuntime`, `WorkerRuntime`) and bootstrap's
+  runtime satisfies it. *Why:* bootstrap imports everything, so importing it
+  back creates cycles and lets any module reach any implementation.
+- Two narrow exceptions: an inbox adapter imports the inbound contract from
+  `workers/inbox.py` that it implements, and a GenAI tool imports the one
+  public action it calls.
+- `bootstrap/` is the only runtime location that knows which concrete class
+  satisfies a port.
 
 ## Flat-first growth across boundaries
 
-Use the fewest cohesive `.py` modules inside every owning boundary. Keep a small
-set—roughly three to five related modules—flat until one narrower area has enough
-content, independent change, distinct test setup, or naming pressure to justify
-a subpackage. The number is a review signal, not a quota.
+Use the fewest cohesive `.py` modules inside every boundary. Keep roughly three
+to five related modules flat until one narrower area has enough content,
+independent change, distinct test setup, or naming pressure to justify a
+subpackage. The number is a review signal, not a quota.
 
-Do not create separate modules merely for one class, exception, constants group,
-schema, or private helper. Conversely, do not combine unrelated responsibilities
-into a catch-all to optimize file count. Root boundaries such as `application/`,
-`adapters/`, and `genai/` still express ownership even with one module each.
-Every module belongs to a layer or capability package; there is no top-level
-miscellaneous module. Delete production modules that only tests use, and never
-name a production package `fixtures/`.
+Do not create a module for one class, exception, constants group, schema, or
+private helper; do not combine unrelated responsibilities to save files. A root
+boundary exists only when it has content, and every module belongs to one.
+Delete production modules that only tests use; never name a production package
+`fixtures/`.
+
+## Application ports
+
+Every I/O capability an action uses is a port: database, remote APIs, queues,
+storage, identity providers, LLMs. Name it after what the action needs
+(`SubmissionStore`, `RecordSource`, `BreakAnalyzer`), not the technology
+(`SqlServerRepository`, `BedrockClient`).
+
+- **One port per capability**, not per repository, table, or SDK client. A port
+  whose methods span several tables is normal. A capability is **one aggregate
+  or lifecycle** (conversations, the runs that answer them, feedback on
+  answers), not "everything the main action touches". Signals to split a port
+  and its implementation: more than ~12 methods, an implementation over ~400
+  lines, or method groups that no single action uses together. Shared table
+  handles go to `db/tables.py`; another `db/` module never imports a sibling
+  store's private helpers.
+- **Implemented directly** by a class in `db/`, `adapters/`, or `genai/`.
+  Additional implementations and behavior-owning decorators are fine; a class
+  that only renames the same call is not.
+- **Never for pure logic.** A `Protocol` with only `__call__` standing in for a
+  domain function is a defect; import the function.
+- **Nondeterminism** (time, randomness, ids) is injected as typed callables, not
+  ports ([Nondeterminism](#nondeterminism)).
+- **Persistence** shapes are in [persistence.md](persistence.md); transaction
+  mechanics are owned by `python-sqlmodel-alembic`.
+
+Root `ports/` holds only contracts that `application/` imports. Readiness may
+call a `ping()` on a port that actions already use (never a port only readiness
+uses). An agent tool that triggers a business operation reaches I/O through an
+action, never a port; a read-only tool calls its GenAI task's own collaborators
+directly ([ai.md](ai.md#when-a-tool-calls-an-action)). A port whose only
+consumer is an action that only an agent tool calls is a GenAI internal, not
+an application port. Actions depend on sibling actions concretely, not through
+a Protocol.
 
 ## When a port earns its cost
 
-`ports/` is not a dump folder for interfaces. Introduce a Protocol only when a
-test substitutes it or a second implementation exists today. Pure validation,
-formatting, parsing, and in-memory calculation never need ports; put them in
-`domain/` or the owning action and test them directly. Nondeterminism (time,
-randomness, ids) is injected as typed callables, not ports; see
-[Nondeterminism](#nondeterminism).
+A Protocol that is **not** an application port (between two outer components,
+or around a collaborator) is introduced only when one of these holds **today**:
 
-Root `ports/` holds only contracts that `application/` imports:
+1. **A test substitutes it** for something unit tests cannot call.
+2. **A second implementation exists.**
+3. **A decorator wraps it** (retry, caching, rate limiting) and keeps its
+   promises; a caching decorator that returns different results breaks Liskov.
+4. **A package may not import the implementation.** A library that calls back
+   into a service declares the Protocol; the service implements it. The API's
+   and workers' runtime views are this case.
 
-- A contract between two implementation boundaries (a GenAI tool that needs a DB
-  reader) lives next to its **consumer**.
-- A Protocol that only decouples an outer component from one collaborator is
-  declared beside that single consumer.
-- A private Protocol narrowing a third-party SDK surface for fakes belongs in the
-  adapter module; it is legitimate, and it is not a port.
-- Application actions depend on sibling actions concretely, not through a
-  Protocol.
+"We may switch provider someday" is not a reason. Place such a Protocol beside
+its single consumer, not in `ports/`. A private Protocol narrowing a
+third-party SDK surface for fakes belongs in the adapter module.
 
-**Persistence.** A persistence port gives application code a unit-of-work
-boundary and a testable contract. Add a repository/UoW Protocol when application
-state-transition logic is unit-tested with fakes; skip it for thin CRUD
-pass-through. Use the shapes in `python-sqlmodel-alembic` (fallback:
-`../../python-sqlmodel-alembic/references/engine-and-session.md`, "Transactions
-and the unit of work"), never a Protocol per repository class.
+Membership in `ports/` does not exempt a Protocol from this test. A port with
+one implementation, one consuming action, no test double, and no entry point
+other than an agent tool is a GenAI internal: move the Protocol beside its
+consumer in `genai/<task>/` (trigger 4 usually holds, since `genai/` may not
+import `db/`) and delete the action.
 
-Name a port after the capability its caller requests. `EmailClassifier` permits
-rule-based, LLM, hybrid, and remote implementations; `ClassificationModel`
-assumes a model.
+**Tests of ports.** Fake a port to test an action's orchestration. A mock whose
+assertions only inspect values computed by pure logic is a defect: test the
+domain function directly. One action test asserting that the action *applies*
+the rule (the stored priority is the floored one) is orchestration, not a
+duplicate; testing each branch of the rule through fakes is.
+
+## No forwarding layers
+
+Remove intermediaries that only forward a call with the same meaning: handler
+classes in bootstrap, `functools.partial` over actions, same-named transaction
+coordinators, and modules that only re-export.
+
+Composition is justified when it owns behavior: a transaction scope, retry or
+cache policy, or orchestration of sibling actions. Keep that responsibility
+explicit; do not flatten useful composition to satisfy a hop count.
+
+### Action boundaries: a deliberate cost
+
+Every business operation has one public action, even when its body is one port
+call or one domain call; do not invent steps to justify it.
+
+```python
+async def delete_submission(*, submission_id: SubmissionId, store: SubmissionStore) -> None:
+    await store.delete(submission_id=submission_id)
+```
+
+This exception covers public actions only. A private helper or a second name for
+the same operation earns nothing from sitting in `application/`; a step several
+actions share is private (see SKILL.md, "Steps shared by several actions").
 
 ## Contract ownership
 
-A port owns its success and failure contract: a typed input, a named result, and
-errors built on the service's classification bases
-([errors.md](errors.md#classification-bases)).
+A port owns its success and failure contract: typed inputs, a named result, and
+its own error classes ([errors.md](errors.md#classification-bases)).
 
 ```python
 from dataclasses import dataclass
 from typing import Protocol
 
-from my_service.domain.errors import DependencyRejectedError, DependencyUnavailableError
 from my_service.domain.workbook import BuiltWorkbook
+from my_service.ports.errors import DependencyRejectedError, DependencyUnavailableError
 
 
-class WorkbookStoreError(Exception):
-    """Base for every failure the workbook store reports."""
-
-
-class WorkbookStoreUnavailableError(WorkbookStoreError, DependencyUnavailableError):
+class WorkbookStoreUnavailableError(DependencyUnavailableError):
     """Storage timed out or throttled; retry later."""
 
 
-class WorkbookStoreRejectedError(WorkbookStoreError, DependencyRejectedError):
+class WorkbookStoreRejectedError(DependencyRejectedError):
     """Storage refused the object; retrying will not help."""
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StoredWorkbook:
     key: str
     version_id: str
@@ -103,194 +171,216 @@ class WorkbookStore(Protocol):
     async def store(self, *, workbook: BuiltWorkbook) -> StoredWorkbook: ...
 ```
 
-Adapters translate boto3, HTTP, LangChain, Kafka, filesystem, or vendor
-exceptions at the boundary ([errors.md](errors.md#translate-once)). Private
-integration errors stay below `adapters/` or `genai/`.
+Add a per-port base (`WorkbookStoreError`) only when a caller catches every
+failure of that port as one family. Implementations translate boto3, HTTP,
+LangChain, Kafka, filesystem, or vendor exceptions at the boundary
+([errors.md](errors.md#translate-once)); private integration errors stay below
+`adapters/` or `genai/`.
 
 Port hygiene:
 
 - signatures never use `Any`, `object`, `Mapping[str, Any]`, raw provider
   responses, or framework method names (`ainvoke`, `astream`);
-- return types are named types; a streaming port yields a closed union of typed
+- results are named types; a streaming port yields a closed union of typed
   business events;
 - ports contain no helpers, I/O, or configuration defaults, declare methods
-  rather than collaborator attributes, and do not re-export domain types;
-- a required collaborator has no `None` default.
-
-**Do not mirror library types.** A port-owned type that mirrors a
-technology-neutral contract-library type one-for-one is not isolation: import
-it. Mirror only when the meaning differs, and say how in the docstring. Apply one
-decision per library.
+  rather than collaborator attributes (UoW accessors follow
+  [persistence.md](persistence.md)), and do not re-export domain types;
+- a required collaborator has no `None` default;
+- every result field is read by production code; a field only tests read is
+  removed.
 
 ## Validate external structure
 
 At a JSON, queue, HTTP, or SDK boundary, verify the shape and types of required
 nested fields before building a domain value, and convert malformed input to a
-stable boundary error. Never `str(value)` an arbitrary provider value to satisfy a
-string contract. Preserve deliberate handling of documented alternate envelopes
-and test events.
+stable boundary error. Never `str(value)` an arbitrary provider value to satisfy
+a string contract. The same applies on the way back in: a stored row that no
+longer decodes is an integrity fault. A method returning one record raises its
+port's integrity error carrying the row id; a method returning a batch returns
+that row as a per-item failure (`Corrupt(row_id=...)` in the result union) so
+the rest of the batch proceeds ([errors.md](errors.md#handling-boundaries)). A
+corrupt row is almost always our own defect (validation tightened in a deploy):
+log it at error and leave the record unchanged for an operator; never move it to
+a terminal business state. When the batch is a cursor page, the cursor advances
+past corrupt rows too, so a page with no valid rows still leads to the next.
+A value the database or an outbound request cannot accept (a constraint, an
+encoding limit) fails as that item's named outcome, never as a process crash
+repeated on every redelivery.
+
+When an adapter builds a domain or port value from external data, it uses the
+domain's own constructor or predicate rather than a weaker copy in the wire
+schema, and translates an invalid response at the adapter boundary so a domain
+invariant never escapes as a programming error.
 
 Pydantic validates at construction only: `model_copy(update=...)` does not
-revalidate. Use it only for already-validated values that cannot violate a
-cross-field invariant; rebuild with `model_validate` for untrusted input,
-arithmetic that may cross bounds, or updates to related fields.
+revalidate. Rebuild with `model_validate` for untrusted input, arithmetic that
+may cross bounds, or updates to related fields.
 
-## Centralized ports and adapters
+## Adapters and their placement
 
 Concrete S3, SQS, Kafka, browser, remote HTTP, or vendor SDK code lives under
 root `adapters/`, never inside `application/` or a business-named package. Keep
-small adapter sets flat and encode the provider in the filename
-(`s3_manual_store.py`, `nats_publisher.py`).
+small adapter sets flat with the provider in the filename (`s3_manual_store.py`,
+`sqs_inbox.py`).
 
-**Adapter promotion** (the single statement of this rule): promote a provider or
-technology to a subpackage only when it has multiple cohesive modules,
-independent change or lifecycle setup, distinct test infrastructure, or real
-naming pressure. Provider identity alone never justifies a folder, and one-file
-provider subpackages are not allowed. For a few AWS modules prefer
-`adapters/aws/sqs_consumer.py`, `sqs_serialization.py`, `s3_raw_email_store.py`;
-promote only the slice that grows (`adapters/aws/sqs/`).
+**Adapter promotion** (the single statement of this rule): promote a provider to
+a subpackage only when it has several cohesive modules, independent change or
+lifecycle setup, distinct test infrastructure, or real naming pressure. Provider
+identity alone never justifies a folder; one-file provider subpackages are not
+allowed. Promote only the slice that grows (`adapters/aws/sqs/`).
+
+Adapters translate technology input, output, and failures into their contract.
+An inbox adapter (a queue consumer's transport) implements the worker's
+`Inbox` contract and never knows which action handles its messages
+([api-and-workers.md](api-and-workers.md#sqs-kafka-or-another-broker)).
 
 Root `genai/` holds every GenAI implementation and root `db/` all persistence and
-SQL, including DDL, bootstrap SQL, and staging loads. HTTP stays in `api/`. There
-is no root `messaging/`: broker consumers, clients, serialization,
-acknowledgement, and visibility live in `adapters/<broker-or-provider>/`, and
-delivery types that never reach application code stay private there.
+SQL, including DDL and staging loads. There is no root `messaging/`.
 
 ## Folder responsibilities
 
 ### `bootstrap/`
 
-Bootstrap constructs and wires; it returns a typed runtime container. It never
-contains business classification, authorization, routing, state transitions,
-provider parsing, SQL, or closures that run DB queries or business steps. Each
-supervised operation is an application action; readiness calls a port method.
+Bootstrap constructs, wires, and runs the process: `runtime.py` builds the
+runtime, `app.py` builds the ASGI app, `supervisor.py` runs workers. It contains
+no business classification, authorization, routing, state transitions, provider
+parsing, SQL, logging of business results, or closures and `partial`s over
+actions. Entry points in `api/` and `workers/` call actions with collaborators
+from the runtime.
 
-- Use one lifecycle idiom, an `@asynccontextmanager runtime(settings, secrets)`
+- One lifecycle idiom: an `@asynccontextmanager runtime(settings, secrets)`
   owning one `AsyncExitStack`
   ([async-and-lifecycle.md](async-and-lifecycle.md#resource-acquisition)).
-- Past ~80 lines, split into `_build_<capability>(settings, resources) ->
-  <frozen bundle>` functions of about 40 lines each, at stable resource or
-  capability seams. No factory per constructor and no generic registry. A service
-  with fewer than ~10 collaborators keeps one flat function. Separate files
-  (`runtime.py`, `app.py`, `supervisor.py`) follow distinct lifecycle
-  responsibilities, not line count.
-- Build each concrete adapter once and share it. A composition function taking
-  more than ~6 collaborators takes a container.
-- Keep gauge initialization, business validation, run-completion summaries, and
-  log projections out of wiring (the latter go in `observability/`).
-- The runtime container holds only what the process boundary uses, with no
-  fields for tests to inspect.
+- `runtime()` stays one flat function while it builds fewer than ~10
+  collaborators, however long it is. Past that, split at resource or capability
+  seams into `_build_<capability>(settings, resources) -> <frozen bundle>`
+  functions. Never one factory per constructor, and no generic registry.
+- Build every implementation, including inbox adapters, once in `runtime()`.
+  The runtime holds implementations and policies the entry points use, never
+  raw SDK clients, actions, or objects wrapping actions; a resource kept only
+  for disposal lives in the exit stack.
 - Substitute test doubles at **one** seam: pass fakes into the composition
-  function, or use keyword parameters defaulting to the production constructors.
-  Do not add `factory=`/`hooks=`/`clock=None` to every layer; a factories object
-  is typed without `Any` or `Callable[..., X]`.
+  function, or use keyword parameters defaulting to the production
+  constructors. Do not add `factory=`/`hooks=`/`clock=None` to every layer.
 - Diagnostics and maintenance entry points reuse bootstrap factories instead of
   importing concrete adapters.
-- When GenAI prompt, schema, or tools depend on runtime context, bootstrap
-  injects static ingredients into an assembler class in `genai/<task>/agent.py`;
-  it never defines closures containing GenAI assembly or parsing.
+- When GenAI prompts, schemas, or tools depend on runtime context, bootstrap
+  injects static ingredients into an assembler class in `genai/<task>/agent.py`.
 
 ### Constructor contracts
 
 A production class's required collaborators and limits are required keyword
-parameters. No `X | None = None` with a built-in fallback, magic-number default,
-or "legacy" branch so tests or old callers can omit them. Defaults are allowed
-only for effect seams whose default is the real effect, and for genuinely
-optional, settings-documented features. Application actions receive capability
-implementations; raw SDK or model handles go only into adapter and GenAI
-constructors.
+parameters: no `X | None = None` with a built-in fallback, no magic-number
+default, no "legacy" branch so tests or old callers can omit them. Defaults are
+allowed only for effect seams whose default is the real effect and for optional,
+settings-documented features. Actions receive capability implementations; raw
+SDK or model handles go only into adapter and GenAI constructors.
 
 ### `config/`
 
 Python settings and secret-resolution code; it describes policy and never
-instantiates the runtime graph. Everything else about settings, secrets, and YAML
-is owned by `python-settings-config` (fallback:
+instantiates the runtime graph. Settings are *read* only by `bootstrap/`,
+`main.py`, and process entry scripts such as Alembic's `env.py`; a GenAI or
+adapter factory may import its settings-slice *type* for its signature and
+receives the value from bootstrap ([ai.md](ai.md#factories-and-bootstrap-wiring)). Everything else about
+settings is owned by `python-settings-config` (fallback:
 `../../python-settings-config/SKILL.md`).
 
 ### `core/`
 
-Keep `core/` absent by default. Create it only for small, stable,
-dependency-light primitives already needed across several boundaries, such as
-`core/context.py`: immutable tenant, actor, authorization claims, correlation ids,
-or allowlisted baggage, created by the API/consumer boundary and passed
-explicitly. Errors, constants, settings, and helpers never live here. Mutable
-workflow state belongs to the owning action; LangGraph state belongs under
-`genai/<task>/graph/`.
+Absent by default. Create it only for small, stable, dependency-light
+primitives already needed across several boundaries, such as `core/context.py`
+(immutable tenant, actor, claims, correlation ids, created by an entry point and
+passed explicitly), and `core/clock.py` for the real-clock default
+([Nondeterminism](#nondeterminism)). Errors, constants, settings, and helpers
+never live here.
+
+### `api/` and `workers/`
+
+The two homes of business entry points. `api/` holds HTTP routes; `workers/`
+holds loop iterations and queue consumers
+([api-and-workers.md](api-and-workers.md)). Each parses input, resolves request
+context, calls one action, and translates the result: an HTTP response, a
+delivery settlement, a log line of the returned summary. Neither executes SQL,
+initializes clients, invokes LLM SDKs, or branches on business state.
+
+**Technical endpoints** report on the process itself (liveness, readiness,
+metrics, version) and call no action: readiness calls a port's `ping()`,
+liveness reads the supervisor's health state. One that starts reporting
+business facts (pending counts for an operator) is a business entry point and
+gets an action.
 
 ### `application/`
 
-Application actions coordinate domain decisions and ports through typed
-keyword-only constructor arguments. They never read global settings, environment
-variables, app state, or SDK singletons. Business capabilities are organized
-*inside* `application/` and `domain/`; there are no root-level peers of the
-technical boundaries (`pipeline/`, `use_cases/`, `workflows/`, `operations/`).
-Stage or command machinery below `application/` must reflect real execution
-semantics. The action shape is in [templates.md](templates.md#use-case-shape).
+The catalog of everything the service does. An action holds the real sequence
+(resolve, validate, decide, persist, trigger effects); input resolution such as
+cursor decoding (what position the cursor means) and page-size limits belongs
+in the action or `domain/`, not in
+the entry point. Actions receive ports and policy as typed keyword-only
+arguments and never read settings, environment variables, app state, or SDK
+singletons. Business capabilities are organized *inside* `application/` and
+`domain/`; there are no root peers such as `pipeline/`, `use_cases/`, or
+`workflows/`. The action shape is in [templates.md](templates.md#use-case-shape).
 
 ### Repositories apply decisions
 
-Database repositories are the only ordinary place that executes queries. A
-repository method implementing a state transition:
+Repositories are the only ordinary place that executes queries. A repository
+method implementing a state transition reads and locks the rows, maps them to a
+typed observation, calls a pure domain decision imported from `domain/`, and
+writes the returned decision. The repository imports the decision itself; never
+pass it through the port or declare a Protocol for it. The public action stays
+in the catalog even though its body is one call.
 
-1. reads and locks the rows;
-2. maps them to a typed observation (a frozen kw-only dataclass);
-3. calls a pure domain decision function, passed as a `Callable` alias;
-4. writes the returned decision.
-
-Repositories never choose statuses, error codes, retry delays, human-review
-reasons, or user-visible text. Decision invariants go in the decision object's
-`__post_init__`. Review a repository method over ~40 lines or with more than two
-branches on business state. SQL predicates that *are* the claim eligibility rule
-stay in SQL as shared predicates owned by `python-sqlmodel-alembic`.
-
-### Adapters
-
-Adapters translate technology-specific input, output, and failures into the
-application's contracts. Queue consumers translate delivery, serialization,
-acknowledgement, and visibility and call an application action; they do not
-implement classification or state rules.
+Repositories never choose business outcomes: statuses (including a new record's
+initial status, which a domain constructor sets), persisted or public codes,
+retry delays, human-review reasons, or user-visible text. The diagnostic
+`error_code` on a port exception is not a business outcome. Decision invariants
+go in the decision's `__post_init__` and raise a domain-owned error, never a
+bare `ValueError`, so a programming error is never mistaken for an invalid
+decision ([domain.md](domain.md#make-invalid-values-impossible-to-build)).
+Review a repository method over ~40 lines or with more than two branches on
+business state. SQL predicates that *are* an eligibility rule stay in SQL as
+shared predicates owned by `python-sqlmodel-alembic`.
 
 ### `observability/`
 
-Contains logging setup, trace and metric helpers, semantic vocabulary,
-propagation, and SDK integrations. It never imports application actions.
+Logging setup, trace and metric helpers, semantic vocabulary, propagation, and
+SDK integrations. It never imports actions or entry points.
 
-Telemetry in application code:
-
-- A use case returns a result or summary (counts, outcome, stop reason); the
-  *caller* (supervisor, handler, wrapper) records span attributes, metrics, and
-  logs from it.
-- Application code may use the service's own `observability/` vocabulary and
-  one-line helpers (`with phase_span("x"):`). It never imports `opentelemetry`,
-  receives a `Tracer`, builds attribute dicts inline, mutates telemetry
-  accumulators, or calls telemetry from each return path.
+- An action returns a result or summary (counts, outcome, stop reason); the
+  entry point that called it records spans, metrics, and logs from it.
+  Bootstrap never logs business results.
+- The one log an action writes itself is a recorded fallback
+  ([errors.md](errors.md#broad-except-shapes), shape 5), because only the
+  `except` that degrades still holds the exception. Use the service's logging
+  library directly (`structlog.get_logger()`); do not add a module that only
+  re-exports a logger. The degraded result also carries a reason code, so the
+  caller can count it.
+- Actions may use the service's own `observability/` vocabulary and one-line
+  helpers (`with phase_span("x"):`). They never import `opentelemetry`, receive
+  a `Tracer`, build attribute dicts inline, or call telemetry from each return
+  path. When telemetry exceeds roughly a fifth of an action, move it into a
+  decorator or context helper, keeping ack and transition order visible.
 - An adapter reporting per-attempt facts receives a typed callback
-  (`record_outcome: Callable[[Outcome], None]`). Counts discovered inside
-  framework callbacks may use a context-local accumulator.
-- When telemetry exceeds roughly a fifth of a use case, move it into a decorator
-  or context helper. Keep the sequence of outcome decisions (acknowledge, state
-  transition) visible; never hide ack or transition order in a generic decorator.
+  (`record_outcome: Callable[[Outcome], None]`).
 - Observed data never controls business decisions.
 
-LangChain callbacks, tool-tracing middleware, usage parsers, and agent-span
-wrappers stay in precise modules such as `observability/genai.py` even when they
-import a framework. Generic provider setup stays in `observability/tracing.py`,
-which never imports those adapters. A nested GenAI-observability package needs a
-large, independently changing surface. Shared provider lifecycle, propagation,
-and redaction may move to a library (see
-[shared-libraries.md](shared-libraries.md)); service vocabulary stays local.
-Instrumentation mechanics are owned by `otel-observability`.
+GenAI tracing callbacks are placed by [ai.md](ai.md#middleware-and-observability);
+instrumentation mechanics are owned by `otel-observability`.
 
 ### `diagnostics/` or `maintenance/`
 
-Operator-facing commands and repair workflows, outside runtime business packages,
-with the same dependency and authorization boundaries as any entry point.
+Operator commands and repair workflows, outside runtime business packages, with
+the same dependency and authorization boundaries as any entry point.
 
 ## Nondeterminism
 
 `domain/`, `application/`, and `db/` never call `datetime.now()`, `time.time()`,
-`random.*`, or `uuid4()` directly. Inject keyword-only typed callables whose
-defaults are the real effect, with these names everywhere:
+`random.*`, or `uuid4()` directly, including through a model's
+`default_factory`. A domain function receives `now` or an id as an argument.
+Actions and `db/` classes inject keyword-only typed callables whose defaults are
+the real effect, named the same everywhere:
 
 ```python
 clock: Callable[[], datetime]
@@ -300,49 +390,52 @@ uniform: Callable[[float, float], float]
 id_factory: Callable[[], UUID]
 ```
 
-Never default a clock inside a function body (`now or datetime.now(UTC)`). Lease
-and expiry predicates prefer database-owned time via the database-clock helper in
+The real-effect default is a named function, not a call in the signature (Ruff
+`B008`): `clock: Callable[[], datetime] = utc_now`. Define `utc_now()` once in
+`core/clock.py`, the one module allowed to read the real clock; `uuid4` and
+`random.uniform` are already functions and need no wrapper. Never default a
+clock inside a body (`now or datetime.now(UTC)`). Lease and
+expiry predicates prefer database-owned time via the database-clock helper in
 `python-sqlmodel-alembic`.
 
 ## Errors and constants follow ownership
 
 Keep errors beside the boundary that gives them meaning; error *design* is in
-[errors.md](errors.md). An `errors.py` exists only when an owned taxonomy earns a
-file:
+[errors.md](errors.md).
 
-- `domain/errors.py`: business invariant and domain-state failures;
+- `domain/<concept>.py`: business invariant and state failures, beside the rule
+  that raises them; `domain/errors.py` only for failures several concepts share
+  (this also avoids import cycles between error modules and the enums they
+  carry);
 - `application/errors.py` or action-local: use-case orchestration failures;
-- `ports/<capability>.py`: external failure contracts visible to application code;
-- `adapters/<provider>/errors.py`, `genai/<task>/errors.py`: private failures
-  translated before crossing a port.
+- `ports/<capability>.py`: that port's failure contract;
+- `ports/errors.py`: only the transient/permanent classification bases;
+- `adapters/<provider>/errors.py`, `genai/<task>/errors.py`: private failures,
+  only when the implementation catches them itself before translating.
 
-No root, `core/errors.py`, or `common/errors.py` collections, even for a shared
-base. The same rule applies to static values; there is no root or
-`core/constants.py`:
+No root, `core/errors.py`, or `common/errors.py` collections. The same holds for
+static values:
 
 ```text
 Business invariant/static value     -> domain/ or its owning module
 Use-case-specific invariant         -> application/ or its owning action
-Provider-specific static value      -> adapters/<provider>/
+Provider-specific static value      -> adapters/<provider>/ (settings validators
+                                       that need it import it from there)
 LLM/agent-specific static value     -> genai/<task>/
 Environment/deployment value        -> config/
 ```
 
 A model id, queue URL, region, timeout, retention period, or concurrency limit
-that can vary by environment is configuration. Constant and enum idioms are in
-`python-code-conventions`.
-
-Place other behavior by meaning: retry policy near the boundary that retries,
-serialization near the transport or contract, time calculation in the domain or
-action that defines time semantics. A genuinely reused helper gets a precisely
-named module (`email_normalization.py`). General code-style rules come from
-CLAUDE.md.
+that can vary by environment is configuration. Place other behavior by meaning:
+retry policy near the boundary that retries, serialization near the transport,
+time calculation in the domain or action that defines it. A genuinely reused
+helper gets a precisely named module (`email_normalization.py`). Constant and
+enum idioms are in `python-code-conventions`.
 
 ## External naming
 
 The service name is identical across the `pyproject.toml` distribution, import
-package, container/deployment name, and telemetry `service.name`; check all four
-when creating or renaming a service.
+package, container/deployment name, and telemetry `service.name`.
 
 ## Dependency audit
 

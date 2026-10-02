@@ -24,7 +24,9 @@ session is not, so never call `boto3.client()` inside a `to_thread` function.
 
 Every SDK client gets explicit connect/read timeouts and a retry setting, for
 example `botocore.config.Config(connect_timeout=..., read_timeout=...,
-retries={"max_attempts": ...})`. An outer `asyncio.timeout` around `to_thread`
+retries={"mode": "standard", "total_max_attempts": ...})`. Check what the SDK
+counts: botocore's `max_attempts` counts retries, `total_max_attempts` counts
+calls, so one attempt is `total_max_attempts=1`. An outer `asyncio.timeout` around `to_thread`
 cancels the await, not the thread; the SDK timeout is what bounds the thread.
 
 ## Deadlines
@@ -62,14 +64,18 @@ from dataclasses import dataclass
 import httpx
 
 from my_service.adapters.ticket_api import HttpTicketApi
-from my_service.application.sync_tickets import SyncTickets
 from my_service.config.secrets import Secrets
 from my_service.config.settings import Settings
+from my_service.domain.tickets import SyncPolicy
+from my_service.ports.tickets import TicketSource
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Runtime:
-    sync_tickets: SyncTickets
+    """Implementations and policies, built once; entry points pass them to actions."""
+
+    tickets: TicketSource
+    sync_policy: SyncPolicy
 
 
 @asynccontextmanager
@@ -79,8 +85,16 @@ async def runtime(settings: Settings, secrets: Secrets) -> AsyncIterator[Runtime
             httpx.AsyncClient(timeout=settings.ticket_api_timeout_seconds)
         )
         tickets = HttpTicketApi(client=http, token=secrets.ticket_api_token)
-        yield Runtime(sync_tickets=SyncTickets(tickets=tickets))
+        yield Runtime(
+            tickets=tickets,
+            sync_policy=SyncPolicy(batch_size=settings.ticket_sync_batch_size),
+        )
 ```
+
+Entry points in `api/` and `workers/` call function actions with fields from
+the runtime (`await sync_tickets(tickets=runtime.tickets, policy=runtime.sync_policy)`).
+The runtime never holds application actions, objects that wrap them, or raw SDK
+clients; inbox adapters are built here like every other implementation.
 
 `build_*` functions only construct; `run()` only orchestrates and maps outcomes
 to exit codes. Register each process-wide teardown exactly once. A resource kept
@@ -113,7 +127,8 @@ resource cleanup; `CancelledError` bypasses it.
 
 - In an async generator, wrap only the `await` in a timeout, never the `yield`.
 - After `gather(..., return_exceptions=True)`, re-raise any `CancelledError`
-  found in the results.
+  found in the results, except for tasks you cancelled yourself (a supervisor
+  cancelling loops after the grace period expects them).
 - Use `asyncio.shield` only with a why-comment, when cancellation could orphan a
   half-built resource.
 

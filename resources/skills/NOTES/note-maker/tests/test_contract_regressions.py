@@ -135,6 +135,28 @@ class ContractRegressionTests(unittest.TestCase):
         (self.root / "lesson.md").write_text("# Lesson\n[Earlier note](01_first_result.md)\n")
         self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
+    def validate_note_text(self, text):
+        note = self.root / "03_diagram.md"
+        note.write_text(text)
+        return subprocess.run(
+            [sys.executable, str(MAKER / "scripts/validate_notes.py"), str(note)],
+            capture_output=True, text=True,
+        )
+
+    def test_valid_mermaid_diagrams_pass(self):
+        result = self.validate_note_text(
+            "# Lease\n```mermaid\nsequenceDiagram\n  A->>L: renew (t=20)\n```\n"
+            "```mermaid\nflowchart LR\n  A[Client] -->|POST| B{Valid?}\n  D>flag] --> B\n```\n"
+            "```mermaid\nerDiagram\n  CUSTOMER ||--o{ ORDER : places\n```\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_broken_mermaid_is_a_structural_failure(self):
+        for body in ("flowchat LR\n  A --> B\n", "flowchart LR\n  A[Client --> B\n", ""):
+            with self.subTest(body=body):
+                result = self.validate_note_text(f"# Diagram\n```mermaid\n{body}```\n")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
     def test_shared_references_remain_synchronized(self):
         for name in ("how-we-write-notes.md", "example-selection.md", "curriculum-research.md", "delegation.md", "lesson-design.md"):
             with self.subTest(name=name):

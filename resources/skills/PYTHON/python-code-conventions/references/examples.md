@@ -166,16 +166,6 @@ class RetryPolicy:                                                # good: scalar
         if self.base_delay_seconds > self.max_delay_seconds:
             raise InvalidRetryPolicyError(self.base_delay_seconds, self.max_delay_seconds)
 
-class Poller:
-    """Claims due jobs and keeps their leases alive."""
-
-    def __init__(self, *, store: LeaseStore, policy: RetryPolicy, batch_size: int) -> None:
-        self._store = store
-        self._policy = policy
-        self._batch_size = batch_size
-
-    async def keep_alive(self, job_id: str) -> RenewOutcome:
-        return await self._store.renew_lease(job_id=job_id)
 ```
 
 ## Imports and package markers

@@ -17,7 +17,7 @@ The root file never replaces a service file. Keys they share must agree.
 Exactly three, in this order; omit an empty one.
 
 - **REQUIRED:** `ENVIRONMENT_NAME` first, then every env-only field without a
-  default, then secret source variables with fake local values. Named
+  default, then the secrets with fake local values. Named
   sub-sections inside REQUIRED are fine (secrets; command-scoped inputs of a
   one-shot job). SDK credential passthrough the process needs is listed here,
   marked as such.
@@ -42,12 +42,10 @@ DOWNSTREAM_BASE_URL=http://127.0.0.1:9000
 CACHE_URL=redis://127.0.0.1:6379/0
 PRIMARY_MODEL_ID=replace-me
 
-# --- Secrets. Locally each holds the payload; deployed, the deployment system
-# injects the secret manager's locator into the same variable.
-DATABASE_SECRET=postgresql+psycopg://app:replace-me@127.0.0.1:5432/app
-LLM_API_KEY_SECRET=replace-me
-# JSON object: {"username": ..., "password": ...}
-SERVICE_ACCOUNT_SECRET={"username":"replace-me","password":"replace-me"}
+# --- Secrets. Fake local values; deployed, the platform injects the real ones.
+DATABASE_DSN=postgresql+psycopg://app:replace-me@127.0.0.1:5432/app
+LLM_API_KEY=replace-me
+SERVICE_ACCOUNT={"username":"replace-me","password":"replace-me"}
 
 ################################################################################
 # OVERRIDABLE — YAML policy; values shown are resolved for ENVIRONMENT_NAME=local
@@ -68,28 +66,34 @@ SERVICE_ACCOUNT_SECRET={"username":"replace-me","password":"replace-me"}
 
 ## Contract test
 
-Parse the file into sections, then assert under `contract/`:
-
-- REQUIRED names equal the env-only required `Settings` fields plus the
-  `SecretSources` fields (plus documented passthrough).
-- Every OVERRIDABLE name is a YAML policy key, and its value equals the value in
-  the merged `local` baseline.
-- OPTIONAL names are `Settings` fields with defaults, plus the escape hatch.
-- Shared keys in the repository-root file match the service file.
-- No comment merely restates the variable name.
+One assertion under `contract/` catches the drift that breaks startup: the
+REQUIRED names equal the env-only `Settings` fields plus the `Secrets` fields
+(`SecretSources` fields when the service fetches secrets itself), plus any documented SDK passthrough. OVERRIDABLE and OPTIONAL are
+guidance for readers and are not asserted.
 
 ```python
-SECTION = re.compile(r"^# (REQUIRED|OVERRIDABLE|OPTIONAL) ")
-ASSIGNMENT = re.compile(r"^#? ?([A-Z][A-Z0-9_]*)=(.*)$")
+from my_service.config.secrets import Secrets
+from my_service.config.settings import ENV_ONLY_FIELDS
+
+ENV_EXAMPLE = Path(__file__).parents[3] / ".env.example"  # tests/contract/config/
+SDK_PASSTHROUGH: frozenset[str] = frozenset()  # e.g. {"AWS_PROFILE"}
+SECTIONS = frozenset({"REQUIRED", "OVERRIDABLE", "OPTIONAL"})
 
 
-def parse_env_example(path: Path) -> dict[str, dict[str, str]]:
-    sections: dict[str, dict[str, str]] = {}
-    current: dict[str, str] | None = None
+def required_names(path: Path) -> set[str]:
+    """Uncommented assignments between the REQUIRED header and the next section."""
+    names: set[str] = set()
+    in_required = False
     for line in path.read_text(encoding="utf-8").splitlines():
-        if header := SECTION.match(line):
-            current = sections.setdefault(header.group(1), {})
-        elif current is not None and (assignment := ASSIGNMENT.match(line)):
-            current[assignment.group(1)] = assignment.group(2)
-    return sections
+        words = line.split()
+        if len(words) > 1 and words[0] == "#" and words[1] in SECTIONS:
+            in_required = words[1] == "REQUIRED"
+        elif in_required and "=" in line and not line.startswith("#"):
+            names.add(line.split("=", 1)[0])
+    return names
+
+
+def test_required_section_matches_settings() -> None:
+    expected = {name.upper() for name in ENV_ONLY_FIELDS | set(Secrets.model_fields)}
+    assert required_names(ENV_EXAMPLE) == expected | SDK_PASSTHROUGH
 ```

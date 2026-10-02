@@ -96,7 +96,7 @@ Follow `../conventions/errors.md`. For an API specifically:
 - a 5xx is;
 - decide once, in writing, whether client cancellations and timeouts count as failures, because the SLO and the alert both depend on it.
 
-The exception handler is the owning logging boundary. Emit one structured record there with `exc_info=exc`, and let the inner spans carry only `error.type`. Public error mapping is owned by `../../../python-service-architecture/references/errors.md` (Public error mapping).
+The exception handler is the owning logging boundary. Emit one structured record there with `exc_info=exc`, and let the inner spans carry only `error.type`. Public error mapping is owned by `../../../python-service-architecture/references/api-and-workers.md` (Public error mapping).
 
 ```python
 from fastapi import Request

@@ -89,4 +89,4 @@ HEALTHCHECK \
     CMD ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/app/.venv/bin/uvicorn", "sample_api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/.venv/bin/uvicorn", "--factory", "sample_api.bootstrap.app:create_app", "--host", "0.0.0.0", "--port", "8080"]

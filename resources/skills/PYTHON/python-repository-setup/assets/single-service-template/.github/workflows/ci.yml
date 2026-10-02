@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.7"
+      - run: uv python install
+      - run: uv sync --locked
+      # Same hooks as local commits and pushes: Ruff, uv-lock, import-linter
+      # contracts, mypy, and the fast (non-infrastructure) tests.
+      - run: uv run --locked pre-commit run --all-files --hook-stage pre-commit
+      - run: uv run --locked pre-commit run --all-files --hook-stage pre-push
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
+      # A missing prerequisite fails this job instead of skipping (pytest skill,
+      # "Profile prerequisites"); locally the same tests skip.
+      REQUIRE_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.7"
+      - run: uv python install
+      - run: uv sync --locked
+      # Every non-live profile against real infrastructure; coverage is reported
+      # here because only this run exercises db/ and migrations.
+      - run: uv run --locked pytest -m "not live" --cov --cov-report=term-missing

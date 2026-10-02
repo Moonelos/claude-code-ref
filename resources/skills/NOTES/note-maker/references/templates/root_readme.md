@@ -64,6 +64,20 @@ list of guides; learning paths below may link directly to selected guides.
 3. [Harden: Topic](path/to/file.md) — adds the first production requirement, only if needed
 
 **Stop here if**: {the baseline already meets the reader's need}. Continue to {next path/note} when {specific production or specialist requirement appears}.
+
+---
+
+## What's changing
+
+> Checked {YYYY-MM-DD}. The notes teach {version baseline}; these items affect choices beyond it.
+
+| Item | Status | Why it matters to you | Covered in | Source |
+|---|---|---|---|---|
+| {Feature or practice} | GA / PREVIEW / DEPRECATED / EMERGING | {Decision or example it changes} | [{note}]({path}.md) or "not yet" | [{source}]({url}) |
+
+---
+
+[Glossary](GLOSSARY.md): every term used in these notes, with a link to where it is taught.
 ```
 
 ---
@@ -86,3 +100,6 @@ list of guides; learning paths below may link directly to selected guides.
 - One named path is for a first-time reader and reaches a complete useful outcome before production deep dives or references
 - Each path states its audience, working result, and stop point
 - Omit the `*Last updated*` line unless the user requests it — it goes stale immediately
+- Include **What's changing** for an evolving subject, with a checked date on the section itself
+  rather than on the whole page; drop it for a stable or version-pinned subject
+- Link `GLOSSARY.md` once, after the paths; it is a lookup aid, not an entry point

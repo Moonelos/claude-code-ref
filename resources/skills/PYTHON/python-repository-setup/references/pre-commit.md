@@ -121,7 +121,7 @@ repos:
     hooks:
       - id: mypy
         name: mypy (workspace)
-        entry: uv run --locked mypy services libs
+        entry: scripts/mypy-members.sh  # one mypy run per member (SKILL.md)
         language: system
         pass_filenames: false
         always_run: true
@@ -129,7 +129,7 @@ repos:
 
       - id: pytest
         name: pytest (non-live)
-        entry: uv run --locked pytest -m "not live" --no-cov
+        entry: uv run --locked pytest -m "not live and not integration and not e2e"
         language: system
         pass_filenames: false
         always_run: true
@@ -147,7 +147,180 @@ runs against a clean checkout and fails when it would make a change. If the
 project prohibits modifying hooks, remove `--fix` deliberately in both local
 and documented behavior rather than relying on context-dependent arguments.
 
+## Architecture contracts
+
+Services follow the hexagonal shape in `python-service-architecture` (fallback:
+`../../python-service-architecture/SKILL.md`). Agents write most of the code, so
+its dependency rules are enforced by a tool on every commit, not only described.
+Add `import-linter` to the root `dev` dependency group and declare one set of
+contracts per service in the root `pyproject.toml`:
+
+```toml
+[tool.importlinter]
+root_packages = ["orchestrator", "worker"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "orchestrator: application uses only admitted inner dependencies"
+type = "forbidden"
+source_modules = ["orchestrator.application.**"]
+forbidden_modules = [
+    "orchestrator.adapters",
+    "orchestrator.api",
+    "orchestrator.bootstrap",
+    "orchestrator.config",
+    "orchestrator.db",
+    "orchestrator.genai",
+    "orchestrator.workers",
+    "boto3",
+    "fastapi",
+    "httpx",
+    "langchain_core",
+    "opentelemetry",
+    "sqlalchemy",
+    "sqlmodel",
+]
+# application -> observability -> opentelemetry is the allowed telemetry path.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "orchestrator: domain and ports are pure"
+type = "forbidden"
+source_modules = ["orchestrator.domain.**", "orchestrator.ports.**"]
+forbidden_modules = [
+    "orchestrator.adapters",
+    "orchestrator.api",
+    "orchestrator.application",
+    "orchestrator.bootstrap",
+    "orchestrator.config",
+    "orchestrator.db",
+    "orchestrator.genai",
+    "orchestrator.observability",
+    "orchestrator.workers",
+    "boto3",
+    "fastapi",
+    "httpx",
+    "langchain_core",
+    "opentelemetry",
+    "sqlalchemy",
+    "sqlmodel",
+]
+
+[[tool.importlinter.contracts]]
+name = "orchestrator: only entry points import bootstrap"
+type = "forbidden"
+source_modules = [
+    "orchestrator.adapters.**",
+    "orchestrator.api.**",
+    "orchestrator.db.**",
+    "orchestrator.genai.**",
+    "orchestrator.workers.**",
+]
+forbidden_modules = ["orchestrator.bootstrap"]
+
+[[tool.importlinter.contracts]]
+name = "orchestrator: entry points use actions and contracts, not concrete integrations"
+type = "forbidden"
+source_modules = ["orchestrator.api.**", "orchestrator.workers.**"]
+forbidden_modules = [
+    "orchestrator.adapters",
+    "orchestrator.config",
+    "orchestrator.db",
+    "orchestrator.genai",
+]
+# Only direct imports: runtime wiring is in bootstrap; telemetry helpers may
+# have their own outer integrations.
+allow_indirect_imports = true
+```
+
+The external list names the SDKs and frameworks the service depends on; extend
+it when a dependency is added. `include_external_packages` is required for
+those entries. import-linter can only forbid what is listed, so this list is a
+floor: `python-service-architecture-audit` checks the inverse, flagging any
+third-party import in those packages outside a small allow-list.
+
+The internal lists are fixed: every contract names every canonical boundary
+(`adapters`, `api`, `application`, `bootstrap`, `config`, `db`, `genai`,
+`observability`, `workers`) whether or not the service has it yet, so a
+boundary added later is covered the day it appears. Do not tailor them to the
+current tree. Commit the contracts with the service, before its boundaries exist. A missing
+*forbidden* module is ignored, but a missing *source* module is an error, so
+sources use the `package.**` form, which matches nothing until the package has
+modules. `.**` matches descendants only, not the package's own `__init__.py`;
+those files stay empty package markers.
+
+Repeat the four contracts for each service.
+
+Every workspace library also gets an independence contract, and each service
+restricts which of its layers may import each library. The library kinds and
+their allowed importers are defined in `python-service-architecture` (fallback:
+`../../python-service-architecture/references/shared-libraries.md`, "Library
+kinds and importers"). List the library in `root_packages`:
+
+```toml
+[[tool.importlinter.contracts]]
+name = "edm_client: independent of every service"
+type = "forbidden"
+source_modules = ["edm_client", "edm_client.**"]
+forbidden_modules = ["orchestrator", "worker", "pydantic_settings"]
+
+# A client library: only the port implementations and bootstrap import it.
+[[tool.importlinter.contracts]]
+name = "orchestrator: edm_client only in adapters and bootstrap"
+type = "forbidden"
+source_modules = [
+    "orchestrator.api.**",
+    "orchestrator.application.**",
+    "orchestrator.config.**",
+    "orchestrator.db.**",
+    "orchestrator.domain.**",
+    "orchestrator.observability.**",
+    "orchestrator.ports.**",
+]
+forbidden_modules = ["edm_client"]
+```
+
+For a configuration library, omit `pydantic_settings` from its independence
+contract and forbid its imports from every service layer except `config` and
+`bootstrap`. For the documented database-runtime exception, permit `db` and
+`bootstrap`; see the owning shared-library reference for declaration and review.
+Include each forbidden boundary root as well as its `.**` descendants so
+imports in `__init__.py` are covered.
+
+A persistence (models) library gets the same importer contract with every
+layer except `db` as a source. A contract library needs no importer contract.
+Add each new service package to every library's independence contract in the
+same change that creates the service.
+
+Run it in the `pre-commit` stage; it analyzes the whole import graph in seconds:
+
+```yaml
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: architecture contracts
+        entry: uv run --locked lint-imports
+        language: system
+        pass_filenames: false
+        always_run: true
+```
+
+CI runs the same `uv run --locked lint-imports`. A broken contract is fixed in
+the code, never by editing the contract to match.
+
 ## CI parity
+
+Both templates ship `.github/workflows/ci.yml` with two jobs; create the
+equivalent for another CI system when the service is created, not later:
+
+- **checks:** both hook stages on the complete checkout, so CI enforces exactly
+  what developers run (Ruff, `uv-lock`, import-linter contracts, per-member
+  mypy, the fast test suite);
+- **integration:** a disposable PostgreSQL service and every non-live profile,
+  with coverage reported. The job sets `REQUIRE_INTEGRATION=1`, so a missing
+  database URL fails instead of skipping and a job that lost its database
+  cannot pass (`../../pytest/references/examples-core.md`, "Profile
+  prerequisites").
 
 At minimum, CI runs the fast stage against the complete checkout:
 

@@ -9,6 +9,7 @@ members = [
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.15,<3",
     "mypy>=2.3.0,<3",
     "pre-commit>=4.6.1,<5",
     "pytest>=9.1.1,<10",
@@ -52,7 +53,13 @@ max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "INP"]
+"**/alembic/**" = ["INP001"]  # run by Alembic from its script directory, never imported
 "**/bootstrap/runtime.py" = ["PLR0915"]  # wiring-only composition root
+
+[tool.ruff.lint.isort]
+# Every import package and member test-support package (`<member>_testing`),
+# which Ruff cannot discover under tests/.
+known-first-party = ["sample_api", "sample_shared"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -62,22 +69,34 @@ addopts = [
     "-ra",
     "--strict-config",
     "--strict-markers",
-    "--cov",
-    "--cov-report=term-missing",
+    "--import-mode=importlib",
 ]
 testpaths = ["services", "libs"]
+markers = [
+    "integration: needs disposable infrastructure (database, broker, emulator)",
+    "contract: verifies a shipped compatibility surface without live infrastructure",
+    "e2e: starts the deployable and crosses several real boundaries",
+    "live: reaches a non-disposable provider; never runs in ordinary CI",
+]
 
+# Coverage is a map for review, not a gate: CI reports it on the run that
+# includes the integration profile (the only run that exercises db/).
 [tool.coverage.run]
 branch = true
 source = ["sample_api", "sample_shared"]
+omit = ["*/alembic/env.py", "*/alembic/versions/*"]  # executed by Alembic, not tests
 
 [tool.coverage.report]
-fail_under = 90
 show_missing = true
 skip_covered = true
 
 [tool.mypy]
 python_version = "3.13"
+# Tests have no __init__.py and several conftest.py files, so module names come
+# from explicit bases. scripts/mypy-members.sh runs one mypy per member with
+# MYPYPATH=<member>/src:<member>/tests; one run over every member would see two
+# top-level `conftest` modules.
+explicit_package_bases = true
 strict = true
 warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "possibly-undefined"]
@@ -87,3 +106,74 @@ plugins = ["pydantic.mypy"]  # keep while any member uses pydantic
 # [[tool.mypy.overrides]]
 # module = ["untyped_vendor.*"]
 # ignore_missing_imports = true
+
+[tool.importlinter]
+root_packages = ["sample_api", "sample_shared"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "sample_api: application depends only on domain, ports, and observability"
+type = "forbidden"
+source_modules = ["sample_api.application.**"]
+forbidden_modules = [
+    "sample_api.adapters",
+    "sample_api.api",
+    "sample_api.bootstrap",
+    "sample_api.config",
+    "sample_api.db",
+    "sample_api.genai",
+    "sample_api.workers",
+    "fastapi",
+    "opentelemetry",
+]
+# application -> observability -> opentelemetry is the allowed telemetry path.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "sample_api: domain and ports are pure"
+type = "forbidden"
+source_modules = ["sample_api.domain.**", "sample_api.ports.**"]
+forbidden_modules = [
+    "sample_api.adapters",
+    "sample_api.api",
+    "sample_api.application",
+    "sample_api.bootstrap",
+    "sample_api.config",
+    "sample_api.db",
+    "sample_api.genai",
+    "sample_api.observability",
+    "sample_api.workers",
+    "fastapi",
+    "opentelemetry",
+]
+
+[[tool.importlinter.contracts]]
+name = "sample_api: only entry points import bootstrap"
+type = "forbidden"
+source_modules = [
+    "sample_api.adapters.**",
+    "sample_api.api.**",
+    "sample_api.db.**",
+    "sample_api.genai.**",
+    "sample_api.workers.**",
+]
+forbidden_modules = ["sample_api.bootstrap"]
+
+[[tool.importlinter.contracts]]
+name = "sample_api: entry points use actions and contracts, not concrete integrations"
+type = "forbidden"
+source_modules = ["sample_api.api.**", "sample_api.workers.**"]
+forbidden_modules = [
+    "sample_api.adapters",
+    "sample_api.config",
+    "sample_api.db",
+    "sample_api.genai",
+]
+# Only direct imports: runtime wiring is in bootstrap.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "sample_shared: independent of services"
+type = "forbidden"
+source_modules = ["sample_shared"]
+forbidden_modules = ["sample_api"]
