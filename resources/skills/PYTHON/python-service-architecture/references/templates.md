@@ -150,7 +150,7 @@ class SqlSubmissionStore:
 ```
 
 ```python
-# api/routes.py — HTTP in, one action, HTTP out
+# api/routers/submissions.py — HTTP in, one action, HTTP out
 @router.post("/submissions", status_code=status.HTTP_202_ACCEPTED)
 async def submit(body: SubmissionBody, runtime: RuntimeDep, identity: WriteIdentity) -> SubmissionOut:
     receipt = await submit_investigation(

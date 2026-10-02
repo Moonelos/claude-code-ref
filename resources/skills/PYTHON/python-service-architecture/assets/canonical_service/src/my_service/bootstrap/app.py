@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from my_service.api.routes import router
+from my_service.api.routers.submissions import router
 from my_service.bootstrap.runtime import runtime
 from my_service.config.settings import Settings
 

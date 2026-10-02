@@ -1000,7 +1000,8 @@ skills/PYTHON/python-service-architecture/assets/canonical_service/pyproject.tom
 skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/__init__.py
 skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/api/__init__.py
 skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/api/dependencies.py
-skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/api/routes.py
+skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/api/routers/__init__.py
+skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/api/routers/submissions.py
 skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/application/__init__.py
 skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/application/submit.py
 skills/PYTHON/python-service-architecture/assets/canonical_service/src/my_service/bootstrap/__init__.py

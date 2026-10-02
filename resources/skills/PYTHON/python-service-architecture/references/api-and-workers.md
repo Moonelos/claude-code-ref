@@ -10,18 +10,30 @@ src/<package>/
 │   └── runtime.py                  # Dependency graph and disposal
 ├── api/
 │   ├── dependencies.py             # ApiRuntime Protocol, get_runtime, RuntimeDep
-│   ├── problems.py                 # Exception -> public error table and handlers
+│   ├── exception_handlers.py       # Exception -> public error table and handlers
 │   ├── middleware.py               # Cross-request transport mechanics, when used
-│   ├── routes.py                   # Until a second router exists, then routers/
-│   └── schemas.py                  # Only when the HTTP shape differs
+│   ├── schemas.py                  # Only when the HTTP shape differs
+│   ├── sse.py                      # Event-stream encoder, when a route streams
+│   └── routers/                    # One module per resource, each exposing `router`
+│       ├── health.py               # Technical probes
+│       └── <resource>.py           # Business routes
 ├── application/
 ├── domain/
 ├── ports/
 └── ...                             # adapters/, genai/, config/, db/, observability/
 ```
 
-The tree lists roles, not required filenames. `bootstrap/app.py` owns the
-FastAPI instance, lifespan, router registration, and framework instrumentation.
+The tree lists roles, not required filenames, but the shape is fixed: routes
+live in `api/routers/`, one module per resource, from the first route. A flat
+`api/` of `conversations.py`, `health.py`, `streaming.py` beside the plumbing is
+wrong; so is a single `routes.py` that later has to be split. Plumbing
+(`dependencies.py`, `exception_handlers.py`, `middleware.py`, `schemas.py`,
+`sse.py`) stays
+at the `api/` root; ASGI middleware never goes in `routers/`. Group routes by
+resource, not by transport: streaming endpoints belong to their resource's router
+(`turns.py`), while `api/sse.py` holds only the event encoder. `bootstrap/app.py`
+owns the FastAPI instance, lifespan, router registration, and framework
+instrumentation.
 
 Business routers validate and translate HTTP input, resolve request context,
 call one public application action, and translate the result. Technical routes
