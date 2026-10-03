@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from service_audit.cross_checks import (  # noqa: E402
     cross_member_findings,
+    db_layout_findings,
     duplicate_llm_findings,
     duplicate_private_function_findings,
     protocol_findings,
@@ -57,6 +58,7 @@ def audit(
         tool_only_findings(modules, package),
         protocol_findings(modules, tests),
         single_module_adapter_findings(root),
+        db_layout_findings(root, modules, package),
         duplicate_llm_findings(modules),
         duplicate_private_function_findings(modules),
         shared_literal_findings(modules),

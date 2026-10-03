@@ -20,10 +20,13 @@ from service_audit.ast_helpers import (
 )
 from service_audit.model import Finding, Module, python_files, review, violation
 from service_audit.rules import (
+    DB_CONTRACT_OWNERS,
+    DB_SHARED_ROOT,
     IDENTIFIER_LITERAL,
     IMPLEMENTATION_OWNERS,
     MethodKey,
     R_APPLICATION_PORTS,
+    R_DB_LAYOUT,
     R_FLAT,
     R_MAGIC,
     R_ONE_OWNER,
@@ -211,6 +214,80 @@ def single_module_adapter_findings(root: Path) -> Iterator[Finding]:
             display = str(members[0].relative_to(root))
             message = f"one-module adapter subpackage {directory.name}/; keep it flat"
             yield Finding(display, 1, message, R_FLAT, "REVIEW")
+
+
+def db_layout_findings(
+    root: Path, modules: list[Module], package: str
+) -> Iterator[Finding]:
+    """db/ root entries outside the shared set that name no contract, capability
+    subpackages without store.py or with one module, and imports across capabilities."""
+    db = root / "db"
+    if not db.is_dir():
+        return
+    contracts: set[str] = set()
+    for module in modules:
+        if module.owner in DB_CONTRACT_OWNERS:
+            parts = Path(module.display).with_suffix("").parts[1:]
+            contracts.update(part for part in parts if part != "__init__")
+    capabilities: set[str] = set()
+    for entry in sorted(db.iterdir()):
+        if entry.name.startswith(("_", ".")):
+            continue
+        if entry.is_dir():
+            name = entry.name
+        elif entry.suffix == ".py":
+            name = entry.stem
+        else:
+            continue
+        if name in DB_SHARED_ROOT:
+            continue
+        capabilities.add(name)
+        store = entry / "store.py"
+        display = str((store if store.is_file() else entry).relative_to(root))
+        if entry.is_dir() and not store.is_file():
+            display += "/"
+        if name not in contracts and not any(
+            name.startswith(f"{contract}_") for contract in contracts
+        ):
+            message = (
+                f"db/ capability {name} matches no ports/ or genai/ module; name it "
+                "after the contract it implements, or move shared code to a root module"
+            )
+            yield Finding(display, 1, message, R_DB_LAYOUT, "REVIEW")
+        if not entry.is_dir():
+            continue
+        if not store.is_file():
+            message = f"db/{name}/ has no store.py; the capability's implementation lives there"
+            yield Finding(display, 1, message, R_DB_LAYOUT, "REVIEW")
+        members = [path for path in entry.glob("*.py") if path.name != "__init__.py"]
+        nested = any(
+            child.is_dir() and child.name != "__pycache__" for child in entry.iterdir()
+        )
+        if len(members) == 1 and not nested:
+            message = f"one-module db/ subpackage {name}/; keep it as db/{name}.py"
+            yield Finding(display, 1, message, R_DB_LAYOUT, "REVIEW")
+    prefix = f"{package}.db"
+    for module in modules:
+        parts = Path(module.display).parts
+        if module.owner != "db" or len(parts) < 2:
+            continue
+        own = Path(parts[1]).stem
+        for name, symbols, level, line in imports(module.tree):
+            if level:
+                continue
+            if name == prefix:
+                targets = symbols
+            elif name.startswith(f"{prefix}."):
+                targets = [name.removeprefix(f"{prefix}.").split(".")[0]]
+            else:
+                continue
+            for target in targets:
+                if target in capabilities and target != own:
+                    message = (
+                        f"db/ capability {own} imports capability {target}; move what "
+                        "both need to a shared root module"
+                    )
+                    yield review(module, line, message, R_DB_LAYOUT)
 
 
 def module_name(module: Module, package: str) -> str:

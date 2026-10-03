@@ -48,6 +48,16 @@ to five related modules flat until one narrower area has enough content,
 independent change, distinct test setup, or naming pressure to justify a
 subpackage. The number is a review signal, not a quota.
 
+Flat-first does not mean flat forever. When a capability implementation and
+several supporting modules form a cohesive cluster, group them under that
+capability (for example, `db/indexing/store.py`, `manifests.py`, and
+`publication.py`). For `db/` this is the fixed template in
+`python-sqlmodel-alembic`
+([The db/ package](../../python-sqlmodel-alembic/references/repo-layout.md#the-db-package)).
+Confirm the cluster from responsibilities and imports; keep primitives used across capabilities at the boundary root. Import concrete
+implementations from their defining modules, without re-export facades. A file
+count alone does not justify a split, and grouping adds no new port or layer.
+
 Do not create a module for one class, exception, constants group, schema, or
 private helper; do not combine unrelated responsibilities to save files. A root
 boundary exists only when it has content, and every module belongs to one.
@@ -66,9 +76,9 @@ storage, identity providers, LLMs. Name it after what the action needs
   or lifecycle** (conversations, the runs that answer them, feedback on
   answers), not "everything the main action touches". Signals to split a port
   and its implementation: more than ~12 methods, an implementation over ~400
-  lines, or method groups that no single action uses together. Shared table
-  handles go to `db/tables.py`; another `db/` module never imports a sibling
-  store's private helpers.
+  lines, or method groups that no single action uses together. Shared tables
+  live in `db/models.py`; one `db/` capability never imports another
+  ([The db/ package](../../python-sqlmodel-alembic/references/repo-layout.md#the-db-package)).
 - **Implemented directly** by a class in `db/`, `adapters/`, or `genai/`.
   Additional implementations and behavior-owning decorators are fine; a class
   that only renames the same call is not.
@@ -116,6 +126,13 @@ assertions only inspect values computed by pure logic is a defect: test the
 domain function directly. One action test asserting that the action *applies*
 the rule (the stored priority is the floored one) is orchestration, not a
 duplicate; testing each branch of the rule through fakes is.
+
+**Persistence ports in tests.** Fake a persistence port only in a test of an
+action that orchestrates it with other ports or decisions. A one-call action
+and every store method are tested against disposable PostgreSQL, through the
+route or the store ([testing.md](testing.md#profiles-and-markers)). Never build
+an in-memory fake that reimplements queries, constraints, uniqueness, or
+ordering: a test passing against it proves nothing about the database.
 
 ## No forwarding layers
 

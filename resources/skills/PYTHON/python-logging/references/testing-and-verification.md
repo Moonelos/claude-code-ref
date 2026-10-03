@@ -14,7 +14,7 @@ When a suite exists, cover the changed behavior:
 - reserved fields cannot be overwritten by untrusted context;
 - nested canary secrets are redacted before serialization (see "Canary test");
 - the full exception projection keeps the chained traceback once; the safe projection removes traceback, raw exception message, and canary PII while preserving classification and correlation;
-- an allowlisting formatter rejects or marks unknown fields, and representative success, retry, and failure records still carry each event's needed fields;
+- an allowlisting formatter rejects or marks unknown fields and unregistered application events, and representative success, retry, and failure records still carry each event's needed fields;
 - an oversized traceback is truncated with an explicit marker and the record survives;
 - one escaping exception produces exactly one terminal error record;
 - recovered retries produce no per-attempt record and no terminal error; an activated fallback produces its one warning;

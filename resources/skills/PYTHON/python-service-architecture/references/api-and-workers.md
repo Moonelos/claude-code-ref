@@ -149,6 +149,16 @@ None of that is wiring, so it does not belong in `bootstrap/`; none of it is
 business, so it does not belong in `application/`; and the SQS client should not
 know which action handles its messages, so it does not belong in `adapters/`.
 
+**Execution ownership.** `workers/` owns receiving or claiming work, delivery
+leases and heartbeats, capacity/backpressure, per-item execution and settlement.
+`application/` owns the business operation, including business retry and
+admission decisions. `bootstrap/` constructs dependencies and owns process
+startup, supervision, and shutdown. It starts and stops workers through their
+execution and drain functions; the worker owns its in-flight delivery tasks.
+A worker need not be as thin as an HTTP route: heartbeat, cancellation, and
+backpressure are substantive entry-point behavior, not reasons to move business
+logic out of an action or delivery mechanics into bootstrap.
+
 Its imports follow the `api/`, `workers/` row of
 [The core rule](boundaries.md#the-core-rule): like `api/`, it reads
 implementations through a typed runtime view.
@@ -193,7 +203,7 @@ async def reattempt_stuck(runtime: WorkerRuntime) -> Iteration:
 
 ### The supervisor runs workers
 
-The supervisor is the one owner that creates all loop tasks, holds the stop
+The supervisor is the one owner that creates the process-level loop tasks, holds the stop
 event, applies each loop's cadence and failure policy, and runs shutdown. It is
 generic: one `run_loop` for every worker.
 

@@ -23,17 +23,20 @@ models.py           naming convention, table base, SQLModel tables, column vocab
    ↑                (a models/ package with base.py once tables gain relationships)
 alembic/            the one migration history for that metadata
    ↑
-engine.py        →  transactions.py          →  stores and named db/ modules
+engine.py        →  transactions.py          →  one store per port (db/<port>.py)
 engine builder +    transaction helper, UoWs,    entity reads/writes; leases,
 session factory     constraint_name, limits,     retention, external reads
 (bootstrap calls)   database clock               (optional: queries/*.sql)
 ```
 
 `models.py` describes the schema; `alembic/` versions it. `engine.py` and
-`transactions.py` are how one process talks to that schema. Keep `db/` flat
-(`python-service-architecture`, "Flat-first growth across boundaries"): no
-module for one helper, so the session factory lives with the engine builder and
-the clock, limits, and integrity helpers live with the transaction helper.
+`transactions.py` are how one process talks to that schema. Every `db/` follows
+one template (`references/repo-layout.md`, "The db/ package"): a closed set of
+shared root modules, then one store per contract named after its port
+(`db/orders.py`), promoted to `db/orders/store.py` only when it gains
+supporting modules. No module for one helper: the session factory lives with
+the engine builder, and the clock, limits, and integrity helpers live with the
+transaction helper.
 
 ## Resolve the repo shape first
 
@@ -50,8 +53,9 @@ adds where the *DB* pieces specifically go once the shape is decided. See
 
 Load only what you're touching:
 
-- `references/repo-layout.md` — monorepo vs. single-service trees, what is
-  shared vs. per-service, schema ownership and prototype mode.
+- `references/repo-layout.md` — the `db/` package template, monorepo vs.
+  single-service trees, what is shared vs. per-service, schema ownership and
+  prototype mode.
 - `references/models-and-base.md` — naming convention, `TableBase`,
   timestamps, when to split model modules, status enums, JSON codecs, shared
   predicates and transitions.

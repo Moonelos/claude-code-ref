@@ -481,6 +481,53 @@ class SizeAndShapeTests(AuditCase):
         )
 
 
+class DbLayoutTests(AuditCase):
+    def test_capability_without_contract(self) -> None:
+        self.pkg("db/orders.py", "class SqlOrderStore:\n    pass\n")
+        self.assertFinding("REVIEW", "db/orders.py", "matches no ports/ or genai/ module")
+
+    def test_shared_root_and_suffixed_implementation_are_clean(self) -> None:
+        self.pkg("db/engine.py", "def build_engine() -> None: ...\n")
+        self.pkg("db/submissions_legacy.py", "class LegacySubmissionStore:\n    pass\n")
+        self.assertClean()
+
+    def test_promoted_capability_is_clean(self) -> None:
+        source = (self.package / "db/submissions.py").read_text()
+        (self.package / "db/submissions.py").unlink()
+        self.pkg("db/submissions/__init__.py", "")
+        self.pkg("db/submissions/store.py", source)
+        self.pkg("db/submissions/rows.py", "ROW_LIMIT = 1\n")
+        self.assertClean()
+
+    def test_subpackage_without_store(self) -> None:
+        self.pkg("db/submissions/__init__.py", "")
+        self.pkg("db/submissions/reads.py", "VALUE = 1\n")
+        self.pkg("db/submissions/writes.py", "VALUE = 2\n")
+        self.assertFinding("REVIEW", "db/submissions/", "has no store.py")
+
+    def test_one_module_subpackage(self) -> None:
+        self.pkg("db/submissions_archive/__init__.py", "")
+        self.pkg("db/submissions_archive/store.py", "class SqlArchive:\n    pass\n")
+        self.assertFinding(
+            "REVIEW", "db/submissions_archive/store.py", "one-module db/ subpackage"
+        )
+
+    def test_import_between_capabilities(self) -> None:
+        self.pkg("ports/orders.py", "VALUE = 1\n")
+        self.pkg("db/orders.py", "from my_service.db.submissions import SqlSubmissionStore\n")
+        self.assertFinding(
+            "REVIEW", "db/orders.py", "capability orders imports capability submissions"
+        )
+
+    def test_import_of_shared_root_module_is_not_a_capability_import(self) -> None:
+        self.pkg("ports/orders.py", "VALUE = 1\n")
+        self.pkg("db/orders.py", "from my_service.db import transactions\n")
+        rendered = self.findings()
+        self.assertFalse(
+            any("imports capability" in line for line in rendered), "\n".join(rendered)
+        )
+
+
 class ForwardingTests(AuditCase):
     def test_function_that_only_forwards(self) -> None:
         self.pkg(

@@ -28,12 +28,19 @@ shell into a library.
 
 ```text
 api/ or workers/           entry point: parse input → call ONE action → map the result
-application/<action>.py    async def for one business operation; the catalog
+application/<resource>.py  the one-call actions of one resource; the catalog
+application/<operation>.py an action with its own steps, plus siblings sharing its helpers
 domain/                    pure types and decisions, no I/O; imported directly
 ports/<capability>.py      Protocol + its result types + its errors
 db/ | adapters/ | genai/   the class implementing a port; owns the integration
 bootstrap/                 builds every implementation once and runs the process
 ```
+
+`application/<resource>.py` holds the one-call actions of one resource
+(`application/conversations.py`: create, list, detail, history). An action with
+its own steps gets `application/<operation>.py`, together with the sibling
+actions that share its private helpers (`retry_turn` beside `submit_turn`).
+Never one file per one-call action. Both kinds of module are the catalog.
 
 A request travels `entry point → action → implementation`. The worked example is
 [templates.md](references/templates.md#canonical-feature), and an executable
@@ -69,7 +76,7 @@ catalog answers "what does this service do?"; elsewhere it only adds hops.
 
 | Code | Shape | Why |
 | --- | --- | --- |
-| Business operation: reached by a route, worker, or CLI, or changes business state (turns, conversations, feedback, submissions) | Full: entry point → action → port → implementation | The catalog and the faked port in action tests earn their cost here |
+| Business operation: reached by a route, worker, or CLI, or changes business state (turns, conversations, feedback, submissions) | Full: entry point → action → port → implementation | The catalog and the enforced import boundary earn their cost here; a faked port earns it in tests of actions that orchestrate ([boundaries.md](references/boundaries.md#when-a-port-earns-its-cost)) |
 | Internals of a GenAI capability: retrieval, query rewrite, embeddings, read-only tools, middleware | Direct: classes and functions in the agent's folder or a capability folder (`genai/retrieval/`), with the fixed file names of [ai.md](references/ai.md#standard-agent-shape), called directly; no action, no application port ([ai.md](references/ai.md#when-a-tool-calls-an-action)) | Only the agent reaches them; the capability's own port (`AnswerAgent`) is already the boundary tests fake |
 | Technical maintenance job (retention purge, cleanup sweep) whose rule no other entry point needs | Direct: one function in the integration that owns the data (`db/retention.py`) run by the supervisor; no `domain/`, port, or action ([api-and-workers.md](references/api-and-workers.md#technical-jobs)) | Nothing else calls it, and its tests need the real database anyway |
 | Provider or SDK client setup | Inside the agent's `llms.py` or the adapter constructor ([ai.md](references/ai.md#ownership-inside-genaitask)) | Construction policy, not a capability |
@@ -110,7 +117,11 @@ action test must fake it. "It does I/O" alone is not a trigger.
    adds a fake to every test and proves nothing a direct unit test would not.
 6. **No layer only forwards.** No handler classes in bootstrap, no `db/`
    coordinator that opens a transaction and calls a same-named method, no
-   re-export modules. The one-call action of rule 1 is the single exception.
+   re-export modules. The one-call action of rule 1 is the single exception,
+   and it is complete as written: do not introduce DTOs, mapping, helpers,
+   logging, or tests solely to give it additional substance, and avoid unit
+   tests that only assert delegation to a fake. Verify meaningful behavior at
+   the boundary that owns it.
    *Why:* every hop is code to read and change, and a hop with no behavior
    hides where the behavior actually is.
 7. **Implementations translate once.** The class implementing a port hides the

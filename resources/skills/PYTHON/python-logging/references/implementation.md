@@ -49,7 +49,7 @@ Example: `logger.info("payment_declined", extra={"order_id": order_id, "reason":
 
 ## Field allowlists
 
-If the formatter applies a field allowlist, reconcile every new event against it: register each authored field with an agreed name and type, or omit it at the call site, and verify the serialized record still answers the event's question. The allowlist never silently discards an authored field: it fails in tests on unknown keys, or emits a dropped-fields marker in production. The same formatter may validate the event-name pattern. Allowlisting runs before redaction and serialization, never instead of redaction.
+If the formatter applies a field allowlist, reconcile every new event against it: register each authored field with an agreed name and type, or omit it at the call site, and verify the serialized record still answers the event's question. The allowlist never silently discards an authored field: it fails in tests on unknown keys, or emits a dropped-fields marker in production. The same formatter may validate the event-name pattern. An event-name allowlist follows the same rule: an application logger's unregistered event keeps its name and gains a marker, never a generic replacement such as `library_log`, and a test fails when an authored event literal is missing from the catalogue. Collapsing third-party records into one generic event is fine. Allowlisting runs before redaction and serialization, never instead of redaction.
 
 ## Context lifecycle
 

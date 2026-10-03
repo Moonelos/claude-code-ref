@@ -21,6 +21,7 @@ R_GENAI_OWNERSHIP = f"{ARCH}/ai.md#Ownership inside genai/<task>/"
 R_FLAT = f"{ARCH}/boundaries.md#Flat-first growth across boundaries"
 R_OWNERSHIP = f"{ARCH}/boundaries.md#Errors and constants follow ownership"
 R_ADAPTERS = f"{ARCH}/boundaries.md#Adapters and their placement"
+R_DB_LAYOUT = "python-sqlmodel-alembic/references/repo-layout.md#The db/ package"
 R_REPOSITORIES = f"{ARCH}/boundaries.md#Repositories apply decisions"
 R_NONDETERMINISM = f"{ARCH}/boundaries.md#Nondeterminism"
 R_CONSTRUCTOR_CONTRACTS = f"{ARCH}/boundaries.md#Constructor contracts"
@@ -262,6 +263,21 @@ STATE_METHODS = {
     "update",
 }
 IMPLEMENTATION_OWNERS = {"adapters", "db", "genai"}
+# db/ root entries shared by every capability (repo-layout.md, "The db/ package");
+# every other root entry is a capability named after the contract it implements.
+DB_SHARED_ROOT = {
+    "alembic",
+    "engine",
+    "models",
+    "queries",
+    "repositories",
+    "retention",
+    "schema",
+    "transactions",
+}
+# Boundaries whose module names a db/ capability may take: application ports, and
+# consumer-private Protocols in genai/.
+DB_CONTRACT_OWNERS = ("ports", "genai")
 SKIPPED_DIRS = {
     ".git",
     ".mypy_cache",

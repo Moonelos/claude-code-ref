@@ -6,11 +6,13 @@ Only the service's `db/` package (and shared DB libraries) imports
 `AsyncSession`, `text()`, `select()` or table models for querying.
 
 - Ordinary entity reads and writes go in repositories. A repository class lives
-  in the `db/` module of the store that uses it (`db/orders.py`); there is no
-  `repositories/` package until several stores share one repository.
-- A cohesive operation (UoW, lease manager,
-  advisory lock, retention pass, schema probe, external read-only database)
-  may live in a precisely named `db/` module instead.
+  in the module of the store that uses it (`db/orders.py`, or
+  `db/orders/store.py` once promoted); a repository several stores share moves
+  to `db/repositories.py`.
+- Every other operation sits where `repo-layout.md`, "The db/ package", puts
+  it: UoWs and advisory-lock helpers in `transactions.py`, retention passes in
+  `retention.py`, the schema guard in `schema.py`; a lease manager or external
+  read-only database implements a port and takes its name.
 - Application, domain and ports never run SQL. No application port per table
   is required.
 - Direct psycopg is valid for PostgreSQL-specific privilege, cursor or policy
