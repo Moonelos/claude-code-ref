@@ -7,17 +7,24 @@ tags: pace, progress, loading, a11y, ux
 
 ## Fill Time-to-First-Token With Real Progress, Then Yield Cleanly
 
-An agent that plans and calls tools can take 5–15 seconds before its first token. An empty transcript reads as a hang. The indicator must appear immediately, reflect what the backend is actually doing where possible, and disappear at the exact frame the first token lands — never overlap it.
+An agent that plans and calls tools can take seconds before its first token. An empty transcript reads as a hang. Show immediate activity for the submitting phase, then prefer meaningful backend progress. The empty-answer loading treatment yields when text arrives; a compact progress status may remain during streaming if the product requests it.
 
-**Correct (mutually exclusive by construction):**
+**Keep activity and text in one stable assistant turn:**
 
 ```tsx
-const showAssistant = turn.answer.length > 0
-const showActivity = isTurnActive(turn) && !showAssistant
-
-{showActivity && <AgentActivity phase={turn.progress} />}
-{showAssistant && <AssistantBubble turn={turn} />}
+<AssistantBubble
+  key={turn.logicalId}
+  turn={turn}
+  progress={isTurnActive(turn) ? turn.progress : undefined}
+  showEmptyLoading={isTurnActive(turn) && turn.answer.length === 0}
+/>
 ```
+
+Normally place the status near the assistant speaker/avatar, above the answer.
+Keep it associated with the active turn rather than a detached status above the
+composer, unless the product explicitly chooses a different placement. Avoid
+duplicating an assistant label when a provisional loading bubble becomes a streamed
+answer. Clear active progress when the turn settles; announce completion separately.
 
 Prefer backend progress frames over invented copy. Map each phase to plain language:
 

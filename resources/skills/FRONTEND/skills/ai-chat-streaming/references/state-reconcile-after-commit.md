@@ -44,6 +44,9 @@ Rules:
 - **Reconcile on every ending, not just success** — cancelled and uncertain endings also need the server's view, since the backend may have persisted a partial or complete answer.
 - **Let a failed reconcile be non-fatal.** The optimistic transcript is still correct enough to read; throwing away the answer because a history refetch 500'd is worse than showing stale state.
 - **Merge, don't replace, when paginating.** "Load older messages" prepends a page; merge by message id so the streaming turn at the bottom is untouched.
-- **Create the thread id client-side** for the first message of a new conversation (`crypto.randomUUID()`), then `history.replaceState` to the thread URL. Waiting for the server to mint an id forces a remount of the whole conversation mid-stream.
+- **Guard the initial-load race.** Creating/selecting a conversation can trigger a history effect while submission starts. Skip that load while the transport owns the turn, and reject stale responses from loads already in flight. An empty history response must not clear progress, reset the phase to idle, or unlock Send.
+- **Gate polling from submission onward.** Checking only for a streaming bubble is too late: there is no bubble yet while connecting. Suspend active-turn polling and automatic refetches whenever the transport is active; recover saved work after an ending or when no transport owns the turn.
+- **Keep cleanup when skipping work.** A loader effect's early return must not remove the only abort-on-unmount/navigation path. Give the stream a separate lifecycle owner or return its required cleanup on every branch.
+- **Preserve identity across thread creation.** Use client-generated IDs only when the API supports them. If the server creates the conversation, obtain its ID before opening the stream and keep the chat/bubble identity stable through selection and URL updates.
 
 Related: [`render-single-source-of-truth`](render-single-source-of-truth.md), [`state-explicit-phase-machine`](state-explicit-phase-machine.md)

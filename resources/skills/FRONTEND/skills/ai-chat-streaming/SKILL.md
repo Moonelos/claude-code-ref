@@ -21,6 +21,8 @@ Reference these guidelines when:
   - the answer briefly appears twice, or the list jumps, after completion
   - tokens are missing or JSON parse errors appear at chunk boundaries
   - auto-scroll drags the viewport while the user is reading back
+  - jump-to-latest stays visible when the reader is already at the end
+  - initial history loading clears live progress or unlocks Send during a stream
   - a spinner sits above a half-streamed answer, or a caret blinks after a cancel
 
 ## Rule Categories by Priority
@@ -67,7 +69,7 @@ Reference these guidelines when:
 ### 4. Turn State (HIGH)
 
 - [`state-explicit-phase-machine`](references/state-explicit-phase-machine.md) - Model a turn as one phase, not three booleans
-- [`state-reconcile-after-commit`](references/state-reconcile-after-commit.md) - Refetch history only after the turn commits
+- [`state-reconcile-after-commit`](references/state-reconcile-after-commit.md) - Reconcile after an ending; guard initial-load and polling races
 
 ### 5. Accessibility (HIGH)
 
@@ -75,8 +77,8 @@ Reference these guidelines when:
 
 ### 6. Scroll Behavior (HIGH)
 
-- [`scroll-pinned-ref-not-state`](references/scroll-pinned-ref-not-state.md) - Track pinning in a ref, release on user intent
-- [`scroll-instant-during-stream`](references/scroll-instant-during-stream.md) - Instant follow while streaming, smooth for user actions
+- [`scroll-pinned-ref-not-state`](references/scroll-pinned-ref-not-state.md) - Separate follow intent from jump-button visibility; release on upward gestures
+- [`scroll-instant-during-stream`](references/scroll-instant-during-stream.md) - Follow only while pinned; measure after content and viewport changes
 
 ### 7. Testing (HIGH)
 
@@ -97,10 +99,10 @@ Work top to bottom when building a new chat surface:
 4. Turn reducer with an explicit phase; `isTurnActive` derives every busy affordance.
 5. One sanitized `formatMessage(text)` is used by streaming and committed bubbles alike.
 6. One `MessageBubble` renders both, keyed by a stable logical `turn_id`; transport attempts use separate `attempt_id` values.
-7. Reconcile history only on an ending; never show the persisted copy and provisional buffer simultaneously.
-8. Ref-based scroll pinning, `'auto'` behavior during the stream, and an accessible jump-to-latest control.
-9. Announce progress sparingly and the answer once when it settles; preserve composer focus and IME behavior.
-10. Test adversarial chunk splits, lifecycle races, malicious content, reduced motion, keyboard use, and screen-reader announcements.
+7. Reconcile history only on an ending; prevent initial loads and polling from overwriting the active turn's phase, progress, or submit lock. Preserve unmount/navigation abort cleanup even when skipping a loader.
+8. Track follow intent in a ref and jump-button visibility from measured distance to the end. Detach on upward intent, including small gestures; measure after layout changes even when no scroll event fires. Read the scroll references when implementing this behavior.
+9. Keep progress associated with the active assistant turn, normally near its speaker/avatar. Announce phase changes sparingly and the answer once when it settles; any justified focus restoration uses `preventScroll: true`.
+10. Test small upward gestures during live deltas, return-to-end, non-scrollable content, resize/content shrink, initial-load races and overlapping sends, alongside protocol, safety and accessibility checks.
 
 ## Related Skills
 
