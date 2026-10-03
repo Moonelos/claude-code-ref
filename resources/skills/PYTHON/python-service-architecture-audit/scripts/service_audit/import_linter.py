@@ -11,7 +11,7 @@ from pathlib import Path
 import tomllib
 
 from service_audit.model import Finding
-from service_audit.rules import R_CONTRACTS, REQUIRED_CONTRACTS
+from service_audit.rules import APPLICATION_BOUNDARIES, R_CONTRACTS, REQUIRED_CONTRACTS
 
 
 @dataclass(frozen=True)
@@ -184,6 +184,15 @@ def missing_independence_findings(
         yield Finding("(repository)", 0, message, R_CONTRACTS, "VIOLATION")
 
 
+def is_migration_runner(root: Path) -> bool:
+    """A member owning Alembic with no application boundary (repo-layout.md, "Monorepo")."""
+    member = root.parent.parent if root.parent.name == "src" else root.parent
+    return (member / "alembic.ini").is_file() and not any(
+        (root / boundary).exists() or (root / f"{boundary}.py").exists()
+        for boundary in APPLICATION_BOUNDARIES
+    )
+
+
 def contract_findings(
     root: Path,
     package: str,
@@ -193,6 +202,8 @@ def contract_findings(
     """The import-linter contracts from python-repository-setup, found upward from the package.
 
     `missing` checks the contracts themselves; the default checks the service invariants."""
+    if missing is None and is_migration_runner(root):
+        return  # no application code, so none of the service contracts apply
     for directory in root.parents:
         config = importlinter_config(directory)
         if config is not None:

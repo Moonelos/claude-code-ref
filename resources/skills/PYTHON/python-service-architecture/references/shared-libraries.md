@@ -55,6 +55,10 @@ that matches; a new library must also pass the admission check in
 | One consumer, but an independently valuable wire contract, schema, or vendor client with a concrete compatibility or dependency-isolation reason | May be a library; state the reason in its `README` or module docstring |
 | "We will need it later" | Stays local |
 
+The per-service classification bases in `ports/errors.py`
+([errors.md](errors.md#classification-bases)) are prescribed in every service
+and exempt from this table; identical copies are expected.
+
 Before finishing any change that adds a helper, grep the other members for
 identical function names. An implicit shared storage layout (a prefix one
 service writes and another purges) is a contract with one named owner. Apply
@@ -80,8 +84,8 @@ split by kind, because otherwise pure layers inherit I/O dependencies.
 | **client** | A typed async client for one external system: its models, errors, auth, transport | Business policy, service port types, retries the consumer also performs | `adapters/` or `genai/` (the class implementing a port), and `bootstrap/` to construct it **(checked by service contract)** |
 | **persistence** | SQLModel/SQLAlchemy table metadata and shared column types | Queries, sessions, engines, migrations of one service **(checked: session machinery)** | `db/` and migrations only **(checked by service contract)** |
 | **configuration** | File discovery and settings-source construction from explicit caller inputs; may import `pydantic_settings` | Service settings schemas, ambient environment/secret lookup, final settings instantiation, caching, startup policy | `config/` and `bootstrap/` **(checked with workspace)** |
-| **observability** | Provider lifecycle, span helpers, propagation, logging processors, redaction | Business span names, metrics, log events | `observability/` and `bootstrap/` **(review)** |
-| **genai** | Chat-model factories, shared middleware, provider construction policy | Business prompts, task schemas | `genai/`, and `bootstrap/` to construct its connection and configuration input types (never its factories, middleware, or handles) **(review)** |
+| **observability** | Provider lifecycle, span helpers, propagation, logging processors, redaction | Business span names, metrics, log events | `observability/` and `bootstrap/`; `application/` may import its business-neutral span helpers (`mark_error`) directly rather than through a re-export **(review)** |
+| **genai** | Chat-model factories, shared middleware, provider construction policy | Business prompts, task schemas | `genai/`, and `bootstrap/` to construct its connection and configuration input types and its provider client, whose close bootstrap owns (never its model factories, middleware, or task objects, which the service's `genai/` factories build) **(review)** |
 | **testing** | Pytest plugins, disposable-infrastructure lifecycle, test-DB guards | Production code | Tests only, as a dev dependency |
 
 Only an observability library imports `opentelemetry.sdk`; every other kind uses

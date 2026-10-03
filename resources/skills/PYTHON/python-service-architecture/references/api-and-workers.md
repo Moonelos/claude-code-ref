@@ -83,7 +83,14 @@ see [Public error mapping](#public-error-mapping).
 
 **Streaming.** The application runs the whole execution and returns a typed
 stream of business events, including the terminal outcome. `api/sse.py` only
-encodes, sends heartbeats, and turns disconnects into cancellation.
+encodes, sends heartbeats, and turns disconnects into cancellation. The route
+returns before execution ends, so the streaming action may record its own
+execution through one observation object from `observability/`: it activates
+the span around each execution step, records first output at most once and
+exactly one terminal outcome per execution where the relevant facts are
+available, passes the exception when recording failure, and closes the
+observation in `finally`. The route and middleware record transport telemetry
+only, never the application outcome or its failure record again.
 
 Middleware handles cross-request transport mechanics only: authentication
 extraction, correlation context, CORS, request logging, size limits.
@@ -433,7 +440,9 @@ required external availability. Probe mechanics are in
 [async-and-lifecycle.md](async-and-lifecycle.md#health-probes).
 For a worker, readiness includes progress: the supervisor records each loop's
 last successful iteration, so a stopped loop is distinguishable from an idle
-queue.
+queue. In a hybrid process, a crashed loop fails liveness so the process
+restarts, and readiness gates only on what serving requests needs: a stalled
+maintenance loop never takes replicas out of rotation.
 
 Liveness, readiness, metrics, and version are **technical endpoints**: they
 report on the process itself, are not business entry points, and call no

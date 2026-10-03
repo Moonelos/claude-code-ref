@@ -484,7 +484,7 @@ class SizeAndShapeTests(AuditCase):
 class DbLayoutTests(AuditCase):
     def test_capability_without_contract(self) -> None:
         self.pkg("db/orders.py", "class SqlOrderStore:\n    pass\n")
-        self.assertFinding("REVIEW", "db/orders.py", "matches no ports/ or genai/ module")
+        self.assertFinding("REVIEW", "db/orders.py", "matches no port module or Protocol")
 
     def test_shared_root_and_suffixed_implementation_are_clean(self) -> None:
         self.pkg("db/engine.py", "def build_engine() -> None: ...\n")
@@ -511,6 +511,44 @@ class DbLayoutTests(AuditCase):
         self.assertFinding(
             "REVIEW", "db/submissions_archive/store.py", "one-module db/ subpackage"
         )
+
+    def test_capability_named_after_protocol_is_clean(self) -> None:
+        self.pkg(
+            "ports/submissions.py",
+            (self.package / "ports/submissions.py").read_text()
+            + "\n\nclass WorkQueue(Protocol):\n    async def claim(self) -> None: ...\n",
+        )
+        self.pkg(
+            "db/queue.py", "class PgWorkQueue:\n    async def claim(self) -> None: ...\n"
+        )
+        rendered = self.findings()
+        self.assertFalse(
+            any("db/queue.py" in line for line in rendered), "\n".join(rendered)
+        )
+
+    def test_shared_helper_used_by_two_capabilities_is_clean(self) -> None:
+        self.pkg("ports/orders.py", "VALUE = 1\n")
+        self.pkg("db/fencing.py", "def fence() -> None: ...\n")
+        self.pkg("db/orders.py", "from my_service.db.fencing import fence\n")
+        self.pkg(
+            "db/submissions.py",
+            "from my_service.db.fencing import fence\n"
+            + (self.package / "db/submissions.py").read_text(),
+        )
+        rendered = self.findings()
+        self.assertFalse(
+            any("db/fencing.py" in line or "imports capability" in line for line in rendered),
+            "\n".join(rendered),
+        )
+
+    def test_shared_helper_used_by_one_capability(self) -> None:
+        self.pkg("db/owners.py", "def owner() -> None: ...\n")
+        self.pkg(
+            "db/submissions.py",
+            "from my_service.db.owners import owner\n"
+            + (self.package / "db/submissions.py").read_text(),
+        )
+        self.assertFinding("REVIEW", "db/owners.py", "used only by submissions")
 
     def test_import_between_capabilities(self) -> None:
         self.pkg("ports/orders.py", "VALUE = 1\n")
@@ -899,11 +937,46 @@ class DuplicationTests(AuditCase):
         messages = [f.render() for f in found if f.path == "domain/submissions.py"]
         self.assertTrue(any("byte-identical copy" in m for m in messages), messages)
 
+    def test_identical_classification_bases_are_expected(self) -> None:
+        source = (self.package / "ports/errors.py").read_text()
+        self.write("../other_service/src/other/ports/errors.py", source)
+        found = audit_service.audit(
+            self.package,
+            "my_service",
+            self.member.parent,
+            self.member / "tests",
+            audit_service.PURE_ALLOWED_EXTERNAL,
+        )
+        messages = [f.render() for f in found if "byte-identical copy" in f.render()]
+        self.assertEqual(messages, [])
+
 
 class ArchitectureContractTests(AuditCase):
     def test_missing_contracts(self) -> None:
         (self.member / "pyproject.toml").write_text('[project]\nname = "my-service"\n')
         self.assertFinding("VIOLATION", "(repository)", "no import-linter contracts")
+
+    def test_migration_runner_needs_no_service_contracts(self) -> None:
+        (self.member / "pyproject.toml").write_text('[project]\nname = "my-service"\n')
+        (self.member / "alembic.ini").write_text("[alembic]\n")
+        shutil.rmtree(self.package)
+        self.pkg("__init__.py", "")
+        self.pkg("main.py", "def main() -> None: ...\n")
+        self.pkg("db/__init__.py", "")
+        self.assertNotIn("no import-linter contracts", "\n".join(self.findings()))
+
+    def test_alembic_inside_package_may_run_sql(self) -> None:
+        self.pkg(
+            "alembic/env.py",
+            """
+            from sqlalchemy import text
+
+
+            def run(connection: object) -> None:
+                connection.execute(text("SET lock_timeout = '5s'"))
+            """,
+        )
+        self.assertNotIn("alembic/env.py", "\n".join(self.findings()))
 
     def test_contracts_for_another_package(self) -> None:
         pyproject = self.member / "pyproject.toml"

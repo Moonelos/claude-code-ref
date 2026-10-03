@@ -49,7 +49,9 @@ or an integrity fault.
   do not raise a generic exception inside a `try` whose `except` catches only a
   narrower type.
 - Each port owns distinct error classes. Aliasing another port's errors
-  corrupts `error.type` and handling.
+  corrupts `error.type` and handling. Ports implemented over the same database
+  may share one deliberate family, declared once in `ports/` and named for the
+  store, not for any one of the ports.
 - Translate in one step, SDK or framework error -> port error. Add an
   intermediate private error only when the implementation itself catches and
   handles it before translating (see

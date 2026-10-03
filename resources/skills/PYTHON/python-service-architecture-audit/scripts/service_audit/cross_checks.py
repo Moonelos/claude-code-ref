@@ -20,7 +20,8 @@ from service_audit.ast_helpers import (
 )
 from service_audit.model import Finding, Module, python_files, review, violation
 from service_audit.rules import (
-    DB_CONTRACT_OWNERS,
+    CLASSIFICATION_BASES,
+    DB_ROLE_WORDS,
     DB_SHARED_ROOT,
     IDENTIFIER_LITERAL,
     IMPLEMENTATION_OWNERS,
@@ -216,19 +217,58 @@ def single_module_adapter_findings(root: Path) -> Iterator[Finding]:
             yield Finding(display, 1, message, R_FLAT, "REVIEW")
 
 
+def db_contract_names(modules: list[Module]) -> set[str]:
+    """Names a db/ capability may take: ports/ and genai/ module names, and the words
+    of any Protocol declared outside db/ (`WorkQueue` gives `work_queue`, `queue`)."""
+    names: set[str] = set()
+    for module in modules:
+        if module.owner in {"ports", "genai"}:
+            parts = Path(module.display).with_suffix("").parts[1:]
+            names.update(part for part in parts if part != "__init__")
+        if module.owner == "db":
+            continue
+        for node in ast.walk(module.tree):
+            if isinstance(node, ast.ClassDef) and is_protocol(node):
+                words = re.sub(r"(?<!^)(?=[A-Z])", "_", node.name).lower().split("_")
+                for start in range(len(words)):
+                    for stop in range(start + 1, len(words) + 1):
+                        if words[start:stop] != [words[start]] or (
+                            words[start] not in DB_ROLE_WORDS
+                        ):
+                            names.add("_".join(words[start:stop]))
+    return names
+
+
 def db_layout_findings(
     root: Path, modules: list[Module], package: str
 ) -> Iterator[Finding]:
-    """db/ root entries outside the shared set that name no contract, capability
-    subpackages without store.py or with one module, and imports across capabilities."""
+    """db/ capabilities named after no contract, shared helpers only one capability
+    uses, capability subpackages without store.py or with one module, and imports
+    across capabilities."""
     db = root / "db"
     if not db.is_dir():
         return
-    contracts: set[str] = set()
+    prefix = f"{package}.db"
+    importers: dict[str, set[str]] = defaultdict(set)
     for module in modules:
-        if module.owner in DB_CONTRACT_OWNERS:
-            parts = Path(module.display).with_suffix("").parts[1:]
-            contracts.update(part for part in parts if part != "__init__")
+        parts = Path(module.display).parts
+        importer = Path(parts[1]).stem if module.owner == "db" and len(parts) > 1 else None
+        for name, symbols, level, line in imports(module.tree):
+            if level:
+                continue
+            if name == prefix:
+                targets = symbols
+            elif name.startswith(f"{prefix}."):
+                targets = [name.removeprefix(f"{prefix}.").split(".")[0]]
+            else:
+                continue
+            for target in targets:
+                if importer is None:
+                    importers[target].add(f"{module.owner}/")
+                elif importer != target:
+                    importers[target].add(importer)
+    contracts = db_contract_names(modules)
+    has_ports = (root / "ports").is_dir()
     capabilities: set[str] = set()
     for entry in sorted(db.iterdir()):
         if entry.name.startswith(("_", ".")):
@@ -241,16 +281,26 @@ def db_layout_findings(
             continue
         if name in DB_SHARED_ROOT:
             continue
-        capabilities.add(name)
         store = entry / "store.py"
         display = str((store if store.is_file() else entry).relative_to(root))
         if entry.is_dir() and not store.is_file():
             display += "/"
-        if name not in contracts and not any(
-            name.startswith(f"{contract}_") for contract in contracts
+        users = importers[name]
+        if users and not any(user.endswith("/") for user in users):
+            if len(users) == 1:
+                (user,) = users
+                message = (
+                    f"shared db/ helper {name} is used only by {user}; keep it inside "
+                    "that capability"
+                )
+                yield Finding(display, 1, message, R_DB_LAYOUT, "REVIEW")
+            continue
+        capabilities.add(name)
+        if has_ports and not any(
+            name == contract or name.startswith(f"{contract}_") for contract in contracts
         ):
             message = (
-                f"db/ capability {name} matches no ports/ or genai/ module; name it "
+                f"db/ capability {name} matches no port module or Protocol; name it "
                 "after the contract it implements, or move shared code to a root module"
             )
             yield Finding(display, 1, message, R_DB_LAYOUT, "REVIEW")
@@ -266,7 +316,6 @@ def db_layout_findings(
         if len(members) == 1 and not nested:
             message = f"one-module db/ subpackage {name}/; keep it as db/{name}.py"
             yield Finding(display, 1, message, R_DB_LAYOUT, "REVIEW")
-    prefix = f"{package}.db"
     for module in modules:
         parts = Path(module.display).parts
         if module.owner != "db" or len(parts) < 2:
@@ -416,7 +465,9 @@ def cross_member_findings(
     local = {
         hashlib.sha256(module.source.encode()).hexdigest(): module
         for module in modules
-        if module.path.name != "__init__.py" and module.source.count("\n") >= 5
+        if module.path.name != "__init__.py"
+        and module.display != CLASSIFICATION_BASES
+        and module.source.count("\n") >= 5
     }
     copies: dict[str, list[Path]] = defaultdict(list)
     for path in python_files(workspace):

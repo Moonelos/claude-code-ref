@@ -263,21 +263,29 @@ STATE_METHODS = {
     "update",
 }
 IMPLEMENTATION_OWNERS = {"adapters", "db", "genai"}
-# db/ root entries shared by every capability (repo-layout.md, "The db/ package");
-# every other root entry is a capability named after the contract it implements.
+# Prescribed in every service (errors.md, "Classification bases"), so identical
+# copies across members are expected, not an extraction candidate.
+CLASSIFICATION_BASES = "ports/errors.py"
+# A member with none of these is not a service (a migration runner keeps only its
+# entry point and db/ helpers), so the service contracts do not apply to it.
+APPLICATION_BOUNDARIES = ("adapters", "api", "application", "domain", "genai", "ports", "workers")
+# Standard shared db/ root modules (repo-layout.md, "The db/ package"); any other root
+# entry is a shared helper (imported by db/ capabilities, not by bootstrap) or a
+# capability named after the contract it implements.
 DB_SHARED_ROOT = {
     "alembic",
     "engine",
     "models",
     "queries",
+    "readiness",
     "repositories",
     "retention",
     "schema",
+    "tables",
     "transactions",
 }
-# Boundaries whose module names a db/ capability may take: application ports, and
-# consumer-private Protocols in genai/.
-DB_CONTRACT_OWNERS = ("ports", "genai")
+# Protocol name words that say what kind of contract it is, not which one.
+DB_ROLE_WORDS = {"port", "probe", "protocol", "service", "store"}
 SKIPPED_DIRS = {
     ".git",
     ".mypy_cache",

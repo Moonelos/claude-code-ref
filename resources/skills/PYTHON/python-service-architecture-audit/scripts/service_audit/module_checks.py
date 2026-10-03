@@ -292,7 +292,7 @@ def nondeterminism_findings(module: Module) -> Iterator[Finding]:
 
 
 def sql_findings(module: Module) -> Iterator[Finding]:
-    if module.owner == "db":
+    if module.owner in {"db", "alembic"}:  # migrations run SQL by definition
         return
     sql_text_names = {
         alias

@@ -76,8 +76,11 @@ storage, identity providers, LLMs. Name it after what the action needs
   or lifecycle** (conversations, the runs that answer them, feedback on
   answers), not "everything the main action touches". Signals to split a port
   and its implementation: more than ~12 methods, an implementation over ~400
-  lines, or method groups that no single action uses together. Shared tables
-  live in `db/models.py`; one `db/` capability never imports another
+  lines, or method groups that no single action uses together. Split along
+  those method groups into two ports, each implemented directly; never by
+  moving the queries into module functions behind a class that wraps each in a
+  transaction. Table handles live in `db/models.py` or `db/tables.py`; one `db/`
+  capability never imports another
   ([The db/ package](../../python-sqlmodel-alembic/references/repo-layout.md#the-db-package)).
 - **Implemented directly** by a class in `db/`, `adapters/`, or `genai/`.
   Additional implementations and behavior-owning decorators are fine; a class
@@ -140,8 +143,10 @@ Remove intermediaries that only forward a call with the same meaning: handler
 classes in bootstrap, `functools.partial` over actions, same-named transaction
 coordinators, and modules that only re-export.
 
-Composition is justified when it owns behavior: a transaction scope, retry or
-cache policy, or orchestration of sibling actions. Keep that responsibility
+Composition is justified when it owns behavior: a transaction scope spanning
+several calls, retry or cache policy, or orchestration of sibling actions. A
+transaction opened around exactly one call is not owned behavior; the code that
+runs the SQL opens it. Keep that responsibility
 explicit; do not flatten useful composition to satisfy a hop count.
 
 ### Action boundaries: a deliberate cost
@@ -231,7 +236,11 @@ that row as a per-item failure (`Corrupt(row_id=...)` in the result union) so
 the rest of the batch proceeds ([errors.md](errors.md#handling-boundaries)). A
 corrupt row is almost always our own defect (validation tightened in a deploy):
 log it at error and leave the record unchanged for an operator; never move it to
-a terminal business state. When the batch is a cursor page, the cursor advances
+a terminal business state. Two exceptions: a claimed queue row leaves the
+claimable set through a technical state `db/` owns, so it is not re-claimed
+forever; and a row that is itself the user-visible status settles through the
+same domain failure transition as any terminal failure, with an integrity
+category, never through a status written outside that transition. When the batch is a cursor page, the cursor advances
 past corrupt rows too, so a page with no valid rows still leads to the next.
 A value the database or an outbound request cannot accept (a constraint, an
 encoding limit) fails as that item's named outcome, never as a process crash
@@ -397,19 +406,24 @@ Logging setup, trace and metric helpers, semantic vocabulary, propagation, and
 SDK integrations. It never imports actions or entry points.
 
 - An action returns a result or summary (counts, outcome, stop reason); the
-  entry point that called it records spans, metrics, and logs from it.
+  entry point that called it records spans, metrics, and logs from it, except a
+  streaming action ([api-and-workers.md](api-and-workers.md#fastapi--http-api),
+  Streaming).
   Bootstrap never logs business results.
-- The one log an action writes itself is a recorded fallback
-  ([errors.md](errors.md#broad-except-shapes), shape 5), because only the
-  `except` that degrades still holds the exception. Use the service's logging
-  library directly (`structlog.get_logger()`); do not add a module that only
-  re-exports a logger. The degraded result also carries a reason code, so the
+- Besides a streaming action's terminal outcome, the one log an action writes
+  itself is a recorded fallback ([errors.md](errors.md#broad-except-shapes),
+  shape 5), because only the `except` that degrades still holds the exception.
+  Use the service's logging library directly (`structlog.get_logger()`); do not
+  add a module that only re-exports a logger. The degraded result also carries a reason code, so the
   caller can count it.
 - Actions may use the service's own `observability/` vocabulary and one-line
-  helpers (`with phase_span("x"):`). They never import `opentelemetry`, receive
+  helpers (`with phase_span("x"):`), and the observability library's
+  business-neutral span helpers directly; `observability/` never re-exports
+  them. They never import `opentelemetry`, receive
   a `Tracer`, build attribute dicts inline, or call telemetry from each return
-  path. When telemetry exceeds roughly a fifth of an action, move it into a
-  decorator or context helper, keeping ack and transition order visible.
+  path (a streaming action's terminal outcomes excepted). When telemetry
+  exceeds roughly a fifth of an action, move it into a decorator or context
+  helper, keeping ack and transition order visible.
 - An adapter reporting per-attempt facts receives a typed callback
   (`record_outcome: Callable[[Outcome], None]`).
 - Observed data never controls business decisions.

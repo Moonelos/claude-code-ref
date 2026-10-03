@@ -39,17 +39,20 @@ The engine itself is built in `bootstrap/`, not in `db/`
 ## The db/ package
 
 Every service's `db/` has the same shape, in either repo layout. Its root holds
-two kinds of entries: a closed set of **shared** modules, and one entry per
-**capability**, each the implementation of one contract.
+two kinds of entries: **shared** modules that capabilities use, and one entry
+per **capability**, each the implementation of one contract.
 
 ```text
 db/
-├── models.py | models/         # shared: the schema (in a monorepo, db_models)
+├── models.py | models/         # shared: the schema (single-service repo)
+├── tables.py                   # shared: handles over a shared schema library
 ├── engine.py                   # shared: build_engine, build_session_factory
 ├── transactions.py             # shared: transaction helper, UoWs, limits, clock
 ├── repositories.py             # shared: a repository several stores use
-├── retention.py                # shared: technical jobs no port fronts
+├── readiness.py                # shared: the database readiness probe
 ├── schema.py                   # shared: runtime schema-revision guard
+├── retention.py                # shared: technical jobs no port fronts
+├── <responsibility>.py         # shared: a helper several capabilities use
 ├── alembic/                    # shared: migrations (single-service repo)
 ├── queries/                    # shared: long static SQL only
 ├── <capability>.py             # stage 1: Sql<Capability>Store
@@ -59,19 +62,26 @@ db/
     └── <responsibility>.py     # supporting modules, named by what they do
 ```
 
-Create a shared module only when something needs it. Everything else at the
-root is a capability, and these rules fix its place and name:
+Create a shared module only when something needs it. Table handles live in one
+place: `models.py` when the service owns the schema, `tables.py` when it reads
+a shared schema library (`USERS = metadata.tables["app.users"]`). A helper
+outside the standard names above is shared only while several capabilities
+import it, is named by its responsibility (`fencing.py`), and is never wired
+in bootstrap. Every other root entry is a capability, and these rules fix its
+place and name:
 
 1. **The name follows the contract.** `ports/orders.py` declares `OrderStore`,
-   so `db/orders.py` defines `SqlOrderStore`. An implementation of a
-   consumer-private Protocol takes its consumer's module name
+   so `db/orders.py` defines `SqlOrderStore`. When one port module declares
+   several stores, each takes its Protocol's name (`StatusStore` →
+   `db/status.py`, `WorkQueue` → `db/queue.py`). An implementation of a
+   consumer-private Protocol takes its consumer's name
    (`genai/retrieval/` → `db/retrieval.py`). A second implementation of the
    same port takes a suffix (`db/orders_legacy.py`). *Why:* a reader or agent
    finds the implementation from the port without searching, and every service
    lands on the same file names.
-2. **Start flat.** One module per capability. Its repositories are classes in
-   that module, not a `repositories/` package. *Why:* most stores fit one file,
-   and a package around one file only adds navigation.
+2. **Start flat.** One module per capability. Its repositories, row mapping,
+   and helpers no other capability uses are in that module. *Why:* most stores
+   fit one file, and a package around one file only adds navigation.
 3. **Promote to `db/<capability>/` when the implementation gains supporting
    modules only it uses**, such as row mapping, query builders, or
    lease/publication steps, and one file is no longer easy to read. The move is
@@ -82,16 +92,19 @@ root is a capability, and these rules fix its place and name:
    *Why:* growth is one predictable move, not a redesign, and there is no
    facade to keep in sync.
 4. **Capabilities never import each other.** Anything two capabilities need
-   (tables, predicates, the transaction helper, a shared repository) moves to a
-   shared root module. *Why:* each capability changes and is tested alone, and
-   one store's internals never become another's API.
+   (table handles, predicates, the transaction helper, a shared repository)
+   moves to a shared root module. *Why:* each capability changes and is tested
+   alone, and one store's internals never become another's API.
 5. **Grouping adds no layer.** A capability subpackage holds no coordinator,
    facade, or per-table repository created to fill it. *Why:* the folder exists
    for navigation, not indirection.
 
-`python-service-architecture-audit` flags a capability that matches no
-`ports/` or `genai/` module, a subpackage without `store.py` or with one
-module, and imports between capabilities.
+A service without `ports/` (a migration runner) has no capabilities; its `db/`
+holds only shared modules.
+
+`python-service-architecture-audit` flags a capability whose name matches no
+port module or Protocol, a subpackage without `store.py` or with one module, a
+shared helper only one capability imports, and imports between capabilities.
 
 ## Monorepo (uv workspace)
 

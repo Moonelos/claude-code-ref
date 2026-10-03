@@ -159,7 +159,10 @@ A library's root package always exists and its `__init__.py` holds the public
 API, so a library's independence contract names the root itself, which
 import-linter treats as a package covering every descendant.
 
-Repeat the four contracts for each service.
+Repeat the four contracts for each service. A migration runner that has no
+application code (`python-sqlmodel-alembic`, "Monorepo (uv workspace)") is not a
+service and gets none of them; add one contract instead that forbids every
+service package from importing `alembic` and the runner package.
 
 Every workspace library also gets an independence contract, and each service
 restricts which of its layers may import each library. The library kinds and
@@ -195,7 +198,8 @@ forbidden_modules = ["docstore_client"]
 For a configuration library, omit `pydantic_settings` from its independence
 contract and forbid its imports from every service layer except `config` and
 `bootstrap`. For a genai library, permit `genai` and `bootstrap` (bootstrap
-constructs only its input types; review, not the contract, checks that). For
+constructs only its input types and provider client; review, not the contract,
+checks that). For
 the documented database-runtime exception, permit `db` and `bootstrap`; see the
 owning shared-library reference for declaration and review.
 
