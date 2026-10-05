@@ -13,6 +13,7 @@ When a suite exists, cover the changed behavior:
 - valid active trace IDs are added when tracing exists and omitted when absent/invalid;
 - reserved fields cannot be overwritten by untrusted context;
 - nested canary secrets are redacted before serialization (see "Canary test");
+- a third-party record keeps its message in both exception-detail modes, with a canary secret in it redacted;
 - the full exception projection keeps the chained traceback once; the safe projection removes traceback, raw exception message, and canary PII while preserving classification and correlation;
 - an allowlisting formatter rejects or marks unknown fields and unregistered application events, and representative success, retry, and failure records still carry each event's needed fields;
 - an oversized traceback is truncated with an explicit marker and the record survives;
@@ -24,7 +25,7 @@ Capture the final serialized record or use the library's in-memory sink. Asserti
 
 ## Canary test
 
-Each sink gets one test that pushes a canary secret through fields, a nested header, a URL, and an exception message, then asserts it never reaches the serialized output:
+Each sink gets one test that pushes a canary secret through fields, a nested header, a URL, a third-party message, and an exception message, then asserts it never reaches the serialized output while the library message itself survives:
 
 ```python
 import json
@@ -45,13 +46,15 @@ def test_canary_secret_never_serialized(capsys: pytest.CaptureFixture[str]) -> N
     )
     headers = {"Authorization": f"Bearer {CANARY}"}
     logger.warning("provider_call_failed", extra={"headers": headers, "url": f"https://x.test/?api_key={CANARY}"})
+    logging.getLogger("thirdparty.client").warning("retrying https://x.test/?api_key=%s", CANARY)
     try:
         raise ValueError(f"api_key={CANARY}")
     except ValueError:
         logger.exception("request_failed")
     output = "".join(capsys.readouterr())
     assert CANARY not in output
-    assert [json.loads(line) for line in output.splitlines()]
+    records = [json.loads(line) for line in output.splitlines()]
+    assert any("retrying https://x.test/" in json.dumps(r) for r in records)  # library message kept
 ```
 
 ## Runtime verification

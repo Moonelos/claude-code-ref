@@ -31,7 +31,7 @@ The processor renders:
 - **full:** fully qualified `exception.type`, the redacted message, the complete cause chain once in `exception.stacktrace`, no local-variable capture, `app.error.stacktrace_included=true`;
 - **safe** (the production baseline): `exception.type`, a safe authored message, bounded `error.type`, stable reason/code, correlation, and `app.error.stacktrace_included=false`; no raw traceback or exception message.
 
-Redact credentials and tokens in both modes.
+Redact credentials and tokens in both modes. The modes govern the exception message and traceback only; the rendered message of third-party log records stays in both, redacted (`implementation.md#libraries-and-third-party-logs`).
 
 ### Record-size limits
 

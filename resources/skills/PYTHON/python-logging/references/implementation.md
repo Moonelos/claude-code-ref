@@ -49,7 +49,7 @@ Example: `logger.info("payment_declined", extra={"order_id": order_id, "reason":
 
 ## Field allowlists
 
-If the formatter applies a field allowlist, reconcile every new event against it: register each authored field with an agreed name and type, or omit it at the call site, and verify the serialized record still answers the event's question. The allowlist never silently discards an authored field: it fails in tests on unknown keys, or emits a dropped-fields marker in production. The same formatter may validate the event-name pattern. An event-name allowlist follows the same rule: an application logger's unregistered event keeps its name and gains a marker, never a generic replacement such as `library_log`, and a test fails when an authored event literal is missing from the catalogue. Collapsing third-party records into one generic event is fine. Allowlisting runs before redaction and serialization, never instead of redaction.
+If the formatter applies a field allowlist, reconcile every new event against it: register each authored field with an agreed name and type, or omit it at the call site, and verify the serialized record still answers the event's question. The allowlist never silently discards an authored field: it fails in tests on unknown keys, or emits a dropped-fields marker in production. The same formatter may validate the event-name pattern. An event-name allowlist follows the same rule: an application logger's unregistered event keeps its name and gains a marker, never a generic replacement such as `library_log`, and a test fails when an authored event literal is missing from the catalogue. Third-party records may share one generic event name, but keep their message (see [Libraries and third-party logs](#libraries-and-third-party-logs)). Allowlisting runs before redaction and serialization, never instead of redaction.
 
 ## Context lifecycle
 
@@ -68,6 +68,10 @@ Do not add OpenTelemetry packages, exporters, OTLP configuration, or a Collector
 ## Libraries and third-party logs
 
 Route application and library records through one final schema when practical. Preserve the original logger name under `logger` or `logger.name`. Apply explicit level overrides only to known noisy namespaces. Do not discard warnings/errors from an entire dependency namespace to silence one noisy event.
+
+Keep the rendered message of third-party records in every exception-detail mode, passed through the central redaction and truncated to a bounded length. A record that carries only a generic event and a logger name cannot be diagnosed. The safe/full setting governs exception detail, not this message.
+
+When the service uses content-handling dependencies (LLM/provider SDKs, HTTP clients, database drivers, queue clients), check whether they log payloads, prompts, bodies, or query parameters at INFO or above. If they do only below WARNING, raise that namespace's level. If they do at WARNING or above, report it to the service owner instead of suppressing every library message.
 
 Access logs may remain under the framework's owner. Ensure they are structured and correlated when operators depend on them, but do not create a second routine request-completion event with the same purpose.
 
